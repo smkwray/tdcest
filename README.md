@@ -120,8 +120,8 @@ make demo
 This writes:
 
 - `examples/demo_build/data/processed/tdc_estimates.csv`
-- `examples/demo_build/figures/*.png`
-- `examples/demo_build/site/bundle.json`
+- `examples/demo_build/data/figures/*.png`
+- `examples/demo_build/data/site/bundle.json`
 
 These demo outputs are generated locally and are not tracked in git.
 
@@ -263,8 +263,12 @@ Refreshing the public site means updating that bundle and pushing `main`.
 
 ## Roadmap
 
-1. Add nonmarketable-Treasury extension with MSPD + SLGS mapping
-2. Add foreign-official vs private-foreign split
-3. Add vintage tracking via ALFRED
-4. Expand the GitHub Pages site
-5. Add sibling holder-maturity project scaffolding
+See `docs/roadmap.md` for the full roadmap with shipped, near-term, medium-term, and long-term items.
+
+Near term:
+
+1. Foreign-official vs private-foreign split
+2. Treasury support dataset parsing improvements
+3. ALFRED vintage support
+4. Nonmarketable-Treasury extension with MSPD + SLGS mapping
+5. Sibling holder-maturity project scaffolding

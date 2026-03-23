@@ -14,10 +14,6 @@ from .pipeline import run_estimation_pipeline
 from .utils import write_json
 
 
-def _default_root() -> Path:
-    return Path(".").resolve()
-
-
 def cmd_download(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
@@ -109,8 +105,8 @@ def cmd_demo(args: argparse.Namespace) -> int:
     result = run_estimation_pipeline(
         raw_dir=paths.raw,
         processed_dir=paths.processed,
-        figures_dir=target / "figures",
-        site_dir=target / "site",
+        figures_dir=paths.figures,
+        site_dir=paths.site,
     )
     summary = {
         "target": str(target),
@@ -129,11 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tdc",
         description="Estimate the Treasury-attributed component of deposits (TDC).",
     )
-    parser.add_argument("--root", default=".", help="Project root (defaults to current working directory).")
+
+    root_parent = argparse.ArgumentParser(add_help=False)
+    root_parent.add_argument("--root", default=".", help="Project root (defaults to current working directory).")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_download = sub.add_parser("download", help="Download raw source data.")
+    p_download = sub.add_parser("download", parents=[root_parent], help="Download raw source data.")
     p_download.add_argument("--required-only", action="store_true", help="Download only the required baseline FRED series.")
     p_download.add_argument("--include-treasury-support", action="store_true", help="Also download supporting Treasury Fiscal Data datasets.")
     p_download.add_argument("--fred-api-key", default=None, help="Optional FRED API key. If omitted, uses the FRED graph CSV endpoint.")
@@ -141,16 +139,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_download.add_argument("--end-date", default=None, help="Optional download end date, YYYY-MM-DD.")
     p_download.set_defaults(func=cmd_download)
 
-    p_estimate = sub.add_parser("estimate", help="Build processed estimate files from raw data.")
+    p_estimate = sub.add_parser("estimate", parents=[root_parent], help="Build processed estimate files from raw data.")
     p_estimate.set_defaults(func=cmd_estimate)
 
-    p_plot = sub.add_parser("plot", help="Build figures from raw data.")
+    p_plot = sub.add_parser("plot", parents=[root_parent], help="Build figures from raw data.")
     p_plot.set_defaults(func=cmd_plot)
 
-    p_site = sub.add_parser("site-export", help="Build the static-site data bundle.")
+    p_site = sub.add_parser("site-export", parents=[root_parent], help="Build the static-site data bundle.")
     p_site.set_defaults(func=cmd_site_export)
 
-    p_build = sub.add_parser("build", help="Download, estimate, plot, and site-export in one step.")
+    p_build = sub.add_parser("build", parents=[root_parent], help="Download, estimate, plot, and site-export in one step.")
     p_build.add_argument("--required-only", action="store_true", help="Download only the required baseline FRED series.")
     p_build.add_argument("--include-treasury-support", action="store_true", help="Also download supporting Treasury Fiscal Data datasets.")
     p_build.add_argument("--fred-api-key", default=None, help="Optional FRED API key. If omitted, uses the FRED graph CSV endpoint.")
@@ -158,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("--end-date", default=None, help="Optional download end date, YYYY-MM-DD.")
     p_build.set_defaults(func=cmd_build)
 
-    p_demo = sub.add_parser("demo", help="Run the fully offline synthetic demo build.")
+    p_demo = sub.add_parser("demo", parents=[root_parent], help="Run the fully offline synthetic demo build.")
     p_demo.add_argument("--seed", type=int, default=7, help="Random seed for the synthetic fixture generator.")
     p_demo.set_defaults(func=cmd_demo)
 

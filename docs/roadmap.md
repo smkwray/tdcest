@@ -1,12 +1,15 @@
 # Roadmap
 
+## Shipped
+
+- Static GitHub Pages front end — live at `https://smkwray.github.io/tdcest/`
+- Credit-union sensitivity ladder — bank-only headline, broad-depository alternative, and aggregate sensitivity published in the site bundle
+
 ## Near term
 
 1. Foreign-official vs private-foreign split
 2. Treasury support dataset parsing improvements
 3. ALFRED vintage support
-4. Static GitHub Pages front end
-5. Credit-union treatment dashboard page
 
 ## Medium term
 

@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import __version__
 
-USER_AGENT = "tdc-estimator/0.1.0"
+USER_AGENT = f"tdc-estimator/{__version__}"
 FRED_API_BASE = "https://api.stlouisfed.org/fred/series/observations"
 FRED_GRAPH_CSV_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 TREASURY_API_BASE = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"

@@ -1,6 +1,6 @@
 # Treasury-Attributed Component of Deposits (TDC)
 
-[Live site](https://smkwray.github.io/tdcest/) · [GitHub repo](https://github.com/smkwray/tdcest)
+[Live site](https://smkwray.github.io/tdcest/)
 
 A public, self-contained repo for estimating the **treasury-attributed component of deposits (TDC)** with transparent data downloads, reproducible pipelines, and static-site-ready outputs.
 
@@ -17,7 +17,7 @@ This repo is opinionated on purpose:
 
 The preferred quarterly marketable-Treasury estimator in this repo is:
 
-\[
+```math
 \widehat{\Delta D}^{mkt,bank}_{TDC,t}
 =
 \underbrace{\Delta TS^{tx}_{Fed,t} + \Delta TS^{tx}_{Banks,t} + \Delta TS^{tx}_{ROW,t}}_{\text{RU net acquisition of marketable Treasuries}}
@@ -25,7 +25,7 @@ The preferred quarterly marketable-Treasury estimator in this repo is:
 \underbrace{\Delta Cash^{tx}_{Treasury,t}}_{\text{Treasury operating cash drain}}
 +
 \underbrace{Remit^{+}_{Fed,t}}_{\text{positive Fed remittances only}}
-\]
+```
 
 Where:
 
@@ -79,7 +79,6 @@ This split is intentional. The published aggregate credit-union Treasury series 
 - static-site export bundle
 - offline synthetic demo
 - offline tests
-- GitHub Actions CI
 - a minimal GitHub Pages site shell backed by the exported site bundle
 - documentation for local private files and live-data setup
 
@@ -229,7 +228,6 @@ Optional rough proxy based on money and bank-balance-sheet decomposition. It is 
 
 ```text
 .
-├── .github/workflows/ci.yml
 ├── .github/workflows/pages.yml
 ├── docs/
 ├── site/
@@ -251,7 +249,9 @@ The public Pages URL is intended to be:
 
 - `https://smkwray.github.io/tdcest/`
 
-The Pages workflow builds the synthetic demo bundle, copies the exported `site/` data, and publishes a public sample site without live-data secrets.
+The public site is published from the committed `site/` directory, including the single-file bundle at `site/data/bundle.json`.
+
+Refreshing the public site means updating that bundle and pushing `main`.
 
 ## Caveats
 

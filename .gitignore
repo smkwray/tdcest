@@ -1,6 +1,7 @@
 do/
 dist/
-site/data/
+site/data/*
+!site/data/bundle.json
 examples/demo_build/
 docs/frontend_agent_prompt.md
 docs/holder_maturity_project.md

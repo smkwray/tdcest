@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#fafbfd" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+    <title>TDC Estimator</title>
+    <meta
+      name="description"
+      content="Interactive static site for exploring the treasury-attributed component of deposits."
+    >
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,500;6..72,700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script src="./theme.js"></script>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="backdrop backdrop-a"></div>
+    <div class="backdrop backdrop-b"></div>
+    <header class="shell topbar">
+      <div>
+        <p class="eyebrow">Treasury-Attributed Component of Deposits</p>
+        <h1>TDC Explorer</h1>
+      </div>
+      <nav class="nav">
+        <a href="#definition">Definition</a>
+        <a href="#explore">Explore</a>
+        <a href="#components">Components</a>
+        <a href="#treatment">Credit unions</a>
+        <a href="#methodology">Methodology</a>
+        <a href="#sources">Sources</a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme"></button>
+    </header>
+
+    <main class="shell app" id="app">
+      <section class="hero card">
+        <div class="hero-copy">
+          <p class="eyebrow">Interactive bundle reader</p>
+          <h2>Explore TDC history without mixing the transaction-era headline with the historical extension.</h2>
+          <p class="lede">
+            Transaction-only headline series are shown only where the transaction inputs are meant to be used.
+            Separate long-history extensions begin in 1990 and are labeled explicitly.
+          </p>
+          <div class="cta-row">
+            <a class="button primary" href="#methodology">Methodology</a>
+            <a class="button" href="#sources">Data and sources</a>
+            <a class="button" href="#" id="download-estimates">Download estimates CSV</a>
+            <a class="button" href="./data/bundle.json" download>Download bundle JSON</a>
+          </div>
+        </div>
+        <div class="hero-metrics" id="hero-metrics">
+          <div class="metric placeholder">Loading bundle...</div>
+        </div>
+      </section>
+
+      <section class="definition-panel" id="definition">
+        <details class="definition-details">
+          <summary>
+            <span class="eyebrow">Definition</span>
+            <span>What TDC means and the three core identities</span>
+          </summary>
+          <div class="definition-body">
+            <p class="lede">
+              Treasury-attributed component of deposits means the portion of deposit creation traced directly to Treasury operations, Treasury security redistribution, and related reserve-user channels.
+            </p>
+            <p class="small-copy">
+              Deposit users (DUs) are domestic non-banks. Reserve users (RUs) include banks, the central bank, the Treasury, and foreign banking entities. The public site headline uses the transaction-based reserve-user approximation where possible and keeps the longer-history extension separate.
+            </p>
+            <div class="definition-switcher">
+              <input class="definition-radio" type="radio" name="identity-switch" id="identity-deposit" checked>
+              <label class="definition-tab" for="identity-deposit">Deposit-user flows</label>
+              <input class="definition-radio" type="radio" name="identity-switch" id="identity-reserve">
+              <label class="definition-tab" for="identity-reserve">Reserve-user flows</label>
+              <input class="definition-radio" type="radio" name="identity-switch" id="identity-money">
+              <label class="definition-tab" for="identity-money">Money-balance decomposition</label>
+
+              <div class="definition-panels">
+                <section class="equation-card definition-view" data-identity="deposit">
+                  <div class="definition-view-head">
+                    <p class="eyebrow">Deposit-user side</p>
+                    <p class="small-copy">Starts from direct Treasury injections into deposit users and adds Treasury-security redistribution toward reserve users.</p>
+                  </div>
+                  <div class="equation-display" aria-label="Deposit-user flow equation">
+                    <math display="block">
+                      <mrow>
+                        <mi>&#916;</mi>
+                        <msub><mi>D</mi><mtext>TDC</mtext></msub>
+                        <mo>=</mo>
+                        <mo>(</mo>
+                        <msub><mi>G</mi><mtext>dep</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>T</mi><mtext>dep</mtext></msub>
+                        <mo>)</mo>
+                        <mo>+</mo>
+                        <mo>(</mo>
+                        <msub><mi>D</mi><mtext>sales</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>D</mi><mtext>purch</mtext></msub>
+                        <mo>)</mo>
+                        <mo>+</mo>
+                        <msub><mi>D</mi><mtext>yield</mtext></msub>
+                      </mrow>
+                    </math>
+                  </div>
+                  <div class="definition-list">
+                    <div class="symbol-item"><p class="symbol-term">&#916;D<sub>TDC</sub></p><p>Change in the Treasury-attributed component of deposits.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">G<sub>dep</sub> - T<sub>dep</sub></p><p>Government spending, less taxes and other receipts, in deposit form and excluding Treasury interest.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">D<sub>sales</sub> - D<sub>purch</sub></p><p>Net Treasury security sales from deposit users to reserve users, valued at transaction prices when securities change hands.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">D<sub>yield</sub></p><p>Treasury interest and principal paid to Treasury securities held by deposit users.</p></div>
+                  </div>
+                </section>
+
+                <section class="equation-card definition-view" data-identity="reserve">
+                  <div class="definition-view-head">
+                    <p class="eyebrow">Reserve-user side</p>
+                    <p class="small-copy">Re-expresses TDC through Treasury dealings with reserve users, central-bank remittance factors, and the Treasury cash balance.</p>
+                  </div>
+                  <div class="equation-display" aria-label="Reserve-user flow equation">
+                    <math display="block">
+                      <mrow>
+                        <mi>&#916;</mi>
+                        <msub><mi>D</mi><mtext>TDC</mtext></msub>
+                        <mo>=</mo>
+                        <mo>(</mo>
+                        <msub><mi>D</mi><mtext>sales</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>D</mi><mtext>purch</mtext></msub>
+                        <mo>)</mo>
+                        <mo>+</mo>
+                        <mo>(</mo>
+                        <msub><mi>T</mi><mtext>AV</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>T</mi><mtext>Rx</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>R</mi><mtext>yield</mtext></msub>
+                        <mo>+</mo>
+                        <msub><mi>R</mi><mtext>Tx</mtext></msub>
+                        <mo>)</mo>
+                        <mo>+</mo>
+                        <mi>max</mi>
+                        <mo>(</mo>
+                        <mn>0</mn>
+                        <mo>,</mo>
+                        <msub><mi>F</mi><mtext>PY</mtext></msub>
+                        <mo>+</mo>
+                        <msub><mi>M</mi><mtext>MT</mtext></msub>
+                        <mo>-</mo>
+                        <msub><mi>F</mi><mtext>OE</mtext></msub>
+                        <mo>)</mo>
+                        <mo>-</mo>
+                        <mi>&#916;</mi>
+                        <mtext>TGA</mtext>
+                      </mrow>
+                    </math>
+                  </div>
+                  <div class="definition-list">
+                    <div class="symbol-item"><p class="symbol-term">T<sub>AV</sub></p><p>Treasury receipts from all Treasury-security issuance at original auction value.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">T<sub>Rx</sub></p><p>Treasury outlays, including interest, to reserve users.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">R<sub>yield</sub></p><p>Treasury interest paid on Treasury securities held by reserve users.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">R<sub>Tx</sub></p><p>Treasury receipts from reserve users, such as taxes on banks or tariff-type payments.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">F<sub>PY</sub></p><p>Central-bank income earned from the private sector.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">M<sub>MT</sub></p><p>Seigniorage and related unilateral money-transfer factors.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">F<sub>OE</sub></p><p>Central-bank operating expenses. The remittance term is clipped at zero because negative remittances are not charged through this channel.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;TGA</p><p>Change in the Treasury General Account cash balance at the central bank.</p></div>
+                  </div>
+                </section>
+
+                <section class="equation-card definition-view" data-identity="money">
+                  <div class="definition-view-head">
+                    <p class="eyebrow">Monetary-balance side</p>
+                    <p class="small-copy">Reads TDC as the portion of money-balance change left after stripping out non-deposit money, bank non-Treasury asset growth, and external non-Treasury channels.</p>
+                  </div>
+                  <div class="equation-display" aria-label="Money-balance decomposition equation">
+                    <math display="block">
+                      <mrow>
+                        <mi>&#916;</mi>
+                        <msub><mi>D</mi><mtext>TDC</mtext></msub>
+                        <mo>=</mo>
+                        <mo>(</mo>
+                        <mi>&#916;</mi><mi>M</mi>
+                        <mo>-</mo>
+                        <mi>&#916;</mi><mi>C</mi>
+                        <mo>-</mo>
+                        <mi>&#916;</mi><mi>X</mi>
+                        <mo>)</mo>
+                        <mo>-</mo>
+                        <mo>(</mo>
+                        <mi>&#916;</mi><msub><mi>L</mi><mrow><mi>B</mi><mo>,</mo><mtext>DU</mtext></mrow></msub>
+                        <mo>+</mo>
+                        <mi>&#916;</mi><msub><mi>S</mi><mrow><mi>B</mi><mo>,</mo><mtext>DU</mtext></mrow></msub>
+                        <mo>-</mo>
+                        <mi>&#916;</mi><msub><mtext>CB</mtext><mi>B</mi></msub>
+                        <mo>)</mo>
+                        <mo>-</mo>
+                        <mi>&#916;</mi><msub><mtext>CB</mtext><mtext>NB</mtext></msub>
+                        <mo>-</mo>
+                        <mi>&#916;</mi><msub><mtext>FI</mtext><mtext>NonTS</mtext></msub>
+                      </mrow>
+                    </math>
+                  </div>
+                  <div class="definition-list">
+                    <div class="symbol-item"><p class="symbol-term">&#916;M</p><p>Change in a money measure that includes deposit-user deposits.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;C</p><p>Change in deposit-user-held currency in circulation.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;X</p><p>Change in any other non-deposit money components included inside &#916;M.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;L<sub>B,DU</sub></p><p>Net new bank lending to deposit users.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;S<sub>B,DU</sub></p><p>Net bank purchases of non-Treasury securities from deposit users.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;CB<sub>B</sub></p><p>Net central-bank purchases of non-Treasury assets from banks.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;CB<sub>NB</sub></p><p>Net central-bank purchases of non-Treasury assets from non-banks.</p></div>
+                    <div class="symbol-item"><p class="symbol-term">&#916;FI<sub>NonTS</sub></p><p>Net foreign purchases of U.S. private non-Treasury assets from domestic non-banks.</p></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+            <p class="small-copy definition-note">
+              The live estimator on this site uses the reserve-user transaction identity where coverage is strongest, then carries a separate level-change extension before the transaction-era data begin. Treasury securities here include marketable debt and other Treasury liabilities such as savings instruments.
+            </p>
+          </div>
+        </details>
+      </section>
+
+      <section class="card controls" aria-label="Chart controls">
+        <div class="control-group">
+          <span class="label">Measure</span>
+          <label class="check-row" for="inflation-toggle">
+            <input type="checkbox" id="inflation-toggle">
+            <span>Adjust for inflation</span>
+          </label>
+          <div class="small-copy" id="units-note"></div>
+        </div>
+        <div class="control-group">
+          <span class="label">Date range</span>
+          <div class="range-inputs">
+            <label class="date-field">
+              <span>Start</span>
+              <input type="date" id="range-start">
+            </label>
+            <label class="date-field">
+              <span>End</span>
+              <input type="date" id="range-end">
+            </label>
+          </div>
+          <button class="button subtle" id="range-reset" type="button">Reset range</button>
+          <div class="small-copy" id="range-note"></div>
+        </div>
+        <div class="control-group span-2">
+          <span class="label">Series</span>
+          <div class="chip-row" id="series-toggle"></div>
+          <div class="small-copy" id="series-help">Click a chip to show or hide that series. Hover or focus on a chip to inspect its equation.</div>
+          <div class="series-detail" id="series-detail">
+            <p class="eyebrow" id="series-detail-mode">Focused series</p>
+            <h4 id="series-detail-title">Loading series detail...</h4>
+            <p class="small-copy" id="series-note"></p>
+            <p class="small-copy" id="series-formula"></p>
+            <p class="small-copy" id="series-coverage"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="explore">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Explore</p>
+            <h3>Selected series over time</h3>
+          </div>
+          <div class="small-copy" id="latest-observation"></div>
+        </div>
+        <div class="small-copy" id="line-chart-note"></div>
+        <div class="chart-frame">
+          <canvas id="line-chart" aria-label="Interactive TDC line chart"></canvas>
+        </div>
+      </section>
+
+      <section class="grid-2">
+        <section class="card" id="components">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Components</p>
+              <h3>Latest-quarter assembly</h3>
+            </div>
+          </div>
+          <div class="chart-frame compact">
+            <canvas id="components-chart" aria-label="Latest-quarter components chart"></canvas>
+          </div>
+          <div class="small-copy" id="components-note"></div>
+        </section>
+
+        <section class="card" id="treatment">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Credit unions</p>
+              <h3>Sensitivity ladder</h3>
+            </div>
+          </div>
+          <div class="chart-frame compact">
+            <canvas id="ladder-chart" aria-label="Credit-union sensitivity comparison chart"></canvas>
+          </div>
+          <div class="small-copy">
+            The broad-depository headline adds natural-person credit unions. Corporate credit unions and the NCUA capitalization deposit remain labeled sensitivities.
+          </div>
+        </section>
+      </section>
+
+      <section class="card" id="methodology">
+        <p class="eyebrow">Methodology</p>
+        <h3>How to read the series</h3>
+        <div class="equation-block">
+          <p>
+            The bank-only headline combines Federal Reserve, bank-sector, and rest-of-world Treasury transactions.
+          </p>
+          <p>
+            It then subtracts the Treasury operating cash term and adds only positive Federal Reserve remittances.
+          </p>
+        </div>
+        <div class="method-copy">
+          <p>Transaction-based headline series begin in late 2002. They are intentionally blank before that point.</p>
+          <p>Historical extension series are separate. They begin in 1990 and use the matching level-change analog before transaction coverage begins.</p>
+          <p>Federal Reserve remittances are clipped at zero before quarter aggregation so the deferred asset period does not flip the cash-flow sign.</p>
+        </div>
+      </section>
+
+      <section class="card" id="sources">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Sources</p>
+            <h3>Bundle metadata and external series</h3>
+          </div>
+          <a class="button" href="./data/bundle.json" download>Download bundle</a>
+        </div>
+        <div class="source-grid">
+          <div>
+            <h4>FRED series</h4>
+            <div class="table-wrap">
+              <table id="fred-table"></table>
+            </div>
+          </div>
+          <div>
+            <h4>Treasury datasets</h4>
+            <div class="table-wrap">
+              <table id="treasury-table"></table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="shell footer">
+      <span id="bundle-status">Waiting for bundle.</span>
+      <div class="cta-row">
+        <a href="https://smkwray.github.io/tdcest/">Live site</a>
+        <a href="https://github.com/smkwray/tdcest">Source code</a>
+      </div>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

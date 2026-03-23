@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tdc-estimator"
+version = "0.2.0"
+description = "Public starter repo for estimating the Treasury-attributed component of deposits."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "TDC Project Contributors" }
+]
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "matplotlib>=3.8",
+]
+
+[project.urls]
+Homepage = "https://smkwray.github.io/tdcest/"
+Repository = "https://github.com/smkwray/tdcest"
+Issues = "https://github.com/smkwray/tdcest/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+tdc = "tdc_estimator.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+cache_dir = "~/venvs/tdcest/pytest-cache"

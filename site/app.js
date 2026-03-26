@@ -12,52 +12,52 @@ import {
 
 const SERIES_INFO = {
   tdc_bank_only_extended_1990: {
-    label: "Bank-only extended series (1990+, levels before 2003)",
-    shortLabel: "Bank-only extended",
+    label: "Bank-only, full history (1990–present)",
+    shortLabel: "Bank-only full history",
     color: "#0f766e",
-    note: "Uses the bank-only transaction headline where it exists and the bank-only level-change analog from 1990 through 2002.",
+    note: "Full history starting in 1990. Uses holdings-level changes for 1990–2002, then switches to transaction-based data from 2002 onward.",
   },
   tdc_base_bank_only_ru_flow: {
-    label: "Bank-only headline (transactions, 2002+)",
+    label: "Bank-only headline (2002–present)",
     shortLabel: "Bank-only headline",
     color: "#146356",
-    note: "Pure transaction-based headline only. Pre-2002 history is intentionally omitted.",
+    note: "The preferred estimate, using transaction-based data only. Starts in late 2002 when the source data begin. This is the project's recommended baseline.",
   },
   tdc_broad_depository_extended_1990: {
-    label: "Broad-depository extended series (1990+, levels before 2003)",
-    shortLabel: "Broad extended",
+    label: "Broad depository, full history (1990–present)",
+    shortLabel: "Broad full history",
     color: "#c26d22",
-    note: "Uses the broad-depository transaction series where it exists and the broad level-change analog from 1990 through 2002.",
+    note: "Full history starting in 1990. Includes banks plus natural-person credit unions. Uses holdings-level changes for 1990–2002, then transaction data from 2002 onward.",
   },
   tdc_base_broad_depository_np_cu_ru_flow: {
-    label: "Broad-depository headline (transactions, 2002+)",
+    label: "Broad depository headline (2002–present)",
     shortLabel: "Broad headline",
     color: "#d0873a",
-    note: "Transaction-based broad-depository series only. Pre-2002 history is intentionally omitted.",
+    note: "Includes banks and natural-person credit unions, using transaction data only. Starts in late 2002.",
   },
   tdc_broad_depository_np_corp_cu_ru_flow: {
-    label: "Broad-depository plus corporate credit unions",
+    label: "Broad depository plus corporate credit unions",
     shortLabel: "Plus corporate CU",
     color: "#5e60ce",
-    note: "Sensitivity that adds corporate credit unions to the broad-depository transaction series.",
+    note: "Adds corporate credit unions to the broad depository estimate. Shown as a sensitivity check.",
   },
   tdc_credit_union_aggregate_sensitivity: {
-    label: "Aggregate credit-union sensitivity",
-    shortLabel: "Aggregate CU sensitivity",
+    label: "All credit unions (aggregate sensitivity)",
+    shortLabel: "All CU sensitivity",
     color: "#8c6b3b",
-    note: "Sensitivity that also includes the NCUA capitalization deposit term.",
+    note: "Includes all credit-union categories plus the NCUA capitalization deposit. Matches the broadest published credit-union concept.",
   },
   tdc_domestic_bank_only_ru_flow: {
-    label: "Bank-only excluding rest of world",
+    label: "Domestic banks only (excludes foreign holdings)",
     shortLabel: "Domestic only",
     color: "#3b4d7a",
-    note: "Sensitivity that removes the rest-of-world Treasury term from the bank-only transaction series.",
+    note: "Removes the rest-of-world Treasury term from the bank-only estimate. Shows only domestic bank-sector contributions.",
   },
   tdc_no_remit_bank_only: {
-    label: "Bank-only excluding Fed remittances",
+    label: "Bank-only without Fed remittances",
     shortLabel: "No Fed remittances",
     color: "#6b7280",
-    note: "Sensitivity that removes the positive Fed-remittance term.",
+    note: "Removes the Federal Reserve remittance term from the bank-only estimate. Shows the effect of Treasury securities alone.",
   },
 };
 
@@ -343,7 +343,7 @@ function renderSeriesDetail() {
   const seriesKey = detailSeriesKey();
   const info = infoFor(seriesKey);
   const isHover = Boolean(state.hoveredSeries);
-  els.seriesDetailMode.textContent = isHover ? "Hovered series" : "Focused series";
+  els.seriesDetailMode.textContent = isHover ? "Hovered series" : "Selected series";
   els.seriesDetailTitle.textContent = info.label;
   els.seriesNote.textContent = info.note;
   els.seriesFormula.textContent = `Equation: ${methodFormula(seriesKey)}`;
@@ -358,16 +358,21 @@ function renderHero(summary) {
   const bankLatest = adjustedValue(summary.latest_methods?.tdc_base_bank_only_ru_flow, summary.latest_period);
   const visibleCount = state.visibleSeries.size;
 
+  const focusedMatchesBaseline = selectedLatest !== null && bankLatest !== null && Math.abs(selectedLatest - bankLatest) < 1;
+  const baselineDetail = focusedMatchesBaseline
+    ? `Recommended baseline (bank-only) as of ${formatDate(summary.latest_period)}: ${activeObservationDetail(bankLatest)}. Your selected series matches this value for the latest quarter.`
+    : `Recommended baseline (bank-only) as of ${formatDate(summary.latest_period)}: ${activeObservationDetail(bankLatest)}.`;
+
   els.heroMetrics.replaceChildren(
-    createMetric("Focused series", activeObservationLabel(selectedLatest), `${selectedInfo.shortLabel}: ${activeObservationDetail(selectedLatest)}.`),
-    createMetric("Transaction headline", activeObservationLabel(bankLatest), `Bank-only transaction headline as of ${formatDate(summary.latest_period)}: ${activeObservationDetail(bankLatest)}.`),
+    createMetric("Selected series", activeObservationLabel(selectedLatest), `${selectedInfo.shortLabel}: ${activeObservationDetail(selectedLatest)}.`),
+    createMetric("Preferred estimate", activeObservationLabel(bankLatest), baselineDetail),
     createMetric("Range in view", `${formatDate(state.rangeStart)} to ${formatDate(state.rangeEnd)}`, `${visibleCount} series currently shown.`),
   );
 
   els.latestObservation.textContent = summary.latest_period
     ? `Latest observation in bundle: ${formatQuarter(summary.latest_period)}`
     : "Latest observation unavailable.";
-  els.lineChartNote.textContent = `${activeUnitsSummary()} The overview bar below mirrors the current focused series across the full visible coverage.`;
+  els.lineChartNote.textContent = `${activeUnitsSummary()} The chart shows your selected series across the visible date range.`;
 }
 
 function renderRangeControls() {

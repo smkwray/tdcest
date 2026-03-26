@@ -2,20 +2,22 @@
 
 [Live site](https://smkwray.github.io/tdcest/)
 
-A public, self-contained repo for estimating the **treasury-attributed component of deposits (TDC)** with transparent data downloads, reproducible pipelines, and static-site-ready outputs.
+A public, self-contained repo for estimating the **treasury-attributed component of deposits (TDC)** — the portion of deposits that can be traced to Treasury operations, Treasury security transactions, and related reserve-user channels.
 
-This repo is opinionated on purpose:
+The project provides transparent data downloads, reproducible estimation pipelines, and an interactive static site for exploring results.
 
-- It treats the **transaction-based RU-flow estimator** as the main baseline.
-- It separates a **bank-only headline** from a **broad-depository alternative**.
-- It handles **credit unions explicitly**, instead of silently folding the aggregate credit-union Treasury series into the baseline.
-- It keeps **level-change** and **monetary-decomposition** approaches as sensitivity checks.
-- It keeps the baseline **marketable-Treasury focused** and leaves nonmarketables for a future extension.
-- It can run **fully offline** in demo mode with synthetic fixtures.
+### Design choices
 
-## Recommended baseline
+- **Transaction-based primary estimate.** The preferred baseline uses quarterly transaction data from the Federal Reserve's Z.1 Financial Accounts, which directly measure Treasury security flows rather than inferring them from holdings changes.
+- **Bank-only headline with a broad-depository alternative.** The default estimate covers banks only. A separate series adds natural-person credit unions for a broader view.
+- **Explicit credit-union handling.** Credit unions are broken out into separate series rather than folded into the headline, because the published aggregate includes non-marketable items (like the NCUA capitalization deposit) that don't belong in a marketable-Treasury estimate.
+- **Sensitivity checks included.** Alternative methods (holdings-level changes, monetary decomposition) are provided alongside the primary estimate for comparison.
+- **Marketable-Treasury focused.** Nonmarketable Treasury instruments are left for a future extension.
+- **Fully offline capable.** A demo mode runs with synthetic data — no API keys or network access required.
 
-The preferred quarterly marketable-Treasury estimator in this repo is:
+## Preferred estimate
+
+The recommended quarterly estimate of the treasury-attributed component of deposits is:
 
 ```math
 \widehat{\Delta D}^{mkt,bank}_{TDC,t}
@@ -39,35 +41,35 @@ Where:
 
 ## Credit-union treatment
 
-The repo now makes the deposit concept explicit.
+Credit unions are handled separately from banks because the published aggregate credit-union data include items that don't belong in a clean marketable-Treasury estimate.
 
-### Bank-only headline
+### Bank-only headline (recommended default)
 
 `tdc_base_bank_only_ru_flow`
 
-This is the recommended default. It **excludes all credit-union Treasury transactions** from the headline RU term.
+Covers commercial banks, foreign banking offices, and banks in U.S.-affiliated areas. **Excludes all credit unions.**
 
 ### Broad-depository alternative
 
 `tdc_base_broad_depository_np_cu_ru_flow`
 
-This adds **natural-person credit-union Treasury transactions** to the bank-sector block.
+Adds **natural-person credit unions** (the standard retail credit unions) to the bank-only estimate.
 
 ### Credit-union sensitivity ladder
 
-The repo also publishes:
+Additional series let you see the effect of progressively including more credit-union categories:
 
 - `tdc_broad_depository_np_corp_cu_ru_flow` — adds corporate credit unions
-- `tdc_credit_union_aggregate_sensitivity` — adds natural-person and corporate credit unions plus the NCUA capitalization deposit term, matching the broad published aggregate credit-union Treasury concept
+- `tdc_credit_union_aggregate_sensitivity` — adds all credit-union categories including the NCUA capitalization deposit, matching the broadest published aggregate
 
-This split is intentional. The published aggregate credit-union Treasury series in Z.1 is not a clean pure marketable-Treasury series for the broad-depository headline because it also folds in the NCUA capitalization deposit term.
+The reason for this separation: the published Z.1 aggregate credit-union Treasury series folds in the NCUA capitalization deposit, which is not a marketable Treasury security. Including it would distort the estimate.
 
-## Why this baseline
+## Why these choices
 
-1. **Transactions beat level changes** for the main estimate. Z.1 transaction series are closer to the flow concept than holdings-level changes, which can mix transactions, revaluations, and other volume changes.
-2. **Treasury operating cash** is the better quarterly drain term for baseline estimation.
-3. **Fed remittances should be positive-only** because negative H.4.1 values are deferred-asset accounting, not a reverse cash transfer to Treasury.
-4. **Credit unions should be configurable by deposit concept** rather than hard-coded into the headline.
+1. **Transaction data are more accurate** than holdings-level changes for measuring flows. Holdings changes can mix actual transactions with revaluations and other accounting adjustments, while transaction series directly measure what was bought and sold.
+2. **Treasury operating cash** is the appropriate quarterly drain term — it captures how much cash Treasury pulled from the banking system.
+3. **Fed remittances are capped at zero** because negative values on the H.4.1 report represent deferred-asset bookkeeping, not actual reverse cash transfers to Treasury.
+4. **Credit unions are separated out** so users can choose whether to include them, rather than having them baked into the headline with non-marketable items attached.
 
 ## What this repo includes
 

@@ -41,10 +41,10 @@
       <section class="hero card">
         <div class="hero-copy">
           <p class="eyebrow">Interactive bundle reader</p>
-          <h2>Explore TDC history without mixing the transaction-era headline with the historical extension.</h2>
+          <h2>Explore the share of U.S. deposits traced to Treasury operations over time.</h2>
           <p class="lede">
-            Transaction-only headline series are shown only where the transaction inputs are meant to be used.
-            Separate long-history extensions begin in 1990 and are labeled explicitly.
+            The primary estimates use quarterly transaction data from 2002 onward.
+            Longer historical series extending back to 1990 use a different calculation method and are clearly labeled.
           </p>
           <div class="cta-row">
             <a class="button primary" href="#methodology">Methodology</a>
@@ -69,7 +69,7 @@
               Treasury-attributed component of deposits means the portion of deposit creation traced directly to Treasury operations, Treasury security redistribution, and related reserve-user channels.
             </p>
             <p class="small-copy">
-              Deposit users (DUs) are domestic non-banks. Reserve users (RUs) include banks, the central bank, the Treasury, and foreign banking entities. The public site headline uses the transaction-based reserve-user approximation where possible and keeps the longer-history extension separate.
+              Deposit users are domestic non-banks — households, businesses, and non-bank financial institutions. Reserve users include commercial banks, the Federal Reserve, the Treasury, and foreign banking entities. The primary estimate on this site uses transaction-based data where available, with a separate longer-history series for earlier decades.
             </p>
             <div class="definition-switcher">
               <input class="definition-radio" type="radio" name="identity-switch" id="identity-deposit" checked>
@@ -217,7 +217,7 @@
               </div>
             </div>
             <p class="small-copy definition-note">
-              The live estimator on this site uses the reserve-user transaction identity where coverage is strongest, then carries a separate level-change extension before the transaction-era data begin. Treasury securities here include marketable debt and other Treasury liabilities such as savings instruments.
+              This site uses transaction-based data for the primary estimate (2002 onward) and a separate historical extension that relies on holdings-level changes for earlier years. Treasury securities here include marketable debt and other Treasury liabilities such as savings instruments.
             </p>
           </div>
         </details>
@@ -250,9 +250,9 @@
         <div class="control-group span-2">
           <span class="label">Series</span>
           <div class="chip-row" id="series-toggle"></div>
-          <div class="small-copy" id="series-help">Click a chip to show or hide that series. Hover or focus on a chip to inspect its equation.</div>
+          <div class="small-copy" id="series-help">Click a label to show or hide that series on the chart. Hover over a label to see its details and formula.</div>
           <div class="series-detail" id="series-detail">
-            <p class="eyebrow" id="series-detail-mode">Focused series</p>
+            <p class="eyebrow" id="series-detail-mode">Selected series</p>
             <h4 id="series-detail-title">Loading series detail...</h4>
             <p class="small-copy" id="series-note"></p>
             <p class="small-copy" id="series-formula"></p>
@@ -317,9 +317,9 @@
           </p>
         </div>
         <div class="method-copy">
-          <p>Transaction-based headline series begin in late 2002. They are intentionally blank before that point.</p>
-          <p>Historical extension series are separate. They begin in 1990 and use the matching level-change analog before transaction coverage begins.</p>
-          <p>Federal Reserve remittances are clipped at zero before quarter aggregation so the deferred asset period does not flip the cash-flow sign.</p>
+          <p>The primary estimates start in late 2002, when transaction-based source data become available. Earlier quarters are intentionally left blank.</p>
+          <p>Full-history series are provided separately. They extend back to 1990 by using holdings-level changes for the years before transaction data exist, then switch to the transaction-based method from 2002 onward.</p>
+          <p>Federal Reserve remittances are capped at zero before quarterly aggregation so that the deferred-asset accounting period does not distort the cash-flow estimate.</p>
         </div>
       </section>
 

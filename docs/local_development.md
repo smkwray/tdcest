@@ -20,21 +20,13 @@ The `Makefile` also keeps Python bytecode and pytest cache outside the repo:
 
 ## Private local files
 
-Put all private or local-only material under `do/`. This directory is gitignored.
-
-Examples:
-
-- `do/.env`
-- copied API keys
-- unpublished notes
-- scratch analysis files
-- local release checklists
+Keep local secrets, unpublished notes, scratch analysis, and release checklists outside the tracked repo tree.
 
 ## FRED API key
 
 The public repo and default CI do not require a FRED API key.
 
-For manual live-data runs, load the key from `do/.env` or your shell:
+For manual live-data runs, load the key from your shell or other local secret management:
 
 ```bash
 export FRED_API_KEY=your_key_here

@@ -1,5 +1,7 @@
 do/
 dist/
+output/
+.playwright-cli/
 site/data/*
 !site/data/bundle.json
 examples/demo_build/

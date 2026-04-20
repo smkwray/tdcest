@@ -21,6 +21,18 @@ def ensure_dir(path: Path | str) -> Path:
     return out
 
 
+def project_relative_path(path: Path | str, root: Path | str | None = None) -> str:
+    target = Path(path).resolve()
+    if root is None:
+        return target.as_posix()
+    for base in [Path(root).resolve()]:
+        try:
+            return target.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return target.as_posix()
+
+
 def _json_safe(payload: object) -> object:
     if isinstance(payload, dict):
         return {str(key): _json_safe(value) for key, value in payload.items()}
@@ -36,6 +48,8 @@ def _json_safe(payload: object) -> object:
         return payload.isoformat()
     if payload is None:
         return None
+    if isinstance(payload, (bool, np.bool_)):
+        return bool(payload)
     if isinstance(payload, (float, np.floating)):
         if math.isnan(float(payload)) or math.isinf(float(payload)):
             return None

@@ -12,7 +12,7 @@ import pandas as pd
 
 from .catalog import FredSeries, TreasuryDataset
 from .config import FRED_API_BASE, FRED_GRAPH_CSV_BASE, TREASURY_API_BASE, USER_AGENT
-from .utils import ensure_dir, utc_now_iso, write_json
+from .utils import ensure_dir, project_relative_path, utc_now_iso, write_json
 
 
 def _urlopen_text(url: str, timeout: int = 60) -> str:
@@ -50,6 +50,7 @@ def download_fred_series(
     api_key: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    project_root: Path | str | None = None,
 ) -> dict[str, Any]:
     raw_path = ensure_dir(raw_dir) / f"fred__{spec.key}.csv"
     if api_key:
@@ -68,7 +69,7 @@ def download_fred_series(
     return {
         "key": spec.key,
         "series_id": spec.series_id,
-        "path": str(raw_path),
+        "path": project_relative_path(raw_path, project_root),
         "url": url,
         "downloaded_at_utc": utc_now_iso(),
         "mode": mode,
@@ -82,7 +83,12 @@ def _build_treasury_url(endpoint: str, params: dict[str, str] | None = None) -> 
     return f"{TREASURY_API_BASE}{endpoint}?{urllib.parse.urlencode(params)}"
 
 
-def download_treasury_dataset(spec: TreasuryDataset, raw_dir: Path | str) -> dict[str, Any]:
+def download_treasury_dataset(
+    spec: TreasuryDataset,
+    raw_dir: Path | str,
+    *,
+    project_root: Path | str | None = None,
+) -> dict[str, Any]:
     raw_dir = ensure_dir(raw_dir)
     url = _build_treasury_url(spec.endpoint, spec.params)
     rows: list[dict[str, Any]] = []
@@ -97,6 +103,9 @@ def download_treasury_dataset(spec: TreasuryDataset, raw_dir: Path | str) -> dic
         if next_url:
             if next_url.startswith("http"):
                 url = next_url
+            elif next_url.startswith("?") or next_url.startswith("&"):
+                joiner = "" if next_url.startswith("?") else "?"
+                url = f"{TREASURY_API_BASE}{spec.endpoint}{joiner}{next_url.lstrip('?&')}"
             else:
                 url = f"{TREASURY_API_BASE}{next_url}"
         else:
@@ -108,7 +117,7 @@ def download_treasury_dataset(spec: TreasuryDataset, raw_dir: Path | str) -> dic
     return {
         "key": spec.key,
         "endpoint": spec.endpoint,
-        "path": str(raw_path),
+        "path": project_relative_path(raw_path, project_root),
         "downloaded_at_utc": utc_now_iso(),
         "pages": page_count,
         "rows": len(rows),
@@ -123,6 +132,7 @@ def download_fred_bundle(
     start_date: str | None = None,
     end_date: str | None = None,
     continue_on_error: bool = True,
+    project_root: Path | str | None = None,
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -136,6 +146,7 @@ def download_fred_bundle(
                     api_key=api_key,
                     start_date=start_date,
                     end_date=end_date,
+                    project_root=project_root,
                 )
             )
         except Exception as exc:
@@ -159,13 +170,14 @@ def download_treasury_bundle(
     raw_dir: Path | str,
     *,
     continue_on_error: bool = True,
+    project_root: Path | str | None = None,
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
     for spec in specs:
         try:
-            results.append(download_treasury_dataset(spec, raw_dir))
+            results.append(download_treasury_dataset(spec, raw_dir, project_root=project_root))
         except Exception as exc:
             entry = {"key": spec.key, "endpoint": spec.endpoint, "error": str(exc)}
             errors.append(entry)

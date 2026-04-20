@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .catalog import FredSeries
+from .catalog import FredSeries, LocalSeries, all_local_support_series
 from .utils import parse_date_column, parse_value_column, quarterly_resample, to_float_series
 
 
@@ -14,6 +14,10 @@ def fred_raw_path(raw_dir: Path | str, key: str) -> Path:
 
 def treasury_raw_path(raw_dir: Path | str, key: str) -> Path:
     return Path(raw_dir) / f"treasury__{key}.csv"
+
+
+def support_raw_path(raw_dir: Path | str, key: str) -> Path:
+    return Path(raw_dir) / f"support__{key}.csv"
 
 
 def load_fred_series(path: Path | str) -> pd.Series:
@@ -37,7 +41,37 @@ def load_quarterly_fred_series(path: Path | str, agg: str, transform: str | None
     return quarterly_resample(series, agg=agg)
 
 
-def build_quarterly_frame(raw_dir: Path | str, specs: list[FredSeries]) -> tuple[pd.DataFrame, dict]:
+def _load_local_support_series(
+    raw_dir: Path | str,
+    specs: list[LocalSeries],
+    frame: pd.DataFrame,
+    meta: dict[str, dict],
+) -> tuple[pd.DataFrame, dict]:
+    for spec in specs:
+        path = support_raw_path(raw_dir, spec.key)
+        if not path.exists():
+            continue
+        series = load_quarterly_fred_series(path, agg=spec.agg)
+        frame[spec.key] = series
+        meta[spec.key] = {
+            "series_id": None,
+            "description": spec.description,
+            "agg": spec.agg,
+            "transform": None,
+            "required": False,
+            "source_kind": "local_support",
+            "notes": spec.notes,
+            "raw_filename": path.name,
+            "raw_relative_path": str(Path("data/raw") / path.name),
+        }
+    return frame, meta
+
+
+def build_quarterly_frame(
+    raw_dir: Path | str,
+    specs: list[FredSeries],
+    local_specs: list[LocalSeries] | None = None,
+) -> tuple[pd.DataFrame, dict]:
     frame = pd.DataFrame()
     meta: dict[str, dict] = {}
 
@@ -55,10 +89,14 @@ def build_quarterly_frame(raw_dir: Path | str, specs: list[FredSeries]) -> tuple
             "agg": spec.agg,
             "transform": spec.transform,
             "required": spec.required,
+            "source_kind": "fred",
+            "notes": spec.notes,
             "raw_filename": path.name,
             "raw_relative_path": str(Path("data/raw") / path.name),
         }
 
+    support_specs = all_local_support_series() if local_specs is None else list(local_specs)
+    frame, meta = _load_local_support_series(raw_dir, support_specs, frame, meta)
     frame = frame.sort_index()
     return frame, meta
 

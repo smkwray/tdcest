@@ -121,11 +121,115 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
 
     m2 = 11000 + np.cumsum(rng.normal(45, 18, m))
     currency = 1400 + np.cumsum(rng.normal(7, 3, m))
-    bank_credit = 9000 + np.cumsum(rng.normal(35, 15, m))
+    retail_money_market_funds = 1550 + np.cumsum(rng.normal(3, 10, m))
+    small_time_deposits = 980 + np.cumsum(rng.normal(1.5, 6, m))
+    commercial_bank_deposits = (m2 - currency - retail_money_market_funds * 0.6) + rng.normal(0, 35, m)
+    large_time_deposits_all_commercial_banks = 1500 + np.cumsum(rng.normal(4, 16, m))
+    other_deposits_all_commercial_banks = np.clip(
+        commercial_bank_deposits - large_time_deposits_all_commercial_banks,
+        a_min=0.0,
+        a_max=None,
+    )
+    loans_and_leases_bank_credit = 6200 + np.cumsum(rng.normal(28, 10, m))
+    treasury_agency_non_mbs_bank_securities = 1200 + np.cumsum(rng.normal(2, 8, m))
+    securities_in_bank_credit = treasury_agency_non_mbs_bank_securities + 900 + np.cumsum(rng.normal(4, 6, m))
+    bank_credit = loans_and_leases_bank_credit + securities_in_bank_credit
     _write_series(raw_dir / "fred__m2.csv", monthly, m2)
     _write_series(raw_dir / "fred__currency.csv", monthly, currency)
+    _write_series(raw_dir / "fred__retail_money_market_funds.csv", monthly, retail_money_market_funds)
+    _write_series(raw_dir / "fred__small_time_deposits.csv", monthly, small_time_deposits)
+    _write_series(raw_dir / "fred__commercial_bank_deposits.csv", monthly, commercial_bank_deposits)
+    _write_series(
+        raw_dir / "fred__large_time_deposits_all_commercial_banks.csv",
+        monthly,
+        large_time_deposits_all_commercial_banks,
+    )
+    _write_series(
+        raw_dir / "fred__other_deposits_all_commercial_banks.csv",
+        monthly,
+        other_deposits_all_commercial_banks,
+    )
     _write_series(raw_dir / "fred__bank_credit.csv", weekly, 9000 + np.cumsum(rng.normal(8, 5, len(weekly))))
+    _write_series(raw_dir / "fred__loans_and_leases_bank_credit.csv", monthly, loans_and_leases_bank_credit)
+    _write_series(raw_dir / "fred__securities_in_bank_credit.csv", monthly, securities_in_bank_credit)
+    _write_series(
+        raw_dir / "fred__treasury_agency_non_mbs_bank_securities.csv",
+        monthly,
+        treasury_agency_non_mbs_bank_securities,
+    )
+    _write_series(raw_dir / "fred__reserve_balances_with_frb.csv", weekly, 2800000 + np.cumsum(rng.normal(1000, 25000, len(weekly))))
+    _write_series(raw_dir / "fred__term_deposits_at_fed.csv", weekly, np.clip(np.cumsum(rng.normal(0, 500, len(weekly))), a_min=0, a_max=None))
+    _write_series(raw_dir / "fred__other_deposits_at_fed.csv", weekly, np.clip(20000 + np.cumsum(rng.normal(0, 800, len(weekly))), a_min=0, a_max=None))
+    _write_series(raw_dir / "fred__fed_liquidity_credit_loans_net.csv", weekly, np.clip(np.cumsum(rng.normal(0, 1500, len(weekly))), a_min=0, a_max=None))
+    _write_series(raw_dir / "fred__reverse_repo_treasury.csv", weekly, np.clip(500 + np.cumsum(rng.normal(0, 20, len(weekly))), a_min=0, a_max=None))
     _write_series(raw_dir / "fred__tga_weekly.csv", weekly, 300 + np.cumsum(rng.normal(0.5, 20, len(weekly))))
+    _write_series(raw_dir / "fred__foreign_official_custody_treasuries.csv", weekly, 2500 + np.cumsum(rng.normal(1.0, 18, len(weekly))))
+    _write_series(raw_dir / "fred__commercial_bank_borrowings.csv", monthly, np.clip(900 + np.cumsum(rng.normal(6, 18, m)), a_min=0, a_max=None))
+    _write_series(raw_dir / "fred__commercial_bank_cash_assets.csv", monthly, 1800 + np.cumsum(rng.normal(4, 22, m)))
+    _write_series(raw_dir / "fred__foreign_related_treasury_agency_non_mbs.csv", monthly, 420 + np.cumsum(rng.normal(1.0, 6, m)))
+    fed_coupon_proxy = 6 + 0.012 * np.maximum(level_starts["fed_tsy_level"] + np.cumsum(fed_tsy_tx), 0) / 100 + rng.normal(0, 0.5, n)
+    bank_sector_level = (
+        level_starts["us_chartered_tsy_level"]
+        + level_starts["foreign_offices_tsy_level"]
+        + level_starts["affiliated_areas_tsy_level"]
+        + np.cumsum(us_chartered_tsy_tx + foreign_offices_tsy_tx + affiliated_areas_tsy_tx)
+    )
+    bank_coupon_proxy = 5 + 0.018 * np.maximum(bank_sector_level, 0) / 100 + rng.normal(0, 0.45, n)
+    row_coupon_proxy = 9 + 0.006 * np.maximum(level_starts["row_tsy_level"] + np.cumsum(row_tsy_tx), 0) / 100 + rng.normal(0, 0.65, n)
+    bank_noninterest_outlay_proxy = 1.2 + rng.normal(0, 0.2, n)
+    row_noninterest_outlay_proxy = 0.7 + rng.normal(0, 0.15, n)
+    bank_nonborrow_receipt_proxy = 0.35 + rng.normal(0, 0.08, n)
+    row_nonborrow_receipt_proxy = 0.15 + rng.normal(0, 0.05, n)
+    mint_cb_cash_factor_proxy = 0.1 + rng.normal(0, 0.04, n)
+    _write_series(raw_dir / "support__fed_tsy_coupon_interest_proxy.csv", q, np.clip(fed_coupon_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__bank_tsy_coupon_interest_proxy.csv", q, np.clip(bank_coupon_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__row_tsy_coupon_interest_proxy.csv", q, np.clip(row_coupon_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__bank_noninterest_outlay_proxy.csv", q, np.clip(bank_noninterest_outlay_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__row_noninterest_outlay_proxy.csv", q, np.clip(row_noninterest_outlay_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__bank_nonborrow_receipt_proxy.csv", q, np.clip(bank_nonborrow_receipt_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__row_nonborrow_receipt_proxy.csv", q, np.clip(row_nonborrow_receipt_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__mint_cb_cash_factor_proxy.csv", q, np.clip(mint_cb_cash_factor_proxy, a_min=0.0, a_max=None))
+    credit_union_deposits = 950000 + np.cumsum(rng.normal(6500, 9000, n))
+    thrift_deposits = 610000 + np.cumsum(rng.normal(3500, 6000, n))
+    _write_series(raw_dir / "support__credit_union_deposits.csv", q, np.clip(credit_union_deposits, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__thrift_deposits.csv", q, np.clip(thrift_deposits, a_min=0.0, a_max=None))
+    pd.DataFrame(
+        {
+            "date": q,
+            "source_zip_url": [f"https://ncua.gov/files/publications/analysis/call-report-data-{d.year}-{d.month:02d}.zip" for d in q],
+            "source_zip_file": [f"call-report-data-{d.year}-{d.month:02d}.zip" for d in q],
+            "total_credit_union_shares_and_deposits_mil": np.clip(credit_union_deposits * 1.02, a_min=0.0, a_max=None),
+            "federally_insured_credit_union_shares_and_deposits_mil": np.clip(credit_union_deposits, a_min=0.0, a_max=None),
+            "nonfederally_insured_credit_union_shares_and_deposits_mil": np.clip(credit_union_deposits * 0.02, a_min=0.0, a_max=None),
+            "total_credit_union_member_shares_mil": np.clip(credit_union_deposits * 0.965, a_min=0.0, a_max=None),
+            "federally_insured_credit_union_member_shares_mil": np.clip(credit_union_deposits * 0.96, a_min=0.0, a_max=None),
+            "nonfederally_insured_credit_union_member_shares_mil": np.clip(credit_union_deposits * 0.005, a_min=0.0, a_max=None),
+            "total_credit_union_implied_nonmember_deposits_mil": np.clip(credit_union_deposits * 0.055, a_min=0.0, a_max=None),
+            "federally_insured_credit_union_implied_nonmember_deposits_mil": np.clip(credit_union_deposits * 0.04, a_min=0.0, a_max=None),
+            "nonfederally_insured_credit_union_implied_nonmember_deposits_mil": np.clip(credit_union_deposits * 0.015, a_min=0.0, a_max=None),
+            "total_credit_union_count": np.full(n, 4500),
+            "federally_insured_credit_union_count": np.full(n, 4400),
+            "nonfederally_insured_credit_union_count": np.full(n, 100),
+        }
+    ).to_csv(raw_dir / "ncua__credit_union_deposit_bridge.csv", index=False)
+    pd.DataFrame(
+        {
+            "date": q,
+            "source_api_url": [
+                "https://api.fdic.gov/banks/financials?filters=%28BKCLASS%3ASB+OR+BKCLASS%3ASI+OR+BKCLASS%3ASL%29"
+            ]
+            * n,
+            "source_cache_file": [f"fdic_financials_savings_institutions_{d.strftime('%Y%m%d')}.json" for d in q],
+            "total_savings_institution_deposits_mil": np.clip(thrift_deposits, a_min=0.0, a_max=None),
+            "federal_savings_bank_deposits_mil": np.clip(thrift_deposits * 0.42, a_min=0.0, a_max=None),
+            "state_savings_bank_deposits_mil": np.clip(thrift_deposits * 0.44, a_min=0.0, a_max=None),
+            "state_savings_and_loan_deposits_mil": np.clip(thrift_deposits * 0.14, a_min=0.0, a_max=None),
+            "total_savings_institution_count": np.full(n, 520),
+            "federal_savings_bank_count": np.full(n, 220),
+            "state_savings_bank_count": np.full(n, 245),
+            "state_savings_and_loan_count": np.full(n, 55),
+        }
+    ).to_csv(raw_dir / "fdic__savings_institution_deposit_bridge.csv", index=False)
 
     # Minimal placeholder Treasury support datasets
     mts = pd.DataFrame(

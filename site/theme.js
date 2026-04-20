@@ -1,90 +1,75 @@
 (function () {
-  const STORAGE_KEY = "tdc-theme";
-  const media = window.matchMedia("(prefers-color-scheme: dark)");
-  const SUN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
-  const MOON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  "use strict";
 
-  function readSavedTheme() {
+  var KEY = "tdcest-theme";
+  var DARK = "dark";
+  var LIGHT = "light";
+  var SUN =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.9 19.1l1.6-1.6M17.5 6.5l1.6-1.6"></path></svg>';
+  var MOON =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 14.2A8.8 8.8 0 1 1 9.8 3.5a7.3 7.3 0 0 0 10.7 10.7z"></path></svg>';
+
+  function systemTheme() {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? DARK : LIGHT;
+  }
+
+  function savedTheme() {
     try {
-      return localStorage.getItem(STORAGE_KEY);
-    } catch {
+      return localStorage.getItem(KEY);
+    } catch (error) {
       return null;
     }
   }
 
-  function writeSavedTheme(theme) {
-    try {
-      localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      // Ignore storage failures.
-    }
+  function syncButton(theme) {
+    var button = document.getElementById("theme-toggle");
+    if (!button) return;
+    var next = theme === DARK ? "light" : "dark";
+    button.innerHTML = theme === DARK ? SUN : MOON;
+    button.setAttribute("aria-label", "Switch to " + next + " mode");
+    button.setAttribute("title", "Switch to " + next + " mode");
   }
 
-  function currentSystemTheme() {
-    return media.matches ? "dark" : "light";
+  function syncMeta(theme) {
+    var meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (!meta) return;
+    meta.setAttribute("content", theme === DARK ? "#11161a" : "#f8f5ef");
   }
 
-  function effectiveTheme() {
-    return readSavedTheme() || currentSystemTheme();
-  }
-
-  function updateThemeColor(theme) {
-    const metas = document.querySelectorAll('meta[name="theme-color"]');
-    metas.forEach((meta) => {
-      meta.setAttribute("content", theme === "dark" ? "#0d1117" : "#fafbfd");
-    });
-  }
-
-  function syncToggle(theme) {
-    const button = document.getElementById("theme-toggle");
-    if (!button) {
-      return;
-    }
-    button.innerHTML = theme === "dark" ? SUN : MOON;
-    button.setAttribute("aria-pressed", String(theme === "dark"));
-    button.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
-  }
-
-  function applyTheme(theme, { persist = false } = {}) {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme === "dark" ? "only dark" : "only light";
-    updateThemeColor(theme);
-    syncToggle(theme);
+  function applyTheme(theme, persist) {
+    document.documentElement.setAttribute("data-theme", theme);
+    syncButton(theme);
+    syncMeta(theme);
     if (persist) {
-      writeSavedTheme(theme);
+      try {
+        localStorage.setItem(KEY, theme);
+      } catch (error) {
+        // Ignore storage failures.
+      }
     }
-    window.dispatchEvent(new CustomEvent("tdc-themechange", { detail: { theme } }));
+    window.dispatchEvent(new CustomEvent("tdc-theme-change", { detail: { theme: theme } }));
   }
 
-  function initToggle() {
-    const button = document.getElementById("theme-toggle");
-    if (!button || button.dataset.themeBound === "true") {
-      syncToggle(effectiveTheme());
-      return;
-    }
-    button.dataset.themeBound = "true";
-    syncToggle(effectiveTheme());
-    button.addEventListener("click", () => {
-      const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-      applyTheme(nextTheme, { persist: true });
-    });
+  function initTheme() {
+    applyTheme(savedTheme() || systemTheme(), false);
   }
 
-  window.tdcTheme = {
-    applyTheme,
-    effectiveTheme,
-    initToggle,
+  window.toggleTheme = function () {
+    var current = document.documentElement.getAttribute("data-theme") || systemTheme();
+    applyTheme(current === DARK ? LIGHT : DARK, true);
   };
 
-  applyTheme(effectiveTheme());
+  initTheme();
 
-  document.addEventListener("DOMContentLoaded", () => {
-    initToggle();
-  });
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function () {
+      syncButton(document.documentElement.getAttribute("data-theme") || systemTheme());
+    });
+  } else {
+    syncButton(document.documentElement.getAttribute("data-theme") || systemTheme());
+  }
 
-  media.addEventListener("change", () => {
-    if (!readSavedTheme()) {
-      applyTheme(currentSystemTheme());
-    }
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function (event) {
+    if (!savedTheme()) applyTheme(event.matches ? DARK : LIGHT, false);
   });
 })();

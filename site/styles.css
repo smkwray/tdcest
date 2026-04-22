@@ -885,6 +885,51 @@ select {
   accent-color: var(--accent);
 }
 
+.method-view-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
+.method-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.52rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+
+.method-checkbox input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.method-checkbox input:disabled {
+  cursor: not-allowed;
+}
+
+.method-checkbox input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.method-checkbox input:disabled + span {
+  opacity: 0.6;
+}
+
+.method-checkbox-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 22rem;
+}
+
 .chart-shell {
   position: relative;
   border-radius: 0;

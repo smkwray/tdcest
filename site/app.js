@@ -380,6 +380,46 @@ const formatSignedMillions = (value) => {
   return `${sign}$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Math.abs(billions))}B`;
 };
 
+const formatPercentGdp = (value, { digits = 2 } = {}) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/a";
+  const numeric = Number(value);
+  const sign = numeric < 0 ? "-" : "";
+  return `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: digits }).format(Math.abs(numeric))}%`;
+};
+
+const formatSignedPercentGdp = (value, { digits = 2 } = {}) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/a";
+  const numeric = Number(value);
+  const sign = numeric >= 0 ? "+" : "-";
+  return `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: digits }).format(Math.abs(numeric))}%`;
+};
+
+const formatAxisPercentGdp = (value, { digits = 1 } = {}) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/a";
+  const numeric = Number(value);
+  const sign = numeric < 0 ? "-" : "";
+  return `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: digits }).format(Math.abs(numeric))}%`;
+};
+
+const pickPercentDigits = (maxAbs) => {
+  if (!Number.isFinite(maxAbs) || maxAbs <= 0) return 2;
+  if (maxAbs >= 10) return 1;
+  if (maxAbs >= 1) return 2;
+  if (maxAbs >= 0.1) return 3;
+  if (maxAbs >= 0.01) return 4;
+  return 5;
+};
+
+// Raw TDC values in the bundle are quarterly flows in millions of U.S. dollars.
+// Nominal GDP is stored as SAAR in billions. Annualize the quarterly flow (multiply by 4)
+// and divide by the annual-rate GDP level in matching units (billions × 1000 = millions).
+const toPercentOfNominalGdp = (valueMillions, gdpSaarBillions) => {
+  const millions = Number(valueMillions);
+  const gdp = Number(gdpSaarBillions);
+  if (!Number.isFinite(millions) || !Number.isFinite(gdp) || gdp <= 0) return null;
+  return ((millions * 4) / (gdp * 1000)) * 100;
+};
+
 const formatUtcDate = (value) => {
   if (!value) return "n/a";
   const date = new Date(value);
@@ -636,6 +676,36 @@ function renderMethodExplorer(bundle) {
   let activeMethods = [...METHOD_FAMILIES[currentFamily]];
   let resizeObserver;
 
+  const gdpSeries = Array.isArray(bundle?.references?.nominal_gdp_saar_bil)
+    ? bundle.references.nominal_gdp_saar_bil
+    : null;
+  const gdpAvailable =
+    Array.isArray(gdpSeries) &&
+    gdpSeries.some((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  let showPercentGdp = false;
+  const percentToggle = document.querySelector("#method-percent-gdp-toggle");
+  const percentNote = document.querySelector("#method-percent-gdp-note");
+  if (percentToggle) {
+    percentToggle.checked = false;
+    percentToggle.disabled = !gdpAvailable;
+  }
+  if (percentNote) {
+    if (gdpAvailable) {
+      percentNote.hidden = true;
+      percentNote.textContent = "";
+    } else {
+      percentNote.hidden = false;
+      percentNote.textContent =
+        "Percent-of-GDP view is unavailable: nominal GDP is missing from this bundle.";
+    }
+  }
+
+  const drawChart = () =>
+    drawMethodChart(bundle, dates, activeMethods, currentRange, currentFamily, {
+      showPercentGdp: showPercentGdp && gdpAvailable,
+      gdpSeries,
+    });
+
   const rerender = () => {
     currentFamily = familySelect.value;
     currentRange = rangeSelect.value;
@@ -658,14 +728,14 @@ function renderMethodExplorer(bundle) {
         } else {
           activeMethods = activeMethods.filter((item) => item !== method);
         }
-        drawMethodChart(bundle, dates, activeMethods, currentRange, currentFamily);
+        drawChart();
         renderMethodTable(bundle, activeMethods);
       });
     });
     activeMethods = methods.filter((method) => activeMethods.includes(method));
     if (!activeMethods.length) activeMethods = [methods[0]];
     renderMethodStory(bundle, currentFamily, currentRange, activeMethods);
-    drawMethodChart(bundle, dates, activeMethods, currentRange, currentFamily);
+    drawChart();
     renderMethodTable(bundle, activeMethods);
   };
 
@@ -674,11 +744,17 @@ function renderMethodExplorer(bundle) {
     rerender();
   });
   rangeSelect.addEventListener("change", rerender);
+  if (percentToggle && gdpAvailable) {
+    percentToggle.addEventListener("change", () => {
+      showPercentGdp = percentToggle.checked;
+      drawChart();
+    });
+  }
   if ("ResizeObserver" in window) {
-    resizeObserver = new ResizeObserver(() => drawMethodChart(bundle, dates, activeMethods, currentRange, currentFamily));
+    resizeObserver = new ResizeObserver(() => drawChart());
     resizeObserver.observe(document.querySelector("#method-chart"));
   } else {
-    window.addEventListener("resize", () => drawMethodChart(bundle, dates, activeMethods, currentRange, currentFamily));
+    window.addEventListener("resize", () => drawChart());
   }
   window.__tdcRerenderMethods = rerender;
   rerender();
@@ -744,7 +820,8 @@ function filterDatesForRange(dates, range) {
   return dates;
 }
 
-function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
+function drawMethodChart(bundle, dates, methods, rangeKey, familyKey, options = {}) {
+  const { showPercentGdp = false, gdpSeries = null } = options;
   const svg = document.querySelector("#method-chart");
   const legend = document.querySelector("#method-chart-legend");
   const tooltip = document.querySelector("#method-chart-tooltip");
@@ -758,6 +835,14 @@ function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
   const palette = getMethodPalette(familyKey);
   const gridColor = cssVar("--rule") || "rgba(24,32,24,0.12)";
   const zeroColor = cssVar("--rule-strong") || "rgba(24,32,24,0.18)";
+  const percentMode = Boolean(showPercentGdp) && Array.isArray(gdpSeries);
+  const filteredGdp = percentMode ? gdpSeries.slice(startIndex) : null;
+  const axisTitle = percentMode
+    ? "Quarterly flow, percent of nominal GDP (SAAR-annualized)"
+    : "Quarterly flow, USD billions";
+  const unitDescription = percentMode
+    ? "quarterly TDC flow expressed as percent of nominal GDP"
+    : "quarterly USD billions";
   const chartSeries = methods.map((method, index) => ({
     method,
     label: METHOD_LABELS[method] || method,
@@ -765,11 +850,29 @@ function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
     posture: METHOD_POSTURES[method] || "diagnostic",
     values: getColumnSeries(bundle.estimates, method)
       .slice(startIndex)
-      .map((value) => (value === null ? null : Number(value))),
+      .map((value, i) => {
+        if (value === null || value === undefined) return null;
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return null;
+        if (!percentMode) return numeric;
+        return toPercentOfNominalGdp(numeric, filteredGdp?.[i]);
+      }),
   }));
   const values = chartSeries
     .flatMap((series) => series.values)
     .filter(Number.isFinite);
+  const percentDigits = percentMode
+    ? pickPercentDigits(values.reduce((m, v) => Math.max(m, Math.abs(v)), 0))
+    : 2;
+  const axisFormat = percentMode
+    ? (value) => formatAxisPercentGdp(value, { digits: percentDigits })
+    : formatAxisBillions;
+  const legendFormat = percentMode
+    ? (value) => formatPercentGdp(value, { digits: percentDigits })
+    : formatBillions;
+  const tooltipFormat = percentMode
+    ? (value) => formatSignedPercentGdp(value, { digits: percentDigits })
+    : formatSignedBillions;
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
   const includesZero = rawMin < 0 && rawMax > 0;
@@ -785,7 +888,7 @@ function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
       const y = yAt(tick);
       return `<g>
         <line x1="${margin.left}" x2="${width - margin.right}" y1="${y}" y2="${y}" stroke="${gridColor}" />
-        <text class="chart-label" x="${margin.left - 12}" y="${y + 4}" text-anchor="end">${formatAxisBillions(tick)}</text>
+        <text class="chart-label" x="${margin.left - 12}" y="${y + 4}" text-anchor="end">${axisFormat(tick)}</text>
       </g>`;
     })
     .join("");
@@ -824,29 +927,30 @@ function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
   const zeroLine = includesZero
     ? `<line x1="${margin.left}" x2="${width - margin.right}" y1="${yAt(0)}" y2="${yAt(0)}" stroke="${zeroColor}" />`
     : "";
-  document.querySelector("#method-chart-note").textContent =
-    `Window: ${METHOD_RANGE_OPTIONS[rangeKey] || "Current range"}. Units: quarterly flow, USD billions throughout the chart and hover readout. Reduce the visible series count before making close comparisons.`;
+  document.querySelector("#method-chart-note").textContent = percentMode
+    ? `Window: ${METHOD_RANGE_OPTIONS[rangeKey] || "Current range"}. Units: percent of nominal GDP. Percent-of-GDP view annualizes the quarterly TDC flow and divides by nominal GDP at SAAR: (value in millions × 4) / (nominal_gdp_saar_billions × 1000) × 100. Quarters without a matching nominal-GDP observation render as gaps.`
+    : `Window: ${METHOD_RANGE_OPTIONS[rangeKey] || "Current range"}. Units: quarterly flow, USD billions throughout the chart and hover readout. Reduce the visible series count before making close comparisons.`;
   legend.innerHTML = chartSeries
     .map(
       (series) => `<div class="chart-legend-item">
         <span class="chart-legend-swatch" style="background:${series.color}"></span>
         <span>${series.label}</span>
-        <strong>${formatBillions(series.values.filter(Number.isFinite).slice(-1)[0])}</strong>
+        <strong>${legendFormat(series.values.filter(Number.isFinite).slice(-1)[0])}</strong>
       </div>`,
     )
     .join("");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = `<rect width="${width}" height="${height}" fill="transparent" />
     <title>Method comparison chart</title>
-    <desc>${METHOD_FAMILY_LABELS[familyKey] || "Method comparison"} for ${METHOD_RANGE_OPTIONS[rangeKey] || "current range"}, with live and comparison estimator lines shown as quarterly USD billions.</desc>
+    <desc>${METHOD_FAMILY_LABELS[familyKey] || "Method comparison"} for ${METHOD_RANGE_OPTIONS[rangeKey] || "current range"}, with live and comparison estimator lines shown as ${unitDescription}.</desc>
     ${grid}
     ${zeroLine}
-    <text class="chart-axis-title" transform="translate(18 ${height / 2}) rotate(-90)">Quarterly flow, USD billions</text>
+    <text class="chart-axis-title" transform="translate(18 ${height / 2}) rotate(-90)">${axisTitle}</text>
     ${lines}
     ${xLabels}
     <g id="method-hover-layer"></g>`;
   document.querySelector("#method-chart-summary").textContent = `${METHOD_FAMILY_LABELS[familyKey] || "Method comparison"} for ${METHOD_RANGE_OPTIONS[rangeKey] || "current range"}. Latest visible values: ${chartSeries
-    .map((series) => `${series.label} ${formatBillions(series.values.filter(Number.isFinite).slice(-1)[0])}`)
+    .map((series) => `${series.label} ${legendFormat(series.values.filter(Number.isFinite).slice(-1)[0])}`)
     .join("; ")}.`;
 
   const hoverLayer = svg.querySelector("#method-hover-layer");
@@ -869,40 +973,47 @@ function drawMethodChart(bundle, dates, methods, rangeKey, familyKey) {
         (series) => `<div class="chart-tooltip-row">
           <span class="chart-legend-swatch" style="background:${series.color}"></span>
           <span>${series.label}</span>
-          <strong>${formatSignedBillions(series.values[index])}</strong>
+          <strong>${tooltipFormat(series.values[index])}</strong>
         </div>`,
       )
       .join("")}`;
   };
 
+  const clientToSvgX = (clientX) => {
+    const ctm = svg.getScreenCTM();
+    if (ctm && typeof svg.createSVGPoint === "function") {
+      const pt = svg.createSVGPoint();
+      pt.x = clientX;
+      pt.y = 0;
+      return pt.matrixTransform(ctm.inverse()).x;
+    }
+    const rect = svg.getBoundingClientRect();
+    return ((clientX - rect.left) / Math.max(rect.width, 1)) * width;
+  };
+  const indexFromClientX = (clientX) => {
+    const svgX = clientToSvgX(clientX);
+    const relative = (svgX - margin.left) / Math.max(innerWidth, 1);
+    return clampIndex(Math.round(relative * Math.max(filteredDates.length - 1, 0)));
+  };
+
   svg.onmousemove = (event) => {
     const rect = svg.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const relative = (x - margin.left) / Math.max(innerWidth, 1);
-    const index = clampIndex(Math.round(relative * Math.max(filteredDates.length - 1, 0)));
-    renderHover(index);
-    tooltip.style.left = `${Math.min(rect.width - 240, Math.max(12, x + 14))}px`;
-    tooltip.style.top = `${Math.max(14, margin.top)}px`;
+    const pixelX = event.clientX - rect.left;
+    renderHover(indexFromClientX(event.clientX));
+    tooltip.style.left = `${Math.min(rect.width - 240, Math.max(12, pixelX + 14))}px`;
+    tooltip.style.top = "14px";
   };
   svg.onmouseleave = () => {
     hoverLayer.innerHTML = "";
     tooltip.hidden = true;
   };
   svg.onclick = (event) => {
-    const rect = svg.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const relative = (x - margin.left) / Math.max(innerWidth, 1);
-    const index = clampIndex(Math.round(relative * Math.max(filteredDates.length - 1, 0)));
-    renderHover(index);
+    renderHover(indexFromClientX(event.clientX));
   };
   svg.ontouchstart = (event) => {
     const touch = event.touches?.[0];
     if (!touch) return;
-    const rect = svg.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const relative = (x - margin.left) / Math.max(innerWidth, 1);
-    const index = clampIndex(Math.round(relative * Math.max(filteredDates.length - 1, 0)));
-    renderHover(index);
+    renderHover(indexFromClientX(touch.clientX));
   };
 
   renderHover(filteredDates.length - 1);

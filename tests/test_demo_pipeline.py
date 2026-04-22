@@ -173,6 +173,12 @@ def test_demo_pipeline_runs(tmp_path: Path):
     assert bundle["bundle_format"] == "tdc_site_bundle_v4"
     assert bundle["metadata"]["value_units"]["nominal"] == "Millions of U.S. dollars"
     assert "gdp_deflator" in bundle["references"]["columns"]
+    assert "nominal_gdp_saar_bil" in bundle["references"]["columns"]
+    nominal_gdp_values = [
+        value for value in bundle["references"]["nominal_gdp_saar_bil"] if value is not None
+    ]
+    assert nominal_gdp_values, "nominal GDP reference should have at least one value"
+    assert all(value > 0 for value in nominal_gdp_values)
     assert bundle["metadata"]["method_meta"]["cash_term"]["transaction_series_key"] == "treasury_operating_cash_tx"
     assert bundle["metadata"]["method_meta"]["cash_term"]["diagnostic_only_series"] == ["tga_weekly"]
     assert bundle["metadata"]["method_meta"]["correction_inputs"]["fed_tsy_coupon_interest_proxy"]["raw_filename"] == "support__fed_tsy_coupon_interest_proxy.csv"

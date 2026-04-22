@@ -322,6 +322,13 @@ OPTIONAL_FRED_SERIES: list[FredSeries] = [
         notes="Quarterly price index used for the optional latest-quarter-dollar restatement in the site UI.",
     ),
     FredSeries(
+        key="nominal_gdp_saar_bil",
+        series_id="GDP",
+        description="Gross Domestic Product, billions of dollars, seasonally adjusted annual rate",
+        agg="last",
+        notes="Quarterly nominal GDP level (SAAR, billions of current-dollars). Denominator for the optional 'percent of GDP' view in the site UI. To align with estimator-scale quarterly millions, use `value_millions / (nominal_gdp_saar_bil * 250)`, which equals `(value_millions * 4) / (nominal_gdp_saar_bil * 1000)`.",
+    ),
+    FredSeries(
         key="tga_weekly",
         series_id="WDTGAL",
         description="U.S. Treasury, General Account: Wednesday Level",

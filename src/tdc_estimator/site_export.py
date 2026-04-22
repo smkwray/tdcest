@@ -67,6 +67,7 @@ def export_site_bundle(
             "nominal": "Millions of U.S. dollars",
             "nominal_example": "60,592 means 60,592 million dollars, or about $60.6 billion.",
             "real_toggle": "Optional latest-quarter-dollar restatement using the GDP implicit price deflator (GDPDEF).",
+            "percent_of_gdp_toggle": "Optional percent-of-GDP view. Annualizes the quarterly TDC flow (in millions) and divides by nominal GDP (SAAR, billions): percent = value_millions * 4 / (nominal_gdp_saar_bil * 1000) * 100.",
         },
     }
 
@@ -126,7 +127,11 @@ def export_site_bundle(
 
     bundle_path = out_dir / "bundle.json"
     site_bundle_path = data_dir / "bundle.json"
-    reference_columns = [column for column in ["gdp_deflator"] if column in quarterly.columns]
+    reference_columns = [
+        column
+        for column in ["gdp_deflator", "nominal_gdp_saar_bil"]
+        if column in quarterly.columns
+    ]
     reference_frame = quarterly[reference_columns].copy() if reference_columns else pd.DataFrame(index=estimates.index)
     bundle_payload = {
         "bundle_format": "tdc_site_bundle_v4",

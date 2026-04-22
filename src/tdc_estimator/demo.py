@@ -54,6 +54,7 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
         np_credit_unions_tsy_tx + corp_credit_unions_tsy_tx + ncua_capitalization_deposit_tx
     )
     gdp_deflator = np.linspace(82.0, 124.0, n) + rng.normal(0, 0.6, n)
+    nominal_gdp_saar_bil = np.linspace(15000.0, 30000.0, n) + rng.normal(0, 80.0, n)
 
     quarterly_values = {
         "fed_tsy_tx": fed_tsy_tx,
@@ -67,6 +68,7 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
         "treasury_operating_cash_tx": treasury_operating_cash_tx,
         "credit_unions_total_tsy_tx": credit_unions_total_tsy_tx,
         "gdp_deflator": gdp_deflator,
+        "nominal_gdp_saar_bil": nominal_gdp_saar_bil,
     }
 
     for spec in [*BASE_FRED_SERIES, *OPTIONAL_FRED_SERIES]:

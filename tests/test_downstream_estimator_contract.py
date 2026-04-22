@@ -120,6 +120,7 @@ def test_downstream_estimator_contract_builds_key_rows():
     contract = build_downstream_estimator_contract(
         estimates=estimates,
         method_meta=method_meta,
+        input_audit=None,
         receipt_unblock_status=receipt,
         project_goal_status_review=goals,
         tier3_research_comparison=research,
@@ -137,3 +138,73 @@ def test_downstream_estimator_contract_builds_key_rows():
     assert "fiscal_reconciliation_shell" in keys
     assert "monetary_depository_crosscheck" in keys
     assert contract["latest_reference_date"].astype(str).str.contains("T").sum() == 0
+
+
+def test_downstream_estimator_contract_demotes_corrected_layers_when_coupon_audit_is_flagged():
+    index = pd.to_datetime(["2025-12-31"])
+    estimates = pd.DataFrame(
+        {
+            "tdc_base_bank_only_ru_flow": [100.0],
+            "tdc_tier2_interest_corrected_bank_only_ru_flow": [80.0],
+            "tdc_tier3_fiscal_corrected_bank_only_ru_flow": [75.0],
+            "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow": [77.0],
+        },
+        index=index,
+    )
+    method_meta = {
+        "method_descriptions": {
+            "tdc_base_bank_only_ru_flow": "Base bank-only headline.",
+            "tdc_tier2_interest_corrected_bank_only_ru_flow": "Tier 2 bank-only.",
+            "tdc_tier3_fiscal_corrected_bank_only_ru_flow": "Tier 3 bank-only.",
+            "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow": "Tier 3 broad depository.",
+        },
+        "method_formulas": {},
+    }
+    input_audit = pd.DataFrame(
+        [
+            {"series_key": "bank_tsy_coupon_interest_proxy", "audit_status": "coupled_scale_risk"},
+            {"series_key": "row_tsy_coupon_interest_proxy", "audit_status": "possible_x1000_mismatch"},
+        ]
+    )
+    goals = pd.DataFrame(
+        [
+            {
+                "goal_key": "monetary_disaggregated_tdc_equation",
+                "latest_relevant_date": "2025-12-31",
+                "binding_blocker": "stop_at_perimeter_stress_test",
+                "summary_note": "Monetary note.",
+            }
+        ]
+    )
+    monetary = pd.DataFrame(
+        [
+            {
+                "latest_quarter": "2025-12-31",
+                "depository_residual_after_expanded_mil": 10.0,
+                "commercial_bank_residual_after_expanded_mil": 20.0,
+            }
+        ]
+    )
+
+    contract = build_downstream_estimator_contract(
+        estimates=estimates,
+        method_meta=method_meta,
+        input_audit=input_audit,
+        receipt_unblock_status=None,
+        project_goal_status_review=goals,
+        tier3_research_comparison=None,
+        bea_row_receipts_benchmark=None,
+        row_mrv_nondefault_evidence_summary=None,
+        monetary_target_preference_review=monetary,
+        workstream_end_state_map=None,
+    )
+
+    tier2 = contract.loc[contract["artifact_key"].eq("tdc_tier2_interest_corrected_bank_only_ru_flow")].iloc[0]
+    tier3 = contract.loc[contract["artifact_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[0]
+    monetary_dep = contract.loc[contract["artifact_key"].eq("monetary_depository_crosscheck")].iloc[0]
+
+    assert tier2["default_classification"] == "provisional_coupon_scale_gate_failed"
+    assert tier2["binding_blocker"] == "coupon_proxy_scale_validation"
+    assert tier3["default_classification"] == "provisional_coupon_scale_gate_failed"
+    assert "row_tsy_coupon_interest_proxy=possible_x1000_mismatch" in tier3["summary_note"]
+    assert monetary_dep["binding_blocker"] == "coupon_proxy_scale_validation"

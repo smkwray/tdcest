@@ -80,10 +80,43 @@ def _fmt(value: float | int | None) -> str:
     return f"{float(value):,.3f}"
 
 
+def _coupon_scale_gate_status(input_audit: pd.DataFrame | None) -> dict[str, Any]:
+    audit = input_audit.copy() if input_audit is not None else pd.DataFrame()
+    if audit.empty or "series_key" not in audit.columns or "audit_status" not in audit.columns:
+        return {
+            "failed": False,
+            "statuses": [],
+            "summary": "",
+        }
+
+    flagged_statuses = {"possible_x1000_mismatch", "benchmark_gap", "coupled_scale_risk"}
+    rows = audit.loc[
+        audit["series_key"].isin(["bank_tsy_coupon_interest_proxy", "row_tsy_coupon_interest_proxy"])
+        & audit["audit_status"].isin(flagged_statuses)
+    ].copy()
+    if rows.empty:
+        return {
+            "failed": False,
+            "statuses": [],
+            "summary": "",
+        }
+
+    statuses = [
+        f"{row['series_key']}={row['audit_status']}"
+        for _, row in rows.loc[:, ["series_key", "audit_status"]].iterrows()
+    ]
+    return {
+        "failed": True,
+        "statuses": statuses,
+        "summary": "; ".join(statuses),
+    }
+
+
 def build_downstream_estimator_contract(
     *,
     estimates: pd.DataFrame | None,
     method_meta: dict[str, Any] | None,
+    input_audit: pd.DataFrame | None,
     receipt_unblock_status: pd.DataFrame | None,
     project_goal_status_review: pd.DataFrame | None,
     tier3_research_comparison: pd.DataFrame | None,
@@ -95,6 +128,7 @@ def build_downstream_estimator_contract(
     method_meta = method_meta or {}
     method_formulas = method_meta.get("method_formulas", {})
     method_descriptions = method_meta.get("method_descriptions", {})
+    coupon_gate = _coupon_scale_gate_status(input_audit)
 
     receipt = receipt_unblock_status.copy() if receipt_unblock_status is not None else pd.DataFrame()
     goals = project_goal_status_review.copy() if project_goal_status_review is not None else pd.DataFrame()
@@ -151,12 +185,42 @@ def build_downstream_estimator_contract(
         ),
     ]:
         latest_date, latest_value = _latest_value(estimates, key)
+        classification = default_classification
+        binding_blocker = "none" if key != "tdc_tier3_fiscal_corrected_bank_only_ru_flow" else "receipt_side_completion"
+        main_known_boundary = (
+            "Receipt-side default corrections remain incomplete; bank current quarters stay nondefault and MRV stays nondefault."
+            if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
+            else "Perimeter and correction assumptions remain explicit in method metadata."
+        )
+        next_finite_push = (
+            "Keep polishing historical bank and receipt-boundary comparisons around this ladder."
+            if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
+            else "Maintain as comparison anchor."
+        )
+        summary_note = method_descriptions.get(key, "")
+
+        if coupon_gate["failed"] and key in {
+            "tdc_tier2_interest_corrected_bank_only_ru_flow",
+            "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
+            "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow",
+        }:
+            classification = "provisional_coupon_scale_gate_failed"
+            binding_blocker = "coupon_proxy_scale_validation"
+            main_known_boundary = (
+                "Coupon-proxy scale audit is flagged; do not treat the corrected layer as a live default until the bank/ROW coupon inputs are revalidated."
+            )
+            next_finite_push = "Resolve the coupon-proxy scale audit and then regenerate the corrected fiscal and monetary layers."
+            summary_note = (
+                f"{summary_note} "
+                f"Current contract is provisional because the coupon-proxy audit flagged: {coupon_gate['summary']}."
+            ).strip()
+
         rows.append(
             {
                 "artifact_key": key,
                 "artifact_family": "estimator_series",
                 "current_role": role,
-                "default_classification": default_classification,
+                "default_classification": classification,
                 "deposit_scope": "bank_only" if "broad_depository" not in key else "broad_depository",
                 "counterparty_scope": "bank_plus_row_transaction_flow",
                 "time_scope": "transaction_era_quarterly",
@@ -166,18 +230,10 @@ def build_downstream_estimator_contract(
                 "core_equation_or_claim": method_formulas.get(key, method_descriptions.get(key, "")),
                 "best_downstream_use": best_use,
                 "comparison_anchor": "Compare against Tier 0, Tier 2, Tier 3, and historical bank overlay to isolate where correction layers change TDC.",
-                "binding_blocker": "none" if key != "tdc_tier3_fiscal_corrected_bank_only_ru_flow" else "receipt_side_completion",
-                "main_known_boundary": (
-                    "Receipt-side default corrections remain incomplete; bank current quarters stay nondefault and MRV stays nondefault."
-                    if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
-                    else "Perimeter and correction assumptions remain explicit in method metadata."
-                ),
-                "next_finite_push": (
-                    "Keep polishing historical bank and receipt-boundary comparisons around this ladder."
-                    if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
-                    else "Maintain as comparison anchor."
-                ),
-                "summary_note": method_descriptions.get(key, ""),
+                "binding_blocker": binding_blocker,
+                "main_known_boundary": main_known_boundary,
+                "next_finite_push": next_finite_push,
+                "summary_note": summary_note,
             }
         )
 
@@ -282,10 +338,27 @@ def build_downstream_estimator_contract(
                 "core_equation_or_claim": "Use the depository target as the main monetary cross-check because it behaves materially better than the commercial-bank target after expanded controls.",
                 "best_downstream_use": "Cross-check whether the ladder is directionally plausible against a broader deposit target, without treating the monetary branch as a headline estimator.",
                 "comparison_anchor": "Compare depository residuals against commercial-bank residuals and the bank-target wedge.",
-                "binding_blocker": str(goal_monetary.get("binding_blocker", "stop_at_perimeter_stress_test")),
-                "main_known_boundary": "Diagnostic only; not a replacement estimator.",
-                "next_finite_push": str(work_monetary.get("next_finite_push", "Keep the depository target as the main cross-check.")),
-                "summary_note": str(goal_monetary.get("summary_note", "")),
+                "binding_blocker": (
+                    "coupon_proxy_scale_validation"
+                    if coupon_gate["failed"]
+                    else str(goal_monetary.get("binding_blocker", "stop_at_perimeter_stress_test"))
+                ),
+                "main_known_boundary": (
+                    "Diagnostic only; the corrected ladder anchor is provisional until the coupon-proxy scale audit clears."
+                    if coupon_gate["failed"]
+                    else "Diagnostic only; not a replacement estimator."
+                ),
+                "next_finite_push": (
+                    "Resolve the coupon-proxy scale audit before interpreting the depository residual as a stable anchor-based cross-check."
+                    if coupon_gate["failed"]
+                    else str(work_monetary.get("next_finite_push", "Keep the depository target as the main cross-check."))
+                ),
+                "summary_note": (
+                    f"{goal_monetary.get('summary_note', '')} "
+                    f"The current anchor is provisional because the coupon-proxy audit flagged: {coupon_gate['summary']}."
+                    if coupon_gate["failed"]
+                    else str(goal_monetary.get("summary_note", ""))
+                ),
             },
             {
                 "artifact_key": "monetary_bank_target_stress_test",
@@ -363,6 +436,7 @@ def write_downstream_estimator_contract(
     markdown_path: Path | str,
     estimates: pd.DataFrame | None,
     method_meta: dict[str, Any] | None,
+    input_audit: pd.DataFrame | None,
     receipt_unblock_status: pd.DataFrame | None,
     project_goal_status_review: pd.DataFrame | None,
     tier3_research_comparison: pd.DataFrame | None,
@@ -374,6 +448,7 @@ def write_downstream_estimator_contract(
     frame = build_downstream_estimator_contract(
         estimates=estimates,
         method_meta=method_meta,
+        input_audit=input_audit,
         receipt_unblock_status=receipt_unblock_status,
         project_goal_status_review=project_goal_status_review,
         tier3_research_comparison=tier3_research_comparison,

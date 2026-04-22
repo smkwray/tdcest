@@ -74,3 +74,31 @@ def test_write_monetary_target_preference_review_outputs_files(tmp_path: Path) -
     markdown = render_monetary_target_preference_review_markdown(review)
     assert "Monetary Target Preference Review" in markdown
     assert "prefer_depository_target_crosscheck" in markdown
+
+
+def test_build_monetary_target_preference_review_uses_mixed_wedge_rationale_when_not_dominant() -> None:
+    residuals = pd.DataFrame(
+        {
+            "date": ["2025-12-31", "2025-12-31"],
+            "target_family": ["depository_target", "commercial_bank_deposit_target"],
+            "gap_vs_tier3_mil": [156.0, 371.0],
+            "residual_after_expanded_mil": [75.0, 290.0],
+            "total_explained_share_after_expanded": [0.52, 0.22],
+            "residual_regime": ["partly_explained", "mostly_unresolved"],
+        }
+    )
+    wedge = pd.DataFrame(
+        {
+            "date": ["2025-12-31"],
+            "bank_specific_residual_wedge_mil": [215.0],
+            "bank_specific_residual_share_of_bank_residual": [0.51],
+            "bank_wedge_dominance": ["mixed_shared_and_bank_specific"],
+        }
+    )
+
+    review = build_monetary_target_preference_review(residuals, wedge)
+    row = review.iloc[0]
+
+    assert row["recommendation_status"] == "prefer_depository_target_crosscheck"
+    assert "material bank-target-specific wedge" in row["review_rationale"]
+    assert "dominated" not in row["review_rationale"]

@@ -16,11 +16,14 @@ DEFAULT_BANK_SECTOR_KEYS = [
 ]
 DEFAULT_ROW_SECTOR_KEYS = ["foreigners_total"]
 DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES = [
+    Path("outputs/full_coverage_release/canonical_sector_maturity.csv"),
     Path("data/processed/sector_effective_maturity_full.csv"),
     Path("outputs/public_preview/sector_effective_maturity.csv"),
     Path("tests/fixtures/report_sector_effective_maturity.csv"),
 ]
 DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES = [
+    Path("data/external/normalized/z1_series_fred.csv"),
+    Path("outputs/full_coverage_release/z1_series_auto_full.csv"),
     Path("data/interim/z1_sector_panel_full.csv"),
     Path("data/examples/toy_sector_panel_ready.csv"),
 ]
@@ -35,6 +38,79 @@ DEFAULT_WAMEST_CURVE_CANDIDATES = [
 def read_table(path: Path | str) -> pd.DataFrame:
     df = pd.read_csv(path)
     return df.rename(columns={column: normalize_col(column) for column in df.columns})
+
+
+def read_sector_maturity_table(path: Path | str) -> pd.DataFrame:
+    df = read_table(path)
+    if "publication_status" not in df.columns:
+        return df
+
+    publishable = df["publication_status"].isin(["published_estimate", "history_preserving_backfill"])
+    filtered = df.loc[publishable].copy()
+    return filtered if not filtered.empty else df
+
+
+def read_sector_panel_table(path: Path | str) -> pd.DataFrame:
+    table_path = Path(path)
+    df = read_table(table_path)
+    if "sector_key" in df.columns:
+        return df
+
+    series_code_col = _first_existing(df, ["series_code", "series_key"])
+    level_col = _first_existing(df, ["value", "level"])
+    if series_code_col is None or level_col is None:
+        return df
+
+    inventory_path = _resolve_inventory_path(table_path)
+    if inventory_path is None:
+        return df
+
+    inventory = read_table(inventory_path)
+    code_candidates = ["level_source_code", "level_series_key", "level_fred_id"]
+    inventory_code_col = next(
+        (
+            column
+            for column in code_candidates
+            if column in inventory.columns and inventory[column].notna().any()
+        ),
+        None,
+    )
+    if inventory_code_col is None or "sector_key" not in inventory.columns:
+        return df
+
+    code_map = (
+        inventory.loc[:, ["sector_key", inventory_code_col]]
+        .dropna()
+        .drop_duplicates(subset=["sector_key"])
+        .rename(columns={inventory_code_col: series_code_col})
+    )
+    if code_map.empty:
+        return df
+
+    merged = df.merge(code_map, on=series_code_col, how="inner")
+    if merged.empty or "date" not in merged.columns:
+        return df
+
+    out = merged.loc[:, ["date", "sector_key", level_col]].copy()
+    out = out.rename(columns={level_col: "level"})
+    # Normalized FRED/Z.1 levels already use the repo's millions convention.
+    out["level_units"] = "millions"
+    out["method_priority"] = "full_coverage_release_level_map"
+    return out
+
+
+def _resolve_inventory_path(table_path: Path) -> Path | None:
+    candidates = [table_path.parent / "required_sector_inventory.csv"]
+    candidates.extend(parent / "outputs" / "full_coverage_release" / "required_sector_inventory.csv" for parent in table_path.parents)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def resolve_first_existing(base_dir: Path | str, candidates: Sequence[Path | str]) -> Path:
@@ -54,6 +130,15 @@ def resolve_wamest_artifact_paths(
     curve_file: Path | str | None = None,
 ) -> tuple[Path, Path, Path]:
     root = Path(wamest_root)
+
+    if sector_maturity_file is None and sector_panel_file is None:
+        full_release_maturity = root / DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES[0]
+        full_release_panel = root / DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES[0]
+        full_release_inventory = root / "outputs" / "full_coverage_release" / "required_sector_inventory.csv"
+        if full_release_maturity.exists() and full_release_panel.exists() and full_release_inventory.exists():
+            sector_maturity_file = full_release_maturity
+            sector_panel_file = full_release_panel
+
     sector_maturity_path = (
         Path(sector_maturity_file)
         if sector_maturity_file is not None
@@ -136,6 +221,11 @@ def _latest_curve_row_on_or_before(curves: pd.DataFrame, target_date: pd.Timesta
     eligible = curves[curves["date"] <= pd.Timestamp(target_date).normalize()]
     if eligible.empty:
         return None
+    curve_columns = [column for column in curves.columns if column != "date"]
+    if curve_columns:
+        eligible = eligible.dropna(subset=curve_columns, how="all")
+        if eligible.empty:
+            return None
     return eligible.iloc[-1]
 
 
@@ -169,6 +259,11 @@ def _interpolate_curve_yield(curve_row: pd.Series, years: float, curve_points: S
 def prepare_sector_maturity(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df = df.rename(columns={column: normalize_col(column) for column in df.columns})
+    if "publication_status" in df.columns:
+        publishable = df["publication_status"].isin(["published_estimate", "history_preserving_backfill"])
+        filtered = df.loc[publishable].copy()
+        if not filtered.empty:
+            df = filtered
     date_col = _first_existing(df, ["date", "record_date", "quarter_date"])
     if date_col is None or "sector_key" not in df.columns:
         raise ValueError("Sector maturity file needs date and sector_key columns.")
@@ -216,6 +311,14 @@ def _panel_level_scale_to_millions(df: pd.DataFrame, level_col: str) -> float:
     values = pd.to_numeric(df[level_col], errors="coerce").dropna().abs()
     if values.empty:
         return 1.0
+
+    unit_col = _first_existing(df, ["level_units", "level_unit", "units"])
+    if unit_col is not None:
+        unit_text = " ".join(df[unit_col].dropna().astype(str).str.lower().unique())
+        if "million" in unit_text:
+            return 1.0
+        if "billion" in unit_text:
+            return 1_000.0
 
     has_wamest_full_panel_markers = any(
         column in df.columns
@@ -337,8 +440,8 @@ def write_quarterly_bank_coupon_interest_proxy(
     sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
 ) -> Path:
     series = estimate_quarterly_bank_coupon_interest_proxy(
-        sector_maturity=read_table(sector_maturity_path),
-        sector_panel=read_table(sector_panel_path),
+        sector_maturity=read_sector_maturity_table(sector_maturity_path),
+        sector_panel=read_sector_panel_table(sector_panel_path),
         curves=read_table(curve_path),
         sector_keys=sector_keys,
     )
@@ -353,8 +456,8 @@ def write_quarterly_row_coupon_interest_proxy(
     sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
 ) -> Path:
     series = estimate_quarterly_row_coupon_interest_proxy(
-        sector_maturity=read_table(sector_maturity_path),
-        sector_panel=read_table(sector_panel_path),
+        sector_maturity=read_sector_maturity_table(sector_maturity_path),
+        sector_panel=read_sector_panel_table(sector_panel_path),
         curves=read_table(curve_path),
         sector_keys=sector_keys,
     )

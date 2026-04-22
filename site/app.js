@@ -11,12 +11,17 @@ const METHOD_FAMILIES = {
     "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow",
     "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow",
   ],
+  du_fiscal_flow: [
+    "tdc_du_fiscal_flow_first_pass_narrow",
+    "tdc_du_fiscal_flow_first_pass_broad",
+  ],
   headline_vs_sensitivity: [
     "tdc_base_bank_only_ru_flow",
+    "tdc_tier1_fed_corrected_bank_only_ru_flow",
+    "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
+    "tdc_du_fiscal_flow_first_pass_narrow",
     "tdc_base_broad_depository_np_cu_ru_flow",
-    "tdc_credit_union_aggregate_sensitivity",
-    "tdc_decomposition_proxy_bank_centric",
-    "tdc_bank_only_extended_1990",
+    "tdc_du_fiscal_flow_first_pass_broad",
   ],
 };
 
@@ -56,6 +61,8 @@ const METHOD_LABELS = {
   tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow: "Fed-corrected broad-depository estimate",
   tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow: "Interest-corrected broad-depository estimate",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "Fiscal-corrected broad-depository estimate",
+  tdc_du_fiscal_flow_first_pass_narrow: "DU fiscal-flow first pass (narrow)",
+  tdc_du_fiscal_flow_first_pass_broad: "DU fiscal-flow first pass (broad)",
   tdc_credit_union_aggregate_sensitivity: "Aggregate credit-union sensitivity",
   tdc_decomposition_proxy_bank_centric: "Bank-centric decomposition proxy",
   tdc_bank_only_extended_1990: "Historical bank-only extension",
@@ -77,13 +84,15 @@ const METHOD_LABELS = {
 const METHOD_FAMILY_LABELS = {
   bank_only_ladder: "Bank-only correction ladder",
   broad_depository_ladder: "Broader deposit perimeter ladder",
+  du_fiscal_flow: "DU fiscal-flow first pass",
   headline_vs_sensitivity: "Headline and sensitivity views",
 };
 
 const METHOD_PALETTE_KEYS = {
   bank_only_ladder: ["--chart-bank-1", "--chart-bank-2", "--chart-bank-3", "--chart-bank-4"],
   broad_depository_ladder: ["--chart-broad-1", "--chart-broad-2", "--chart-broad-3", "--chart-broad-4"],
-  headline_vs_sensitivity: ["--chart-mix-1", "--chart-mix-2", "--chart-mix-3", "--chart-mix-4", "--chart-mix-5"],
+  du_fiscal_flow: ["--chart-mix-1", "--chart-mix-2"],
+  headline_vs_sensitivity: ["--chart-mix-1", "--chart-mix-2", "--chart-mix-3", "--chart-mix-4", "--chart-mix-5", "--chart-bank-4"],
 };
 
 const METHOD_POSTURES = {
@@ -95,6 +104,8 @@ const METHOD_POSTURES = {
   tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow: "intermediate",
   tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow: "intermediate",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "live",
+  tdc_du_fiscal_flow_first_pass_narrow: "intermediate",
+  tdc_du_fiscal_flow_first_pass_broad: "diagnostic",
   tdc_credit_union_aggregate_sensitivity: "diagnostic",
   tdc_decomposition_proxy_bank_centric: "diagnostic",
   tdc_bank_only_extended_1990: "historical",
@@ -122,29 +133,36 @@ const WORKSTREAM_LABELS = {
   row_mrv_primary_pilot: "MRV primary pilot",
   fiscal_reconciliation_shell: "Fiscal reconciliation shell",
   monetary_branch: "Monetary branch",
-  tier3_research_surfaces: "Tier 3 research surfaces",
+  tier3_research_surfaces: "Tier 3 supporting views",
   bank_nontax_regulatory_receipts: "Bank non-tax regulatory receipts",
   row_secondary_and_contaminated_families: "Secondary foreign families",
 };
 
+const MODE_LABELS = {
+  push_hard: "Act now",
+  bounded_push: "Useful next step",
+  bounded_monitor: "Monitor",
+  freeze: "Set aside",
+};
+
 const STATUS_HEADLINES = {
-  historical_default_only_current_nondefault: "Historical default only; current quarters remain nondefault",
-  stop_at_mrv_nondefault_pilot: "Bounded MRV pilot; not promoted into the live default",
+  historical_default_only_current_nondefault: "Historical window only; current quarters stay on hold",
+  stop_at_mrv_nondefault_pilot: "Bounded MRV pilot; kept out of the main estimate",
   prefer_depository_target_crosscheck: "Use the depository target as the preferred cross-check",
   diagnostic_shell_live_not_full_receipt_solved: "Diagnostic shell live; receipt side still incomplete",
   diagnostic_system_live_depository_target_preferred: "Diagnostic system live; depository target preferred",
 };
 
 const STATUS_SHORT_LABELS = {
-  historical_default_only_current_nondefault: "Historical default only",
+  historical_default_only_current_nondefault: "Historical window only",
   stop_at_mrv_nondefault_pilot: "MRV bounded pilot",
   diagnostic_shell_live_not_full_receipt_solved: "Diagnostic shell",
   diagnostic_system_live_depository_target_preferred: "Depository cross-check",
 };
 
 const STATUS_PUBLIC_LABELS = {
-  historical_default_only_current_nondefault: "Historical default ready; current bank receipts still held out",
-  stop_at_mrv_nondefault_pilot: "Bounded MRV pilot; not used in the live default",
+  historical_default_only_current_nondefault: "Historical window usable; current bank receipts still on hold",
+  stop_at_mrv_nondefault_pilot: "Bounded MRV pilot; not used in the main estimate",
   diagnostic_shell_live_not_full_receipt_solved: "Diagnostic shell live; receipt side still incomplete",
   diagnostic_system_live_depository_target_preferred: "Diagnostic system live; depository cross-check preferred",
   live_interest_plus_partial_outlay_corrections: "Transfers and outlays mostly covered",
@@ -152,10 +170,10 @@ const STATUS_PUBLIC_LABELS = {
 
 const ROLE_LABELS = {
   informational_identity: "Informational identity",
-  headline_estimate: "Live working estimate",
+  headline_estimate: "Current headline estimate",
   live_corrected_estimate: "Live corrected estimate",
-  historical_default_view: "Historical bounded overlay",
-  bounded_nondefault_pilot: "Bounded nondefault pilot",
+  historical_default_view: "Historical bounded estimate",
+  bounded_nondefault_pilot: "Bounded pilot",
   diagnostic_crosscheck: "Diagnostic cross-check",
 };
 
@@ -170,7 +188,7 @@ const BLOCKER_LABELS = {
   not_primary_row_candidate: "Not the leading foreign receipt candidate",
   not_treasury_cash_payer_identity: "Not a Treasury cash-payer identity series",
   perimeter_too_broad: "Perimeter is too broad for default use",
-  annual_surface_and_budget_treatment_limits: "Annual treatment and budget-surface limits",
+  annual_surface_and_budget_treatment_limits: "Annual treatment and budget limits",
   presentation_and_labeling_work: "Presentation and labeling work remains",
 };
 
@@ -242,13 +260,17 @@ const METHOD_DESCRIPTIONS = {
   tdc_base_bank_only_ru_flow: "Raw bank-only baseline built from Treasury security transactions, Treasury operating cash, and positive Fed remittances.",
   tdc_tier1_fed_corrected_bank_only_ru_flow: "Step one of the correction ladder, removing the Fed coupon distortion from the raw bank-only baseline.",
   tdc_tier2_interest_corrected_bank_only_ru_flow: "Transfer-side cleanup after removing coupon distortions for the Fed, banks, and foreign holders.",
-  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Current live working estimate after adding the narrow fiscal-flow correction layer.",
+  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Current headline estimate after adding the narrow fiscal-flow correction layer.",
   tdc_base_broad_depository_np_cu_ru_flow: "Broader perimeter baseline that adds natural-person credit unions to the bank-only baseline.",
   tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the Fed-corrected estimate.",
   tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the interest-corrected ladder.",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the fiscal-corrected ladder, used for perimeter comparison rather than as the headline.",
+  tdc_du_fiscal_flow_first_pass_narrow:
+    "DU-facing first pass using total Treasury cash totals, a narrow DU Treasury-security proxy, and direct DU coupon estimation where available.",
+  tdc_du_fiscal_flow_first_pass_broad:
+    "Broader DU-facing first pass using total Treasury cash totals, a broader private DU Treasury-security proxy, and direct DU coupon estimation where available.",
   tdc_credit_union_aggregate_sensitivity: "Sensitivity view for credit-union treatment, kept outside the headline ladder.",
-  tdc_decomposition_proxy_bank_centric: "Proxy decomposition surface used for context rather than as the main estimator.",
+  tdc_decomposition_proxy_bank_centric: "Proxy decomposition view used for context rather than as the main estimator.",
   tdc_bank_only_extended_1990: "Historical extension used to compare the modern transaction-era ladder against a longer bank-only history.",
 };
 
@@ -269,6 +291,10 @@ const METHOD_PLAIN_FORMULAS = {
     "Fed-corrected broad-depository estimate - bank coupon effect - foreign coupon effect.",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow:
     "Interest-corrected broad-depository estimate + fiscal outlay and receipt adjustments + mint and cash-factor adjustment.",
+  tdc_du_fiscal_flow_first_pass_narrow:
+    "Narrow DU Treasury-security proxy + DU noninterest outlay proxy - DU receipt proxy - DU coupon proxy, with direct DU coupon estimation where available and residual fallback otherwise.",
+  tdc_du_fiscal_flow_first_pass_broad:
+    "Broad DU Treasury-security proxy + DU noninterest outlay proxy - DU receipt proxy - DU coupon proxy, with direct DU coupon estimation where available and residual fallback otherwise.",
 };
 
 const REPO_URL = "https://github.com/smkwray/tdcest";
@@ -452,6 +478,10 @@ const METHOD_EQUATIONS = {
     "\\text{Tier 2}_{broad}=\\text{Tier 0}_{broad}-Coupon_{Fed}-Coupon_{Banks}-Coupon_{ROW}",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow:
     "\\text{Tier 3}_{broad}=\\text{Tier 2}_{broad}+Adj^{fiscal}_{bank}+Adj^{fiscal}_{ROW}+Adj^{cash}_{Mint}",
+  tdc_du_fiscal_flow_first_pass_narrow:
+    "\\Delta D^{DU,narrow}_{TDC}=Q^{T,DU}_{proxy}+G^{DU}_{proxy}-R^{DU}_{proxy}-DS^{DU}_{proxy}",
+  tdc_du_fiscal_flow_first_pass_broad:
+    "\\Delta D^{DU,broad}_{TDC}=Q^{T,DU,broad}_{proxy}+G^{DU}_{proxy}-R^{DU}_{proxy}-DS^{DU}_{proxy}",
   bank_receipt_historical_default_view:
     "\\text{Historical Tier 3}^{bank}_{overlay}=\\text{Tier 3}_{bank}+Receipt^{hist}_{bank}",
   row_mrv_primary_nondefault_pilot:
@@ -501,8 +531,32 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function publicCopy(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replaceAll(/\blive repo\b/gi, "current estimates")
+    .replaceAll(/\brepo\b/gi, "current estimates")
+    .replaceAll(/\blive default\b/gi, "main estimate")
+    .replaceAll(/\bdefault promotion\b/gi, "promotion")
+    .replaceAll(/\bnondefault\b/gi, "bounded")
+    .replaceAll(/\bworkstream\b/gi, "line of work")
+    .replaceAll(/\bsurfaces\b/gi, "views")
+    .replaceAll(/\bsurface\b/gi, "view")
+    .replaceAll(/\bartifacts\b/gi, "tables")
+    .replaceAll(/\bartifact\b/gi, "table")
+    .replaceAll(/\bbundle\b/gi, "dataset")
+    .replaceAll(/\bsite should\b/gi, "This view should")
+    .replaceAll(/\bstress surface\b/gi, "stress case")
+    .replaceAll(/\bstress-test\b/gi, "stress")
+    .replaceAll(/\bdiagnostic system\b/gi, "diagnostic cross-check")
+    .replaceAll(/\bresidual system\b/gi, "residual approach")
+    .replaceAll(/\bco-equal headline estimate\b/gi, "headline estimate")
+    .replaceAll(/\bbranch\b/gi, "line")
+    .replaceAll(/\bcarried forward\b/gi, "kept visible");
+}
+
 function renderTheorySection(bundle) {
-  const rows = asRecords(bundle.research?.theory_measurement_map).sort(
+  const rows = asRecords(bundle.research?.theory_map).sort(
     (a, b) => Number(a.display_order || 0) - Number(b.display_order || 0),
   );
   const theoryRows = rows.filter((row) => row.equation_family === "theoretical_identity");
@@ -519,10 +573,10 @@ function renderTheorySection(bundle) {
           <span class="equation-status">Informational only</span>
         </header>
         <div class="equation-block">$$${escapeHtml(row.latex)}$$</div>
-        <p class="metric-subtext">${escapeHtml(row.plain_english_summary)}</p>
+        <p class="metric-subtext">${escapeHtml(publicCopy(row.plain_english_summary))}</p>
         ${renderTermList(THEORY_TERM_LISTS[row.equation_key] || [])}
-        <p class="table-note"><strong>How the site uses this identity:</strong> ${escapeHtml(row.current_measurement_mapping)}</p>
-        <p class="table-note"><strong>Important limit:</strong> ${escapeHtml(row.main_caveat)}</p>
+        <p class="table-note"><strong>How the site uses this identity:</strong> ${escapeHtml(publicCopy(row.measurement_note))}</p>
+        <p class="table-note"><strong>Important limit:</strong> ${escapeHtml(publicCopy(row.limit_note))}</p>
       </article>`,
     )
     .join("");
@@ -543,31 +597,31 @@ function renderTheorySection(bundle) {
       <article class="summary-card map-lead">
         <p class="summary-kicker">Theory to measurement map</p>
         <h3>Theory stays informational; measurements carry the live burden.</h3>
-        <p>The live repo is narrower than the identities. Each measurement below shows what is actually implemented now, what role it plays, and what still limits it.</p>
+        <p>The live measurements are narrower than the identities. Each measurement below shows what is implemented now, how it is used, and what still limits it.</p>
       </article>
       ${measuredRows
         .map(
           (row) => `<article class="map-card">
             <div class="map-card-head">
               <div>
-                <p class="summary-kicker">${escapeHtml(ROLE_LABELS[row.repo_role] || "Measured approximation")}</p>
+                <p class="summary-kicker">${escapeHtml(ROLE_LABELS[row.measurement_role] || "Measured approximation")}</p>
                 <h3>${escapeHtml(row.display_title)}</h3>
               </div>
               <span class="equation-status">${escapeHtml(humanizeKey(row.implementation_status).replaceAll("Estimate", "measurement"))}</span>
             </div>
-            <p>${escapeHtml(row.current_measurement_mapping)}</p>
-            <p class="table-note"><strong>Important limit:</strong> ${escapeHtml(row.main_caveat)}</p>
+            <p>${escapeHtml(publicCopy(row.measurement_note))}</p>
+            <p class="table-note"><strong>Important limit:</strong> ${escapeHtml(publicCopy(row.limit_note))}</p>
           </article>`,
         )
         .join("")}
-      <p class="table-note">The theory identities explain what TDC is. The repo’s live estimates are narrower public-data implementations, bounded overlays, or diagnostics.</p>
+      <p class="table-note">The theory identities explain what TDC is. The live estimates below are narrower public-data measurements, bounded overlays, or cross-checks.</p>
     </div>
   `;
 }
 
 function renderHero(bundle) {
   document.querySelector("#hero-thesis").textContent = bundle.site?.thesis || "";
-  const goals = asRecords(bundle.research?.project_goal_status_review);
+  const goals = asRecords(bundle.research?.goal_status);
   const bankReceipts = goals.find((row) => row.goal_key === "bank_receipts");
   const rowReceipts = goals.find((row) => row.goal_key === "row_receipts");
   const fiscal = goals.find((row) => row.goal_key === "fiscal_flow_tdc_equation");
@@ -580,15 +634,15 @@ function renderHero(bundle) {
     chip("Monetary", STATUS_SHORT_LABELS[monetary?.current_status] || humanizeKey(monetary?.current_status || "n/a")),
   ].join("");
   document.querySelector("#hero-notes").innerHTML = [
-    `<div class="hero-note"><span class="hero-note-kicker">Live headline</span><p>The fiscal-corrected bank-only estimate is the working measure for current quarters. It is the corrected ladder, not the raw Treasury-transaction baseline.</p></div>`,
-    `<div class="hero-note"><span class="hero-note-kicker">Receipt boundary</span><p>Current bank and foreign receipt cells remain explicit boundary choices. Historical bank overlays and the MRV pilot stay visible but separate.</p></div>`,
+    `<div class="hero-note"><span class="hero-note-kicker">Live headline</span><p>The fiscal-corrected bank-only estimate is the current headline for recent quarters. It is the corrected estimate, not the raw Treasury-transaction baseline.</p></div>`,
+    `<div class="hero-note"><span class="hero-note-kicker">Receipt boundary</span><p>Current bank and foreign receipt terms remain explicit boundary choices. Historical bank overlays and the MRV pilot stay visible but separate.</p></div>`,
   ].join("");
 
   const latest = bundle.summary.latest_methods || {};
   const ladder = bundle.site?.latest_ladder?.bank_only || {};
   document.querySelector("#hero-panel").innerHTML = `
     <article class="hero-feature">
-      <p class="eyebrow">Current live working estimate</p>
+      <p class="eyebrow">Current headline estimate</p>
       <div class="hero-feature-head">
         <div>
           <h3>Fiscal-corrected bank-only headline</h3>
@@ -606,14 +660,14 @@ function renderHero(bundle) {
         <div class="hero-step hero-step-active"><span>After fiscal corrections</span><strong>${formatSignedBillions(ladder.tier3)}</strong></div>
       </div>
       <div class="chip-row">
-        ${chip("Live working estimate", "Fiscal-corrected bank-only headline")}
+        ${chip("Current headline estimate", "Fiscal-corrected bank-only headline")}
         ${chip("Broader perimeter view", formatBillions(latest.tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow))}
       </div>
       <div class="posture-legend">
-        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--live"></span><strong>Live</strong><span>Main working estimate now</span></div>
+        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--live"></span><strong>Live</strong><span>Main estimate now</span></div>
         <div class="posture-legend-item"><span class="posture-swatch posture-swatch--historical"></span><strong>Historical</strong><span>Bounded window with fresher support</span></div>
-        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--bounded"></span><strong>Bounded</strong><span>Visible, but not promoted into default</span></div>
-        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--diagnostic"></span><strong>Diagnostic</strong><span>Cross-check or residual surface</span></div>
+        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--bounded"></span><strong>Bounded</strong><span>Visible, but kept separate from the main estimate</span></div>
+        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--diagnostic"></span><strong>Diagnostic</strong><span>Cross-check or residual view</span></div>
       </div>
       <div class="poster-foot">
         <div><span>Uncorrected baseline</span><strong>${formatBillions(latest.tdc_base_bank_only_ru_flow)}</strong></div>
@@ -625,35 +679,35 @@ function renderHero(bundle) {
 }
 
 function renderSignalBand(bundle) {
-  const researchComparison = asRecords(bundle.research?.tier3_research_comparison);
-  const liveComparison = researchComparison.find((row) => row.comparison_key === "latest_live_defaults");
-  const historicalComparison = researchComparison.find((row) => row.comparison_key === "latest_historical_bank_window");
-  const mrvRow = getLatestResearchRow(bundle.research?.receipt_unblock_status, "branch_key", "row_mrv_cbsp_primary");
-  const monetary = asRecords(bundle.research?.monetary_target_preference_review)[0];
+  const researchComparison = asRecords(bundle.research?.fiscal_comparison);
+  const liveComparison = researchComparison.find((row) => row.entry_key === "latest_live_defaults");
+  const historicalComparison = researchComparison.find((row) => row.entry_key === "latest_historical_bank_window");
+  const mrvRow = getLatestResearchRow(bundle.research?.receipt_status, "branch_key", "row_mrv_cbsp_primary");
+  const monetary = asRecords(bundle.research?.monetary_review)[0];
 
   document.querySelector("#signal-strip").innerHTML = [
     posterMetric(
       "Current live estimate",
       formatBillions(liveComparison?.tier3_bank_only_mil),
-      `Fiscal-corrected bank-only headline at ${liveComparison?.reference_date || "n/a"}. This is the live working estimate for the site.`,
+      `Fiscal-corrected bank-only headline at ${liveComparison?.reference_date || "n/a"}. This is the current headline estimate.`,
       "live",
     ),
     posterMetric(
       "Strongest historical receipt result",
       formatBillions(historicalComparison?.historical_bank_receipt_variant_mil),
-      `Historical bank overlay at ${historicalComparison?.reference_date || "n/a"}. Strongest bounded receipt-side result in the repo.`,
+      `Historical bank overlay at ${historicalComparison?.reference_date || "n/a"}. Strongest bounded receipt-side result now available.`,
       "historical",
     ),
     posterMetric(
       "Bounded foreign pilot",
       formatBillions(mrvRow?.latest_value_millions),
-      `MRV latest support at ${mrvRow?.latest_relevant_date || "n/a"}. Bounded nondefault sensitivity, not live default.`,
+      `MRV latest support at ${mrvRow?.latest_relevant_date || "n/a"}. Bounded sensitivity, not part of the main estimate.`,
       "bounded",
     ),
     posterMetric(
       "Preferred cross-check",
       formatBillions(monetary?.depository_residual_after_expanded_mil),
-      `Preferred target: ${monetary?.preferred_target === "depository_target" ? "Depository target" : humanizeKey(monetary?.preferred_target || "depository_target")}. Monetary branch remains diagnostic, not a replacement headline.`,
+      `Preferred target: ${monetary?.preferred_target === "depository_target" ? "Depository target" : humanizeKey(monetary?.preferred_target || "depository_target")}. Monetary branch remains a cross-check, not the headline.`,
       "diagnostic",
     ),
   ].join("");
@@ -696,7 +750,7 @@ function renderMethodExplorer(bundle) {
     } else {
       percentNote.hidden = false;
       percentNote.textContent =
-        "Percent-of-GDP view is unavailable: nominal GDP is missing from this bundle.";
+        "Percent-of-GDP view is unavailable: nominal GDP is missing from this dataset.";
     }
   }
 
@@ -765,7 +819,7 @@ function renderMethodStory(bundle, familyKey, rangeKey, methods) {
   const familyCopy = {
     bank_only_ladder: "This view tracks the bank-only correction ladder from the raw baseline to the live fiscal-corrected headline.",
     broad_depository_ladder: "This view keeps the same ladder shape but widens the deposit perimeter to include natural-person credit unions.",
-    headline_vs_sensitivity: "This view contrasts the live headline with historical and sensitivity variants that should not be read as co-equal defaults.",
+    headline_vs_sensitivity: "This view contrasts the current headline with historical and sensitivity variants that should not be read the same way.",
   };
   const familyNarratives = {
     bank_only_ladder: {
@@ -790,7 +844,7 @@ function renderMethodStory(bundle, familyKey, rangeKey, methods) {
   const narrative = familyNarratives[familyKey] || familyNarratives.bank_only_ladder;
   document.querySelector("#method-story").innerHTML = `
     <article class="story-panel">
-      <p class="posture-ribbon posture-ribbon--live">Live comparison surface</p>
+      <p class="posture-ribbon posture-ribbon--live">Live comparison view</p>
       <h3>${METHOD_FAMILY_LABELS[familyKey] || "Method comparison"}</h3>
       <p>${familyCopy[familyKey] || ""}</p>
       <div class="story-grid">
@@ -1028,7 +1082,7 @@ function renderMethodTable(bundle, methods) {
           <h3>${METHOD_LABELS[method] || method}</h3>
         </div>
         <span class="method-subtitle">${METHOD_DESCRIPTIONS[method] || ""}</span>
-        <div class="method-equation method-equation--ascii">${escapeHtml(METHOD_PLAIN_FORMULAS[method] || "Used as a comparison or sensitivity surface rather than a main formula row.")}</div>
+        <div class="method-equation method-equation--ascii">${escapeHtml(METHOD_PLAIN_FORMULAS[method] || "Used as a comparison or sensitivity view rather than a main formula row.")}</div>
       </div>
       <div class="metric-value">${formatBillions(latest[method])}</div>
     </article>`)
@@ -1088,28 +1142,28 @@ function renderContributionList(target, frame, keys, index, scale) {
 }
 
 function renderReceiptSection(bundle) {
-  const unblock = asRecords(bundle.research.receipt_unblock_status);
+  const unblock = asRecords(bundle.research.receipt_status);
   const bankHist = unblock.find((row) => row.branch_key === "bank_table51_historical_window");
   const bankCurrent = unblock.find((row) => row.branch_key === "bank_table51_current_window");
   const rowMrv = unblock.find((row) => row.branch_key === "row_mrv_cbsp_primary");
-  const bankStop = asRecords(bundle.research.bank_receipt_stop_gate).find((row) => row.row_type === "summary");
-  const mrvStop = asRecords(bundle.research.row_mrv_stop_gate).find((row) => row.row_type === "summary");
-  const comparison = asRecords(bundle.research.tier3_research_comparison);
-  const histComparison = comparison.find((row) => row.comparison_key === "latest_historical_bank_window");
-  const liveComparison = comparison.find((row) => row.comparison_key === "latest_live_defaults");
-  const mrvSummary = asRecords(bundle.research.row_mrv_nondefault_evidence_summary)[0];
+  const bankStop = asRecords(bundle.research.bank_receipt_status).find((row) => row.row_type === "summary");
+  const mrvStop = asRecords(bundle.research.foreign_pilot_status).find((row) => row.row_type === "summary");
+  const comparison = asRecords(bundle.research.fiscal_comparison);
+  const histComparison = comparison.find((row) => row.entry_key === "latest_historical_bank_window");
+  const liveComparison = comparison.find((row) => row.entry_key === "latest_live_defaults");
+  const mrvSummary = asRecords(bundle.research.foreign_pilot_evidence)[0];
   const mrvBlockers = splitValues(rowMrv?.missing_source_families);
   const bankStopRows = [
-    bankCurrent?.summary_note || "",
+    publicCopy(bankCurrent?.summary_note || ""),
     `Historical overlay remains usable through ${bankHist?.latest_relevant_date || "n/a"}.`,
-    `Current quarters stay nondefault until fresher public IRS bank-minor shares exist.`,
+    `Current quarters stay on hold until fresher public IRS bank-minor shares exist.`,
   ];
 
   document.querySelector("#bank-package-card").innerHTML = `
-    <p class="posture-ribbon posture-ribbon--bounded">Historical default only</p>
+    <p class="posture-ribbon posture-ribbon--bounded">Historical window</p>
     <p class="eyebrow">Historical bank receipt window</p>
     <h3>${STATUS_HEADLINES[bankStop?.status] || humanizeKey(bankStop?.status || "historical_default_only_current_nondefault")}</h3>
-    <p>${bankHist?.summary_note || ""}</p>
+    <p>${escapeHtml(publicCopy(bankHist?.summary_note || ""))}</p>
     <div class="chip-row">
       ${chip("Latest historical quarter", bankHist?.latest_relevant_date || "n/a")}
       ${chip("Historical bridge", formatMillions(bankHist?.latest_value_millions))}
@@ -1121,10 +1175,10 @@ function renderReceiptSection(bundle) {
   `;
 
   document.querySelector("#mrv-package-card").innerHTML = `
-    <p class="posture-ribbon posture-ribbon--bounded">Bounded nondefault pilot</p>
+    <p class="posture-ribbon posture-ribbon--bounded">Bounded pilot</p>
     <p class="eyebrow">MRV bounded foreign pilot</p>
     <h3>${STATUS_HEADLINES[mrvStop?.status] || humanizeKey(mrvStop?.status || "stop_at_mrv_nondefault_pilot")}</h3>
-    <p>${rowMrv?.summary_note || ""}</p>
+    <p>${escapeHtml(publicCopy(rowMrv?.summary_note || ""))}</p>
     <div class="chip-row">
       ${chip("Current MRV pilot", formatMillions(rowMrv?.latest_value_millions))}
       ${chip("Checks complete", String(mrvSummary?.promotion_checks_complete ?? "n/a"))}
@@ -1138,8 +1192,8 @@ function renderReceiptSection(bundle) {
   document.querySelector("#receipt-unblock-table").innerHTML = `
     <div class="summary-stack">
       <article class="summary-card">
-        <p class="summary-kicker">Current live default cells</p>
-        <h3>The live fiscal-corrected estimate still keeps both receipt cells at zero by rule.</h3>
+        <p class="summary-kicker">Current receipt terms</p>
+        <h3>The current fiscal-corrected estimate still keeps both receipt terms at zero by rule.</h3>
         <p>Those zeros are boundary choices, not claims that receipts are absent.</p>
         <ul class="summary-list">
           <li>Bank current window: ${escapeHtml(BLOCKER_LABELS[bankCurrent?.binding_blocker] || humanizeKey(bankCurrent?.binding_blocker || "stale_share_rule"))}</li>
@@ -1149,8 +1203,8 @@ function renderReceiptSection(bundle) {
       </article>
       <article class="summary-card">
         <p class="summary-kicker">What is usable now</p>
-        <h3>The bank historical window is the strongest receipt-side result in the repo.</h3>
-        <p>It is usable as a historical default view inside the age-eligible window and should stay separate from the stale current bridge.</p>
+        <h3>The bank historical window is the strongest receipt-side result available today.</h3>
+        <p>It is usable as a historical view inside the age-eligible window and should stay separate from the stale current bridge.</p>
         <ul class="summary-list">
           <li>Historical overlay support date: ${escapeHtml(bankHist?.latest_relevant_date || "n/a")}</li>
           <li>Historical overlay effect: ${formatMillions(bankHist?.latest_value_millions)}</li>
@@ -1160,7 +1214,7 @@ function renderReceiptSection(bundle) {
       <article class="summary-card">
         <p class="summary-kicker">Foreign bounded push</p>
         <h3>MRV is the only recurring foreign branch still worth carrying.</h3>
-        <p>It is informative as a bounded sensitivity, but still blocked from default promotion.</p>
+        <p>It is informative as a bounded sensitivity, but still not used in the main estimate.</p>
         <ul class="summary-list">
           <li>Latest nonzero support: ${escapeHtml(rowMrv?.latest_relevant_date || "n/a")} · ${formatMillions(rowMrv?.latest_value_millions)}</li>
           <li>Promotion status: ${escapeHtml(STATUS_PUBLIC_LABELS[mrvStop?.status] || humanizeKey(mrvStop?.status || "stop_at_mrv_nondefault_pilot"))}</li>
@@ -1181,37 +1235,37 @@ function renderReceiptSection(bundle) {
           <div><span>Bank boundary</span><strong>${escapeHtml(STATUS_PUBLIC_LABELS[liveComparison?.bank_receipt_boundary] || humanizeKey(liveComparison?.bank_receipt_boundary))}</strong></div>
           <div><span>Foreign boundary</span><strong>${escapeHtml(STATUS_PUBLIC_LABELS[liveComparison?.row_receipt_boundary] || humanizeKey(liveComparison?.row_receipt_boundary))}</strong></div>
         </div>
-        <p class="table-note">${escapeHtml(liveComparison?.interpretation || "")}</p>
+        <p class="table-note">${escapeHtml(publicCopy(liveComparison?.interpretation || ""))}</p>
       </article>
       <article class="comparison-panel">
         <p class="summary-kicker">Historical bank window</p>
         <h3>${escapeHtml(histComparison?.reference_date || "n/a")}</h3>
         <div class="comparison-grid">
-          <div><span>Historical default</span><strong>${formatMillions(histComparison?.tier3_bank_only_mil)}</strong></div>
+          <div><span>Historical estimate</span><strong>${formatMillions(histComparison?.tier3_bank_only_mil)}</strong></div>
           <div><span>Historical variant</span><strong>${formatMillions(histComparison?.historical_bank_receipt_variant_mil)}</strong></div>
           <div><span>Lower bound</span><strong>${formatMillions(histComparison?.historical_bank_lower_bound_variant_mil)}</strong></div>
           <div><span>MRV latest support</span><strong>${escapeHtml(histComparison?.current_row_mrv_pilot_latest_date || "n/a")}</strong></div>
         </div>
-        <p class="table-note">${escapeHtml(histComparison?.interpretation || "")}</p>
+        <p class="table-note">${escapeHtml(publicCopy(histComparison?.interpretation || ""))}</p>
       </article>
     </div>
   `;
 }
 
 function renderFiscalSection(bundle) {
-  const residuals = asRecords(bundle.research.fiscal_reconciliation_residuals);
+  const residuals = asRecords(bundle.research.fiscal_residuals);
   const latestResidual = residuals.slice(-1)[0];
-  const sourceQuality = asRecords(bundle.research.fiscal_source_quality);
+  const sourceQuality = asRecords(bundle.research.fiscal_quality);
   const headlineFamilies = sourceQuality.filter((row) => row.included_in_headline).slice(0, 4);
   const benchmarkFamilies = sourceQuality.filter((row) => !row.included_in_headline).slice(0, 4);
-  const receiptBoundaries = asRecords(bundle.research.fiscal_receipt_boundary_review).filter((row) =>
+  const receiptBoundaries = asRecords(bundle.research.fiscal_receipt_boundaries).filter((row) =>
     ["bank_live_default_receipt_cell", "row_live_default_receipt_cell", "bank_receipt_historical_overlay_candidate", "row_mrv_primary_nondefault_pilot"].includes(row.boundary_key),
   );
   document.querySelector("#fiscal-lead").innerHTML = `
     <article class="story-panel story-panel--diagnostic">
       <p class="posture-ribbon posture-ribbon--diagnostic">Bounded diagnostic shell</p>
-      <h3>Arithmetic closure is not the same thing as receipt completeness.</h3>
-      <p>The fiscal shell is useful because it shows where the ladder still closes and where the unresolved receipt cells are policy boundaries rather than observed zeros.</p>
+      <h3>Arithmetic closure is not the same thing as full receipt measurement.</h3>
+      <p>The fiscal shell is useful because it shows where the ladder still closes and where unresolved receipt terms are boundary choices rather than observed zeros.</p>
     </article>
   `;
   document.querySelector("#fiscal-residual-card").innerHTML = `
@@ -1225,14 +1279,14 @@ function renderFiscalSection(bundle) {
         ${chip("Fiscal-corrected residual", formatMillions(latestResidual?.tier3_reconstruction_residual_mil))}
       </div>
       <p class="metric-subtext">
-        The fiscal shell remains a reconciliation matrix around the ladder. Zero-ish residuals mean the currently loaded ladder components still close arithmetically even while receipt-side boundaries remain only partly solved.
+        The fiscal shell remains a reconciliation matrix around the ladder. Near-zero residuals mean the currently loaded components still close arithmetically even while receipt-side boundaries remain only partly solved.
       </p>
     </div>
   `;
   document.querySelector("#fiscal-quality-table").innerHTML = `
     <div class="quality-band">
       <article class="summary-card">
-        <p class="summary-kicker">Loaded in the live shell</p>
+        <p class="summary-kicker">Loaded in the current estimate</p>
         <h3>Coupon and outlay families already do most of the fiscal work.</h3>
         <div class="quality-list">
           ${headlineFamilies
@@ -1240,7 +1294,7 @@ function renderFiscalSection(bundle) {
               (row) => `<div class="quality-item">
                 <div>
                   <strong>${escapeHtml(QUALITY_FAMILY_LABELS[row.row_family] || humanizeKey(row.row_family))}</strong>
-                  <p>${escapeHtml(row.notes || "")}</p>
+                  <p>${escapeHtml(publicCopy(row.notes || ""))}</p>
                 </div>
                 <div class="quality-meta">
                   <span>${escapeHtml(RELIABILITY_LABELS[row.reliability_grade] || humanizeKey(row.reliability_grade))}</span>
@@ -1253,14 +1307,14 @@ function renderFiscalSection(bundle) {
       </article>
       <article class="summary-card">
         <p class="summary-kicker">Receipt boundaries inside the shell</p>
-        <h3>Live default cells stay zero, while bounded overlays remain separate.</h3>
+        <h3>Main-estimate receipt terms stay zero, while bounded overlays remain separate.</h3>
         <div class="quality-list">
           ${receiptBoundaries
             .map(
               (row) => `<div class="quality-item">
                 <div>
                   <strong>${escapeHtml(BOUNDARY_LABELS[row.boundary_key] || humanizeKey(row.boundary_key))}</strong>
-                  <p>${escapeHtml(row.interpretation || "")}</p>
+                  <p>${escapeHtml(publicCopy(row.interpretation || ""))}</p>
                 </div>
                 <div class="quality-meta">
                   <span>${escapeHtml(BLOCKER_LABELS[row.binding_blocker] || humanizeKey(row.binding_blocker))}</span>
@@ -1273,14 +1327,14 @@ function renderFiscalSection(bundle) {
       </article>
       <article class="summary-card">
         <p class="summary-kicker">Benchmark and context rows</p>
-        <h3>These rows matter for scale and reconciliation, not for headline promotion.</h3>
+        <h3>These rows matter for scale and reconciliation, not as headline evidence.</h3>
         <div class="quality-list">
           ${benchmarkFamilies
             .map(
               (row) => `<div class="quality-item">
                 <div>
                   <strong>${escapeHtml(QUALITY_FAMILY_LABELS[row.row_family] || humanizeKey(row.row_family))}</strong>
-                  <p>${escapeHtml(row.notes || "")}</p>
+                  <p>${escapeHtml(publicCopy(row.notes || ""))}</p>
                 </div>
                 <div class="quality-meta">
                   <span>${escapeHtml(RELIABILITY_LABELS[row.reliability_grade] || humanizeKey(row.reliability_grade))}</span>
@@ -1296,8 +1350,8 @@ function renderFiscalSection(bundle) {
 }
 
 function renderMonetarySection(bundle) {
-  const goals = asRecords(bundle.research.project_goal_status_review);
-  const monetary = asRecords(bundle.research.monetary_target_preference_review)[0];
+  const goals = asRecords(bundle.research.goal_status);
+  const monetary = asRecords(bundle.research.monetary_review)[0];
   const coreGoals = goals.filter((row) =>
     ["bank_receipts", "row_receipts", "fiscal_flow_tdc_equation", "monetary_disaggregated_tdc_equation"].includes(row.goal_key),
   );
@@ -1305,7 +1359,7 @@ function renderMonetarySection(bundle) {
     <article class="story-panel story-panel--diagnostic">
       <p class="posture-ribbon posture-ribbon--diagnostic">Diagnostic branch</p>
       <h3>The monetary system is there to bound interpretation, not to replace the ladder.</h3>
-      <p>The site should make the preferred depository cross-check visible while keeping the commercial-bank target framed as a stress surface.</p>
+      <p>This section keeps the preferred depository cross-check visible while the commercial-bank target stays a stress case.</p>
     </article>
   `;
   document.querySelector("#goal-status-table").innerHTML = `
@@ -1315,7 +1369,7 @@ function renderMonetarySection(bundle) {
           (row) => `<article class="summary-card">
             <p class="summary-kicker">${escapeHtml(humanizeKey(row.goal_key, GOAL_LABELS))}</p>
             <h3>${escapeHtml(STATUS_PUBLIC_LABELS[row.current_status] || humanizeKey(row.current_status))}</h3>
-            <p>${escapeHtml(row.summary_note || "")}</p>
+            <p>${escapeHtml(publicCopy(row.summary_note || ""))}</p>
             <div class="goal-footer">
               <span>${escapeHtml(row.latest_relevant_date || "n/a")}</span>
               <strong>${escapeHtml(BLOCKER_LABELS[row.binding_blocker] || humanizeKey(row.binding_blocker || "none"))}</strong>
@@ -1335,10 +1389,10 @@ function renderMonetarySection(bundle) {
         ${chip("Depository residual", formatMillions(monetary?.depository_residual_after_expanded_mil))}
         ${chip("Bank residual", formatMillions(monetary?.commercial_bank_residual_after_expanded_mil))}
       </div>
-      <p class="metric-subtext">${monetary?.review_rationale || ""}</p>
+      <p class="metric-subtext">${escapeHtml(publicCopy(monetary?.review_rationale || ""))}</p>
       <ul class="summary-list">
         <li>Use the depository target as the preferred diagnostic cross-check.</li>
-        <li>Keep the commercial-bank target as a perimeter stress surface, not a headline replacement.</li>
+        <li>Keep the commercial-bank target as a perimeter stress case, not the headline.</li>
         <li>Do not reopen the monetary branch unless a genuinely new source family appears.</li>
       </ul>
     </div>
@@ -1346,7 +1400,7 @@ function renderMonetarySection(bundle) {
 }
 
 function renderWorkstreamSection(bundle) {
-  const rows = asRecords(bundle.research.workstream_end_state_map).slice(0, 8);
+  const rows = asRecords(bundle.research.next_steps).slice(0, 8);
   const order = ["push_hard", "bounded_push", "bounded_monitor", "freeze"];
   const groups = order
     .map((mode) => ({
@@ -1360,21 +1414,21 @@ function renderWorkstreamSection(bundle) {
         .map(
           (group) => `<section class="workstream-group">
             <div class="workstream-group-head">
-              <p class="summary-kicker">${escapeHtml(humanizeKey(group.mode))}</p>
-              <h3>${escapeHtml(humanizeKey(group.mode))}</h3>
-              <p class="table-note">${group.rows.length} ${group.rows.length === 1 ? "workstream" : "workstreams"}</p>
+              <p class="summary-kicker">${escapeHtml(MODE_LABELS[group.mode] || humanizeKey(group.mode))}</p>
+              <h3>${escapeHtml(MODE_LABELS[group.mode] || humanizeKey(group.mode))}</h3>
+              <p class="table-note">${group.rows.length} ${group.rows.length === 1 ? "item" : "items"}</p>
             </div>
             <div class="workstream-list">
               ${group.rows
                 .map(
                   (row) => `<article class="workstream-item">
                     <div>
-                      <strong>${escapeHtml(humanizeKey(row.workstream_key, WORKSTREAM_LABELS))}</strong>
-                      <p>${escapeHtml(row.summary_note || "")}</p>
+                      <strong>${escapeHtml(humanizeKey(row.next_step_key, WORKSTREAM_LABELS))}</strong>
+                      <p>${escapeHtml(publicCopy(row.summary_note || ""))}</p>
                     </div>
                     <div class="workstream-meta">
                       <span>${escapeHtml(BLOCKER_LABELS[row.binding_blocker] || humanizeKey(row.binding_blocker || "none"))}</span>
-                      <p>${escapeHtml(row.next_finite_push || "")}</p>
+                      <p>${escapeHtml(publicCopy(row.next_finite_push || ""))}</p>
                     </div>
                   </article>`,
                 )
@@ -1389,14 +1443,10 @@ function renderWorkstreamSection(bundle) {
 
 function renderFooter(bundle) {
   document.querySelector("#site-footer-note").textContent =
-    "Public estimator ladder for Treasury-attributed deposit effects, with bounded receipt and diagnostic branches kept explicit.";
+    "Public estimator ladder for Treasury-attributed deposit effects, with bounded receipt and cross-check branches kept explicit.";
   document.querySelector("#site-footer-meta").innerHTML = `
-    <a class="footer-link" href="${REPO_URL}" target="_blank" rel="noreferrer">Repository</a>
-    <a class="footer-link" href="./data/bundle.json" target="_blank" rel="noreferrer">Data bundle</a>
     <a class="footer-link" href="${REPO_URL}/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a>
-    <span class="footer-pill">Built ${formatUtcDate(bundle.metadata?.generated_at_utc || bundle.generated_at_utc)}</span>
-    <span class="footer-pill">${AUTHOR_NAME}</span>
-    <span class="footer-pill">${LICENSE_NAME}</span>
+    <span class="footer-pill">Updated ${formatUtcDate(bundle.metadata?.generated_at_utc || bundle.generated_at_utc)}</span>
     <span class="footer-pill">Latest period ${bundle.summary.latest_period || "n/a"}</span>
   `;
 }
@@ -1405,7 +1455,7 @@ async function loadBundle() {
   const primary = await fetch("./data/bundle.json");
   if (primary.ok) return primary.json();
   const fallback = await fetch("./bundle.json");
-  if (!fallback.ok) throw new Error("Could not load bundle.json");
+  if (!fallback.ok) throw new Error("Could not load site data.");
   return fallback.json();
 }
 
@@ -1423,7 +1473,7 @@ loadBundle()
     renderFooter(bundle);
   })
   .catch((error) => {
-    document.body.innerHTML = `<main class="section"><h1>Bundle load failed.</h1><p class="hero-text">${error.message}</p></main>`;
+    document.body.innerHTML = `<main class="section"><h1>Site data failed to load.</h1><p class="hero-text">${error.message}</p></main>`;
   });
 
 window.addEventListener("tdc-theme-change", () => {

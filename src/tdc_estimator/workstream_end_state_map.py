@@ -196,7 +196,7 @@ def build_workstream_end_state_map(
                 "domain": "monetary",
                 "recommended_mode": "diagnostic_only",
                 "current_state": str(
-                    monetary_pref_summary.get("recommendation", "prefer_depository_target_crosscheck")
+                    monetary_pref_summary.get("recommendation_status", "prefer_depository_target_crosscheck")
                 ),
                 "end_state_target": "stable_diagnostic_crosscheck_with_depository_target_primary",
                 "binding_blocker": str(

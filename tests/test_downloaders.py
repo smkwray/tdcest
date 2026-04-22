@@ -171,6 +171,45 @@ def test_download_treasury_dataset_follows_query_only_pagination(monkeypatch, tm
     assert calls == list(pages)
 
 
+def test_download_treasury_dataset_uses_meta_total_pages_when_next_link_is_missing(monkeypatch, tmp_path: Path):
+    calls: list[str] = []
+
+    pages = {
+        "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/deposits_withdrawals_operating_cash?sort=-record_date&page%5Bsize%5D=10000": json.dumps(
+            {
+                "data": [{"record_date": "2024-03-31", "transaction_type": "Deposits", "transaction_today_amt": "10"}],
+                "meta": {"total-pages": 2},
+                "links": {},
+            }
+        ),
+        "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/deposits_withdrawals_operating_cash?sort=-record_date&page%5Bsize%5D=10000&page%5Bnumber%5D=2": json.dumps(
+            {
+                "data": [{"record_date": "2024-04-01", "transaction_type": "Withdrawals", "transaction_today_amt": "11"}],
+                "meta": {"total-pages": 2},
+                "links": {},
+            }
+        ),
+    }
+
+    def fake_urlopen_text(url: str, timeout: int = 60) -> str:
+        calls.append(url)
+        return pages[url]
+
+    monkeypatch.setattr("tdc_estimator.download._urlopen_text", fake_urlopen_text)
+
+    spec = TreasuryDataset(
+        key="dts_operating_cash_balance",
+        endpoint="/v1/accounting/dts/deposits_withdrawals_operating_cash",
+        description="desc",
+        params={"sort": "-record_date"},
+    )
+    result = download_treasury_dataset(spec, tmp_path)
+
+    assert result["pages"] == 2
+    assert result["rows"] == 2
+    assert calls == list(pages)
+
+
 def test_build_treasury_url_fills_default_page_size():
     assert _build_treasury_url("/v1/example", {"sort": "-record_date"}) == (
         "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/example?"

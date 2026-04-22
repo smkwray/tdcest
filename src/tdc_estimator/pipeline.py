@@ -14,6 +14,7 @@ from .bank_receipt_stop_gate import write_bank_receipt_stop_gate
 from .bank_nontax_regulatory_pilot import write_bank_nontax_regulatory_pilot
 from .bank_occ_timing_sensitivity import write_bank_occ_timing_sensitivity
 from .bea_row_receipts_benchmark import write_bea_row_receipts_benchmark
+from .du_fiscal_flow_research import write_du_fiscal_flow_research
 from .catalog import all_fred_series
 from .attribution import write_post2022_bank_only_attribution
 from .estimators import compute_estimates
@@ -21,6 +22,7 @@ from .fdic_savings_institution_deposit_bridge import write_fdic_savings_institut
 from .fiscal_reconciliation import write_fiscal_reconciliation_outputs
 from .fiscal_receipt_boundary_review import write_fiscal_receipt_boundary_review
 from .input_audit import write_input_audit
+from .headline_validation_review import write_headline_validation_review
 from .io import build_quarterly_frame
 from .monetary_stage0 import write_monetary_stage0_diagnostics
 from .monetary_control_overlap_audit import write_monetary_control_overlap_audit
@@ -184,6 +186,8 @@ def run_estimation_pipeline(
     backend_release_check_markdown_path = processed_dir / "tdc_backend_release_check.md"
     theory_measurement_map_path = processed_dir / "tdc_theory_measurement_map.csv"
     theory_measurement_map_markdown_path = processed_dir / "tdc_theory_measurement_map.md"
+    du_fiscal_flow_research_path = processed_dir / "tdc_du_fiscal_flow_research.csv"
+    du_fiscal_flow_research_markdown_path = processed_dir / "tdc_du_fiscal_flow_research.md"
     row_mrv_nondefault_evidence_summary_path = processed_dir / "tdc_row_mrv_nondefault_evidence_summary.csv"
     row_mrv_nondefault_evidence_summary_markdown_path = processed_dir / "tdc_row_mrv_nondefault_evidence_summary.md"
     bank_receipt_default_readiness_path = processed_dir / "tdc_bank_receipt_default_readiness.csv"
@@ -254,7 +258,54 @@ def run_estimation_pipeline(
     monetary_target_preference_review_markdown_path = processed_dir / "tdc_monetary_target_preference_review.md"
     input_audit_path = processed_dir / "tdc_input_audit.csv"
     input_audit_markdown_path = processed_dir / "tdc_input_audit.md"
+    headline_validation_review_path = processed_dir / "tdc_headline_validation_review.csv"
+    headline_validation_review_markdown_path = processed_dir / "tdc_headline_validation_review.md"
     method_meta_path = processed_dir / "method_meta.json"
+
+    _, _, du_fiscal_flow_research = write_du_fiscal_flow_research(
+        quarterly=quarterly,
+        components=components,
+        mts_outlays_path=Path(raw_dir) / "treasury__mts_outlays.csv",
+        mts_receipts_path=Path(raw_dir) / "treasury__mts_receipts.csv",
+        csv_path=du_fiscal_flow_research_path,
+        markdown_path=du_fiscal_flow_research_markdown_path,
+    )
+    for column in ["tdc_du_fiscal_flow_first_pass_narrow", "tdc_du_fiscal_flow_first_pass_broad"]:
+        if column in du_fiscal_flow_research.columns:
+            estimates[column] = du_fiscal_flow_research[column]
+    for column in [
+        "du_domestic_nonfinancial_security_flow_proxy",
+        "du_broad_private_security_flow_proxy",
+        "du_noninterest_outlay_proxy",
+        "du_receipt_proxy",
+        "du_coupon_proxy_direct_narrow",
+        "du_coupon_proxy_direct_broad",
+        "du_coupon_proxy_residual",
+    ]:
+        if column in du_fiscal_flow_research.columns:
+            components[column] = du_fiscal_flow_research[column]
+
+    method_meta["available_methods"] = list(estimates.columns)
+    method_meta.setdefault("method_descriptions", {}).update(
+        {
+            "tdc_du_fiscal_flow_first_pass_narrow": (
+                "First-pass DU-facing fiscal-flow estimate using total Treasury cash totals, the narrow DU Treasury-security proxy, and direct DU coupon estimation where available."
+            ),
+            "tdc_du_fiscal_flow_first_pass_broad": (
+                "First-pass DU-facing fiscal-flow estimate using total Treasury cash totals, the broad DU Treasury-security proxy, and direct DU coupon estimation where available."
+            ),
+        }
+    )
+    method_meta.setdefault("method_formulas", {}).update(
+        {
+            "tdc_du_fiscal_flow_first_pass_narrow": (
+                "First-pass DU narrow = DU domestic-nonfinancial Treasury-security flow proxy + DU noninterest outlay proxy - DU receipt proxy - DU narrow coupon proxy."
+            ),
+            "tdc_du_fiscal_flow_first_pass_broad": (
+                "First-pass DU broad = Broad DU Treasury-security flow proxy + DU noninterest outlay proxy - DU receipt proxy - DU broad coupon proxy."
+            ),
+        }
+    )
 
     quarterly_to_write = quarterly.copy()
     quarterly_to_write.index.name = "date"
@@ -283,6 +334,13 @@ def run_estimation_pipeline(
         series_meta,
         csv_path=input_audit_path,
         markdown_path=input_audit_markdown_path,
+    )
+    _, _, headline_validation_review = write_headline_validation_review(
+        estimates,
+        corrections,
+        csv_path=headline_validation_review_path,
+        markdown_path=headline_validation_review_markdown_path,
+        input_audit=input_audit,
     )
     _, _, bea_row_receipts_benchmark = write_bea_row_receipts_benchmark(
         quarterly,
@@ -721,6 +779,7 @@ def run_estimation_pipeline(
         markdown_path=downstream_estimator_contract_markdown_path,
         estimates=estimates,
         method_meta=method_meta,
+        input_audit=input_audit,
         receipt_unblock_status=receipt_unblock_status,
         project_goal_status_review=project_goal_status_review,
         tier3_research_comparison=tier3_research_comparison,
@@ -961,6 +1020,8 @@ def run_estimation_pipeline(
                 "backend_closeout_review": backend_closeout_review,
                 "backend_release_check": backend_release_check,
                 "theory_measurement_map": theory_measurement_map,
+                "du_fiscal_flow_research": du_fiscal_flow_research,
+                "headline_validation_review": headline_validation_review,
             },
         )
 
@@ -1011,6 +1072,7 @@ def run_estimation_pipeline(
         "backend_closeout_review": backend_closeout_review,
         "backend_release_check": backend_release_check,
         "theory_measurement_map": theory_measurement_map,
+        "du_fiscal_flow_research": du_fiscal_flow_research,
         "row_mrv_nondefault_evidence_summary": row_mrv_nondefault_evidence_summary,
         "bank_receipt_default_readiness": bank_receipt_default_readiness,
         "bank_receipt_source_map": bank_receipt_source_map,
@@ -1037,6 +1099,7 @@ def run_estimation_pipeline(
         "fdic_savings_institution_deposit_bridge": fdic_savings_institution_deposit_bridge,
         "monetary_target_preference_review": monetary_target_preference_review,
         "input_audit": input_audit,
+        "headline_validation_review": headline_validation_review,
         "series_meta": series_meta,
         "method_meta": method_meta,
         "quarterly_path": str(quarterly_path),
@@ -1047,6 +1110,8 @@ def run_estimation_pipeline(
         "post2022_attribution_markdown_path": str(post2022_attribution_markdown_path),
         "input_audit_path": str(input_audit_path),
         "input_audit_markdown_path": str(input_audit_markdown_path),
+        "headline_validation_review_path": str(headline_validation_review_path),
+        "headline_validation_review_markdown_path": str(headline_validation_review_markdown_path),
         "bea_row_receipts_benchmark_path": str(bea_row_receipts_benchmark_path) if not bea_row_receipts_benchmark.empty else None,
         "bea_row_receipts_benchmark_markdown_path": str(bea_row_receipts_benchmark_markdown_path)
         if not bea_row_receipts_benchmark.empty

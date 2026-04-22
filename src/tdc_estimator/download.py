@@ -90,17 +90,33 @@ def download_treasury_dataset(
     project_root: Path | str | None = None,
 ) -> dict[str, Any]:
     raw_dir = ensure_dir(raw_dir)
-    url = _build_treasury_url(spec.endpoint, spec.params)
     rows: list[dict[str, Any]] = []
     page_count = 0
+    params = dict(spec.params or {})
+    if "page[size]" not in params:
+        params["page[size]"] = "10000"
 
-    while url:
-        page_count += 1
-        text = _urlopen_text(url)
-        payload = json.loads(text)
-        rows.extend(payload.get("data", []))
+    first_url = _build_treasury_url(spec.endpoint, params)
+    text = _urlopen_text(first_url)
+    payload = json.loads(text)
+    rows.extend(payload.get("data", []))
+    page_count = 1
+
+    meta = payload.get("meta", {}) or {}
+    total_pages = int(meta.get("total-pages") or 1)
+
+    if total_pages > 1:
+        for page_number in range(2, total_pages + 1):
+            page_params = dict(params)
+            page_params["page[number]"] = str(page_number)
+            text = _urlopen_text(_build_treasury_url(spec.endpoint, page_params))
+            payload = json.loads(text)
+            rows.extend(payload.get("data", []))
+            page_count += 1
+    else:
         next_url = payload.get("links", {}).get("next")
-        if next_url:
+        while next_url:
+            page_count += 1
             if next_url.startswith("http"):
                 url = next_url
             elif next_url.startswith("?") or next_url.startswith("&"):
@@ -108,8 +124,10 @@ def download_treasury_dataset(
                 url = f"{TREASURY_API_BASE}{spec.endpoint}{joiner}{next_url.lstrip('?&')}"
             else:
                 url = f"{TREASURY_API_BASE}{next_url}"
-        else:
-            url = ""
+            text = _urlopen_text(url)
+            payload = json.loads(text)
+            rows.extend(payload.get("data", []))
+            next_url = payload.get("links", {}).get("next")
 
     raw_path = raw_dir / f"treasury__{spec.key}.csv"
     pd.DataFrame(rows).to_csv(raw_path, index=False)

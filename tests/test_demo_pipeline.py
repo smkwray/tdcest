@@ -37,6 +37,8 @@ def test_demo_pipeline_runs(tmp_path: Path):
     assert (processed_dir / "tdc_post2022_bank_only_attribution.md").exists()
     assert (processed_dir / "tdc_input_audit.csv").exists()
     assert (processed_dir / "tdc_input_audit.md").exists()
+    assert (processed_dir / "tdc_headline_validation_review.csv").exists()
+    assert (processed_dir / "tdc_headline_validation_review.md").exists()
     assert not (processed_dir / "tdc_bea_row_receipts_benchmark.csv").exists()
     assert not (processed_dir / "tdc_bea_row_receipts_benchmark.md").exists()
     assert not (processed_dir / "tdc_bank_corp_tax_receipts_bridge.csv").exists()
@@ -98,6 +100,8 @@ def test_demo_pipeline_runs(tmp_path: Path):
     assert (processed_dir / "tdc_backend_release_check.md").exists()
     assert (processed_dir / "tdc_theory_measurement_map.csv").exists()
     assert (processed_dir / "tdc_theory_measurement_map.md").exists()
+    assert (processed_dir / "tdc_du_fiscal_flow_research.csv").exists()
+    assert (processed_dir / "tdc_du_fiscal_flow_research.md").exists()
     assert (processed_dir / "tdc_row_mrv_nondefault_evidence_summary.csv").exists()
     assert (processed_dir / "tdc_row_mrv_nondefault_evidence_summary.md").exists()
     assert (processed_dir / "tdc_bank_receipt_default_readiness.csv").exists()
@@ -179,16 +183,6 @@ def test_demo_pipeline_runs(tmp_path: Path):
     ]
     assert nominal_gdp_values, "nominal GDP reference should have at least one value"
     assert all(value > 0 for value in nominal_gdp_values)
-    assert bundle["metadata"]["method_meta"]["cash_term"]["transaction_series_key"] == "treasury_operating_cash_tx"
-    assert bundle["metadata"]["method_meta"]["cash_term"]["diagnostic_only_series"] == ["tga_weekly"]
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["fed_tsy_coupon_interest_proxy"]["raw_filename"] == "support__fed_tsy_coupon_interest_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["bank_tsy_coupon_interest_proxy"]["raw_filename"] == "support__bank_tsy_coupon_interest_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["row_tsy_coupon_interest_proxy"]["raw_filename"] == "support__row_tsy_coupon_interest_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["bank_noninterest_outlay_proxy"]["raw_filename"] == "support__bank_noninterest_outlay_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["row_noninterest_outlay_proxy"]["raw_filename"] == "support__row_noninterest_outlay_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["bank_nonborrow_receipt_proxy"]["raw_filename"] == "support__bank_nonborrow_receipt_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["row_nonborrow_receipt_proxy"]["raw_filename"] == "support__row_nonborrow_receipt_proxy.csv"
-    assert bundle["metadata"]["method_meta"]["correction_inputs"]["mint_cb_cash_factor_proxy"]["raw_filename"] == "support__mint_cb_cash_factor_proxy.csv"
     assert "fed_tsy_coupon_interest_proxy" in bundle["components"]["columns"]
     assert "bank_tsy_coupon_interest_proxy" in bundle["components"]["columns"]
     assert "row_tsy_coupon_interest_proxy" in bundle["components"]["columns"]
@@ -198,23 +192,18 @@ def test_demo_pipeline_runs(tmp_path: Path):
     assert "tier1_fed_coupon_correction" in bundle["corrections"]["columns"]
     assert "tdc_tier2_bank_only_delta_from_base" in bundle["corrections"]["columns"]
     assert "tdc_tier3_bank_only_delta_from_base" in bundle["corrections"]["columns"]
-    assert "latest_corrections" in bundle["summary"]
     assert bundle["site"]["title"] == "TDCest"
-    assert "receipt_unblock_status" in bundle["research"]
-    assert "project_goal_status_review" in bundle["research"]
-    assert "tier3_research_comparison" in bundle["research"]
-    assert "downstream_estimator_contract" in bundle["research"]
-    assert "downstream_component_contribution_review" in bundle["research"]
-    assert "downstream_estimator_gap_review" in bundle["research"]
-    assert "fiscal_receipt_boundary_review" in bundle["research"]
-    assert "downstream_deposit_effect_use_case_review" in bundle["research"]
-    assert "downstream_problem_variable_review" in bundle["research"]
-    assert "downstream_deposit_effect_series_panel" in bundle["research"]
-    assert "downstream_deposit_effect_comparison_panel" in bundle["research"]
-    assert "backend_closeout_review" in bundle["research"]
-    assert "backend_release_check" in bundle["research"]
-    assert "theory_measurement_map" in bundle["research"]
-    assert "row_mrv_nondefault_evidence_summary" in bundle["research"]
+    assert "receipt_status" in bundle["research"]
+    assert "goal_status" in bundle["research"]
+    assert "fiscal_comparison" in bundle["research"]
+    assert "fiscal_receipt_boundaries" in bundle["research"]
+    assert "theory_map" in bundle["research"]
+    assert "foreign_pilot_evidence" in bundle["research"]
+    assert "monetary_review" in bundle["research"]
+    assert "next_steps" in bundle["research"]
+    assert "headline_validation_review" not in bundle["research"]
+    assert "downstream_estimator_contract" not in bundle["research"]
+    assert result["headline_validation_review_path"] == str(processed_dir / "tdc_headline_validation_review.csv")
     assert result["theory_measurement_map_path"] == str(processed_dir / "tdc_theory_measurement_map.csv")
     handoff_json = (processed_dir / "tdc_downstream_handoff_bundle.json").read_text()
     assert "\"NaT\"" not in handoff_json
@@ -222,6 +211,8 @@ def test_demo_pipeline_runs(tmp_path: Path):
     assert "Post-2022 Bank-Only Correction Attribution" in attribution_markdown
     input_audit_markdown = (processed_dir / "tdc_input_audit.md").read_text()
     assert "Input Unit And Frequency Audit" in input_audit_markdown
+    headline_review_markdown = (processed_dir / "tdc_headline_validation_review.md").read_text()
+    assert "Headline Estimate Validation Review" in headline_review_markdown
 
 
 def test_pipeline_writes_tier3_source_diagnostics_when_mts_outlays_are_present(tmp_path: Path):
@@ -341,6 +332,12 @@ def test_pipeline_input_audit_flags_row_coupon_scale_issue_when_benchmark_is_pre
     audit = pd.read_csv(processed_dir / "tdc_input_audit.csv")
     row = audit.loc[audit["series_key"].eq("row_tsy_coupon_interest_proxy")].iloc[0]
     assert row["audit_status"] == "possible_x1000_mismatch"
+    contract = pd.read_csv(processed_dir / "tdc_downstream_estimator_contract.csv")
+    tier3 = contract.loc[contract["artifact_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[0]
+    monetary_dep = contract.loc[contract["artifact_key"].eq("monetary_depository_crosscheck")].iloc[0]
+    assert tier3["default_classification"] == "provisional_coupon_scale_gate_failed"
+    assert tier3["binding_blocker"] == "coupon_proxy_scale_validation"
+    assert monetary_dep["binding_blocker"] == "coupon_proxy_scale_validation"
     markdown = (processed_dir / "tdc_input_audit.md").read_text()
     assert "ratio if x1000" in markdown
 

@@ -38,9 +38,14 @@ def build_monetary_target_preference_review(
     ):
         recommendation = "prefer_depository_target_crosscheck"
         commercial_bank_role = "stress_test_only"
-        rationale = (
-            "The depository target now behaves materially better under the expanded Stage 1 block, while the commercial-bank-deposit target remains mostly unresolved and is dominated by a bank-target-specific wedge."
-        )
+        if wedge_dom == "bank_target_wedge_dominant":
+            rationale = (
+                "The depository target now behaves materially better under the expanded Stage 1 block, while the commercial-bank-deposit target remains mostly unresolved and is dominated by a bank-target-specific wedge."
+            )
+        else:
+            rationale = (
+                "The depository target now behaves materially better under the expanded Stage 1 block, while the commercial-bank-deposit target remains mostly unresolved and still carries a material bank-target-specific wedge."
+            )
     else:
         recommendation = "keep_targets_parallel_under_review"
         commercial_bank_role = "parallel_review_surface"

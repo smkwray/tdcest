@@ -152,16 +152,146 @@ def test_wamest_style_sector_panel_levels_are_normalized_to_millions():
 
 def test_resolve_wamest_artifact_paths_prefers_full_history_conventions(tmp_path: Path):
     wamest_root = tmp_path / "wamest"
-    sector_maturity = wamest_root / "data" / "processed" / "sector_effective_maturity_full.csv"
-    sector_panel = wamest_root / "data" / "interim" / "z1_sector_panel_full.csv"
+    sector_maturity = wamest_root / "outputs" / "full_coverage_release" / "canonical_sector_maturity.csv"
+    sector_panel = wamest_root / "data" / "external" / "normalized" / "z1_series_fred.csv"
+    inventory = wamest_root / "outputs" / "full_coverage_release" / "required_sector_inventory.csv"
     curve = wamest_root / "data" / "external" / "normalized" / "h15_curves_auto_nominal_treasury_constant_maturity.csv"
     curve.parent.mkdir(parents=True, exist_ok=True)
     sector_panel.parent.mkdir(parents=True, exist_ok=True)
     sector_maturity.parent.mkdir(parents=True, exist_ok=True)
     sector_maturity.write_text("date,sector_key,coupon_share,coupon_only_maturity_years\n", encoding="utf-8")
-    sector_panel.write_text("date,sector_key,level\n", encoding="utf-8")
+    sector_panel.write_text("date,series_code,value\n", encoding="utf-8")
+    inventory.write_text("sector_key,level_source_code\n", encoding="utf-8")
     curve.write_text("date,1y\n", encoding="utf-8")
 
     resolved = resolve_wamest_artifact_paths(wamest_root)
 
     assert resolved == (sector_maturity, sector_panel, curve)
+
+
+def test_write_quarterly_tier2_coupon_interest_proxies_can_use_full_coverage_release_inputs(tmp_path: Path):
+    release_dir = tmp_path / "wamest" / "outputs" / "full_coverage_release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    curve_path = tmp_path / "wamest" / "data" / "external" / "normalized" / "h15_curves_auto_nominal_treasury_constant_maturity.csv"
+    curve_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sector_maturity_path = release_dir / "canonical_sector_maturity.csv"
+    sector_panel_path = release_dir / "z1_series_auto_full.csv"
+    inventory_path = release_dir / "required_sector_inventory.csv"
+    bank_out = tmp_path / "support__bank_tsy_coupon_interest_proxy.csv"
+    row_out = tmp_path / "support__row_tsy_coupon_interest_proxy.csv"
+
+    pd.DataFrame(
+        {
+            "date": ["1945-12-31", "2002-03-31", "2002-03-31"],
+            "sector_key": ["bank_us_chartered", "bank_us_chartered", "foreigners_total"],
+            "coupon_share": [0.75, 0.80, 0.90],
+            "coupon_only_maturity_years": [3.0, 5.0, 10.0],
+            "publication_status": [
+                "status_only_no_level_or_estimate",
+                "history_preserving_backfill",
+                "published_estimate",
+            ],
+        }
+    ).to_csv(sector_maturity_path, index=False)
+    pd.DataFrame(
+        {
+            "date": ["1945-12-31", "2002-03-31", "2002-03-31"],
+            "series_code": ["FL763061100.Q", "FL763061100.Q", "FL263061105.Q"],
+            "value": [50.0, 100.0, 200.0],
+        }
+    ).to_csv(sector_panel_path, index=False)
+    pd.DataFrame(
+        {
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "level_source_code": ["FL763061100.Q", "FL263061105.Q"],
+        }
+    ).to_csv(inventory_path, index=False)
+    pd.DataFrame(
+        {
+            "date": ["2002-03-31"],
+            "5y": [4.0],
+            "10y": [5.0],
+        }
+    ).to_csv(curve_path, index=False)
+
+    written_bank, written_row = write_quarterly_tier2_coupon_interest_proxies(
+        sector_maturity_path=sector_maturity_path,
+        sector_panel_path=sector_panel_path,
+        curve_path=curve_path,
+        bank_out_path=bank_out,
+        row_out_path=row_out,
+    )
+
+    bank_frame = pd.read_csv(written_bank)
+    row_frame = pd.read_csv(written_row)
+
+    assert list(bank_frame["date"]) == ["2002-03-31"]
+    assert list(row_frame["date"]) == ["2002-03-31"]
+    assert round(float(bank_frame.loc[0, "value"]), 6) == round(100.0 * 0.80 * 0.04 / 4.0, 6)
+    assert round(float(row_frame.loc[0, "value"]), 6) == round(200.0 * 0.90 * 0.05 / 4.0, 6)
+
+
+def test_reconstructed_full_coverage_release_levels_stay_in_millions():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-12-31", "2025-12-31"],
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "coupon_share": [0.9, 0.85],
+            "coupon_only_maturity_years": [5.0, 10.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-12-31", "2025-12-31"],
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "level": [1652.960, 8721.721],
+            "level_units": ["millions", "millions"],
+            "method_priority": [
+                "full_coverage_release_level_map",
+                "full_coverage_release_level_map",
+            ],
+        }
+    )
+    curves = pd.DataFrame(
+        {
+            "date": ["2025-12-31"],
+            "5y": [4.0],
+            "10y": [3.8],
+        }
+    )
+
+    bank = estimate_quarterly_bank_coupon_interest_proxy(sector_maturity, sector_panel, curves)
+    row = estimate_quarterly_row_coupon_interest_proxy(sector_maturity, sector_panel, curves)
+
+    assert round(float(bank.loc[pd.Timestamp("2025-12-31")]), 3) == round(1652.960 * 0.9 * 0.04 / 4.0, 3)
+    assert round(float(row.loc[pd.Timestamp("2025-12-31")]), 3) == round(8721.721 * 0.85 * 0.038 / 4.0, 3)
+
+
+def test_estimate_quarterly_sector_coupon_proxy_uses_latest_nonempty_curve_row():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2002-03-31"],
+            "sector_key": ["bank_us_chartered"],
+            "coupon_share": [0.80],
+            "coupon_only_maturity_years": [5.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2002-03-31"],
+            "sector_key": ["bank_us_chartered"],
+            "level": [100.0],
+        }
+    )
+    curves = pd.DataFrame(
+        {
+            "date": ["2002-03-28", "2002-03-29"],
+            "5y": [4.91, None],
+            "10y": [5.42, None],
+        }
+    )
+
+    bank = estimate_quarterly_bank_coupon_interest_proxy(sector_maturity, sector_panel, curves)
+
+    assert round(float(bank.loc[pd.Timestamp("2002-03-31")]), 6) == round(100.0 * 0.80 * 0.0491 / 4.0, 6)

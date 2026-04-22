@@ -172,6 +172,34 @@ OPTIONAL_FRED_SERIES: list[FredSeries] = [
         agg="last",
     ),
     FredSeries(
+        key="domestic_financial_tsy_tx",
+        series_id="BOGZ1FU793061105Q",
+        description="Domestic Financial Sectors; Treasury Securities; Asset, Transactions",
+        agg="sum",
+        notes="Quarterly Z.1 sector-total Treasury transactions for the full domestic financial block. Used in DU-side Treasury-security residual research.",
+    ),
+    FredSeries(
+        key="domestic_financial_tsy_level",
+        series_id="BOGZ1FL793061105Q",
+        description="Domestic Financial Sectors; Treasury Securities; Asset, Level",
+        agg="last",
+        notes="Quarterly Z.1 sector-total Treasury levels for the full domestic financial block. Used in DU-side Treasury-security residual research.",
+    ),
+    FredSeries(
+        key="domestic_nonfinancial_tsy_tx",
+        series_id="BOGZ1FU383061105Q",
+        description="Domestic Nonfinancial Sectors; Treasury Securities; Asset, Transactions",
+        agg="sum",
+        notes="Quarterly Z.1 sector-total Treasury transactions for the domestic nonfinancial block. Used as the cleanest first-pass DU-side Treasury-security proxy.",
+    ),
+    FredSeries(
+        key="domestic_nonfinancial_tsy_level",
+        series_id="BOGZ1FL383061105Q",
+        description="Domestic Nonfinancial Sectors; Treasury Securities; Asset, Level",
+        agg="last",
+        notes="Quarterly Z.1 sector-total Treasury levels for the domestic nonfinancial block. Used as the cleanest first-pass DU-side Treasury-security holdings proxy.",
+    ),
+    FredSeries(
         key="treasury_operating_cash_level",
         series_id="BOGZ1FL313024000Q",
         description="Federal Government; Treasury Operating Cash; Asset, Level",
@@ -362,6 +390,27 @@ OPTIONAL_FRED_SERIES: list[FredSeries] = [
         description="Federal government current receipts: Current transfer receipts: From the rest of the world",
         agg="last",
         notes="Quarterly SAAR benchmark series from BEA via FRED. Use `billions * 250` to convert to estimator-scale quarterly millions.",
+    ),
+    FredSeries(
+        key="federal_current_expenditures_nsa_q",
+        series_id="NA000283Q",
+        description="Federal Government: Current Expenditures",
+        agg="last",
+        notes="Quarterly BEA/FRED not-seasonally-adjusted federal current expenditures in millions. Used as the historical DU fiscal-flow total-outlay fallback before the MTS cash window.",
+    ),
+    FredSeries(
+        key="federal_current_receipts_nsa_q",
+        series_id="NA000304Q",
+        description="Federal Government Current Receipts",
+        agg="last",
+        notes="Quarterly BEA/FRED not-seasonally-adjusted federal current receipts in millions. Used as the historical DU fiscal-flow total-receipt fallback before the MTS cash window.",
+    ),
+    FredSeries(
+        key="federal_interest_payments_nsa_q",
+        series_id="NA000308Q",
+        description="Federal government current expenditures: Interest payments",
+        agg="last",
+        notes="Quarterly BEA/FRED not-seasonally-adjusted federal interest payments in millions. Used as the historical DU fiscal-flow coupon/debt-service fallback before the MTS cash window.",
     ),
 ]
 

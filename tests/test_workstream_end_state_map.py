@@ -62,7 +62,7 @@ def _sample_row_stop_gate() -> pd.DataFrame:
 
 
 def _sample_monetary_preference() -> pd.DataFrame:
-    return pd.DataFrame([{"recommendation": "prefer_depository_target_crosscheck"}])
+    return pd.DataFrame([{"recommendation_status": "prefer_depository_target_crosscheck"}])
 
 
 def _sample_monetary_stop_gate() -> pd.DataFrame:
@@ -91,6 +91,7 @@ def test_build_workstream_end_state_map_marks_freeze_branches() -> None:
     row_secondary = frame.loc[frame["workstream_key"].eq("row_secondary_and_contaminated_families")].iloc[0]
 
     assert bank_hist["recommended_mode"] == "push_hard"
+    assert monetary["current_state"] == "prefer_depository_target_crosscheck"
     assert bool(monetary["deprioritize_now"]) is True
     assert row_secondary["recommended_mode"] == "freeze"
 

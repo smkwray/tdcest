@@ -46,6 +46,7 @@ DEFAULT_DU_BROAD_COUPON_SECTOR_KEYS = tuple(
 )
 DEFAULT_WAMEST_COUPON_PANEL_SUPPLEMENT_CANDIDATES = [
     Path("data/interim/z1_sector_panel_full.csv"),
+    Path("data/external/normalized/z1_series_fred.csv"),
 ]
 
 
@@ -156,6 +157,8 @@ def _load_du_coupon_sector_panel(
     panels = [base_panel]
     for candidate in DEFAULT_WAMEST_COUPON_PANEL_SUPPLEMENT_CANDIDATES:
         path = root / candidate
+        if path.resolve() == default_panel_path.resolve():
+            continue
         if path.exists():
             supplement = read_sector_panel_table(path)
             if "level_units" not in supplement.columns:

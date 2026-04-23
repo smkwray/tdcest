@@ -147,7 +147,7 @@ def build_theory_measurement_map() -> pd.DataFrame:
                 "Tier 2 plus narrow fiscal-flow corrections for bank and ROW outlays, bank and ROW receipts, and mint or central-bank cash factors."
             ),
             "current_measurement_mapping": (
-                "This is the best live corrected estimate in the repo. It is the main fiscal-flow-corrected ladder output used for current-quarter work."
+                "This is the repo's bounded fiscal-flow comparison layer. It shows how the ladder moves once the currently measurable fiscal corrections are added."
             ),
             "implementation_status": "implemented_live_bounded",
             "main_caveat": (

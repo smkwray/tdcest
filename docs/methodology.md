@@ -132,15 +132,29 @@ The default bank perimeter for these corrected tiers is unchanged:
 - foreign banking offices in the U.S.
 - banks in U.S.-affiliated areas
 
-The first-cut bank and ROW coupon proxies are quarter-end approximations rather than security-level cash-flow reconstructions. They are built as:
+The bank and ROW coupon proxies are still approximations rather than security-level cash-flow reconstructions. The default published proxies use the raw quarter-end coupon-intensity approximation. A cash-anchored rescaling path remains available for research-only checks, but it is not the default publication method.
+
+First, the builder forms sector coupon-intensity weights:
 
 \[
-\widehat I^{TS}_{s,t}
+\widetilde I^{TS}_{s,t}
 \approx
 \frac{Level_{s,t} \times CouponShare_{s,t} \times CurveRate_{s,t}}{4}
 \]
 
 where the curve rate is read from a nominal Treasury curve at the sector's coupon-only maturity estimate, using linear interpolation when the estimate falls between standard tenors.
+
+The research-only cash-anchored variant rescales those non-Fed sector weights to the observed non-Fed Treasury interest pool:
+
+\[
+\widehat I^{TS}_{s,t}
+\approx
+\left(I^{TS,gross}_{t} - Coupon^F_t\right)
+\times
+\frac{\widetilde I^{TS}_{s,t}}{\sum_{j \neq F}\widetilde I^{TS}_{j,t}}
+\]
+
+The live Tier 2 support files currently publish the raw quarter-end weight approximation \(\widetilde I^{TS}_{s,t}\). The cash-anchored variant is retained only as a nondefault diagnostic path.
 
 For day-to-day work, the Tier 2 builder can resolve those inputs directly from a `wamest` checkout via `--wamest-root`, using the repo's conventional full-history artifact locations.
 

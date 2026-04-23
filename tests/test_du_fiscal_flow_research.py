@@ -364,7 +364,7 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_coupon_proxies(t
 
     latest = frame.loc[pd.Timestamp("2025-06-30")]
     expected_narrow_coupon = 200.0 * 0.5 * 0.05 / 4.0 + 40.0 * 0.5 * 0.05 / 4.0
-    expected_broad_coupon = expected_narrow_coupon + 120.0 * 1000.0 * 0.5 * 0.05 / 4.0
+    expected_broad_coupon = expected_narrow_coupon + 120.0 * 0.5 * 0.05 / 4.0
     assert round(float(latest["du_coupon_proxy_residual"]), 6) == round(36.0 - 1.0 - 2.0 - 3.0, 6)
     assert round(float(latest["du_coupon_proxy_direct_narrow"]), 6) == round(expected_narrow_coupon, 6)
     assert round(float(latest["du_coupon_proxy_direct_broad"]), 6) == round(expected_broad_coupon, 6)

@@ -279,15 +279,15 @@ The Tier 0 cash leg is sourced from the Z.1 Treasury operating cash concept. DTS
 ## Optional local support series
 
 - `support__fed_tsy_coupon_interest_proxy.csv` — quarterly Fed Treasury coupon-interest proxy built locally from SOMA holdings snapshots and inferred coupon schedules, normalized to millions of U.S. dollars
-- `support__bank_tsy_coupon_interest_proxy.csv` — quarterly bank-sector Treasury coupon-interest proxy for the default bank-only Tier 0 perimeter, built from quarter-end sector maturity rows, sector holdings levels, and a nominal Treasury curve
-- `support__row_tsy_coupon_interest_proxy.csv` — quarterly rest-of-world Treasury coupon-interest proxy for ROW-inclusive Tier 2 variants, built from the same quarter-end sector artifacts
+- `support__bank_tsy_coupon_interest_proxy.csv` — quarterly bank-sector Treasury coupon-interest proxy for the default bank-only Tier 0 perimeter, built from `wamest` sector coupon-intensity weights
+- `support__row_tsy_coupon_interest_proxy.csv` — quarterly rest-of-world Treasury coupon-interest proxy for ROW-inclusive Tier 2 variants, built from the same raw quarter-end sector coupon-intensity method
 
-The sector-coupon builder now normalizes `wamest` full-history sector panel levels to estimator-scale millions when the source panel is using the standard billions-style level convention. The repo also writes a processed unit-and-frequency audit that compares the live ROW coupon proxy against the BEA/FRED ROW federal-interest benchmark after SAAR-to-quarterly conversion. This is intended to catch scale mismatches before Tier 2 or Tier 3 results are treated as numerically publishable.
+The sector-coupon builder now prefers the full `wamest` holder panel and normalizes `wamest` full-history sector panel levels to estimator-scale millions when the source panel is using the standard billions-style level convention. The repo also writes a processed unit-and-frequency audit that compares the live ROW coupon proxy against the BEA/FRED ROW federal-interest benchmark after SAAR-to-quarterly conversion. That benchmark is a sanity check, not a claim of exact concept identity.
 
 If you pass `--wamest-root` to the Tier 2 builder, `tdcest` resolves these inputs from the conventional `wamest` locations:
 
 - `data/external/normalized/soma_holdings_fed.csv` for the Fed coupon proxy builder
-- `data/processed/sector_effective_maturity_full.csv`
+- `outputs/full_coverage_release/canonical_sector_maturity.csv`
 - `data/interim/z1_sector_panel_full.csv`
 - `data/external/normalized/h15_curves_auto_nominal_treasury_constant_maturity.csv`
 

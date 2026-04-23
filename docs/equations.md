@@ -111,6 +111,13 @@ This is the main broader-perimeter comparison, not the preferred headline.
 
 This removes coupon-interest distortions from the base transaction ladder.
 
+Current construction note:
+- the Fed coupon term is still the exact SOMA-based proxy
+- the bank and ROW coupon terms are built from `wamest` sector coupon-intensity weights
+- the default live support files use those raw quarter-end weights directly
+- a research-only cash-anchored variant can rescale the non-Fed weights to the observed non-Fed Treasury interest pool after subtracting the exact Fed coupon term
+- otherwise the repo falls back to the raw quarter-end maturity/curve approximation
+
 ### Tier 3 Fiscal-Corrected Approximation
 
 ```text

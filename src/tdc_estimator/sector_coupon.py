@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 import pandas as pd
 
 from .fed_coupon import normalize_col
+from .io import load_quarterly_fred_series, load_treasury_table
 
 
 DEFAULT_BANK_SECTOR_KEYS = [
@@ -22,9 +23,9 @@ DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES = [
     Path("tests/fixtures/report_sector_effective_maturity.csv"),
 ]
 DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES = [
-    Path("data/external/normalized/z1_series_fred.csv"),
     Path("outputs/full_coverage_release/z1_series_auto_full.csv"),
     Path("data/interim/z1_sector_panel_full.csv"),
+    Path("data/external/normalized/z1_series_fred.csv"),
     Path("data/examples/toy_sector_panel_ready.csv"),
 ]
 DEFAULT_WAMEST_CURVE_CANDIDATES = [
@@ -33,6 +34,9 @@ DEFAULT_WAMEST_CURVE_CANDIDATES = [
     Path("data/external/normalized/h15_curves_fred.csv"),
     Path("data/examples/toy_h15_curves.csv"),
 ]
+TREASURY_INTEREST_GROSS_LABEL = "Total--Interest on Treasury Debt Securities (Gross)"
+DEFAULT_FED_SECTOR_KEYS = ("fed",)
+MIN_CASH_ANCHORED_SECTOR_COUNT = 20
 
 
 def read_table(path: Path | str) -> pd.DataFrame:
@@ -53,6 +57,18 @@ def read_sector_maturity_table(path: Path | str) -> pd.DataFrame:
 def read_sector_panel_table(path: Path | str) -> pd.DataFrame:
     table_path = Path(path)
     df = read_table(table_path)
+    if "sector_key" in df.columns and _first_existing(df, ["level_units", "level_unit", "units"]) is None:
+        # Built wamest sector panels already store levels on the estimator's millions scale.
+        if any(
+            column in df.columns
+            for column in [
+                "level_source_provider_used",
+                "level_supplemented_from_fred",
+                "registry_label",
+                "required_for_full_coverage",
+            ]
+        ):
+            df["level_units"] = "millions"
     if "sector_key" in df.columns:
         return df
 
@@ -346,30 +362,86 @@ def _panel_level_scale_to_millions(df: pd.DataFrame, level_col: str) -> float:
     return 1.0
 
 
-def estimate_quarterly_sector_coupon_interest_proxy(
+def _load_quarterly_treasury_interest_gross_mts(path: Path | str) -> pd.Series:
+    df = load_treasury_table(path).copy()
+    required = {"record_date", "classification_desc", "current_month_net_outly_amt"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Treasury table {path} is missing required columns: {missing}")
+
+    subset = df.loc[
+        df["classification_desc"].eq(TREASURY_INTEREST_GROSS_LABEL),
+        ["record_date", "current_month_net_outly_amt"],
+    ].copy()
+    if subset.empty:
+        return pd.Series(dtype="float64")
+
+    subset["record_date"] = pd.to_datetime(subset["record_date"], errors="coerce")
+    subset["current_month_net_outly_amt"] = pd.to_numeric(subset["current_month_net_outly_amt"], errors="coerce")
+    subset = subset.dropna(subset=["record_date", "current_month_net_outly_amt"])
+    if subset.empty:
+        return pd.Series(dtype="float64")
+
+    series = subset.groupby(subset["record_date"].dt.to_period("Q"))["current_month_net_outly_amt"].sum()
+    series.index = series.index.to_timestamp("Q")
+    return (series.sort_index() / 1_000_000.0).astype("float64")
+
+
+def load_quarterly_treasury_interest_gross_proxy(
+    mts_outlays_path: Path | str | None = None,
+    fred_interest_path: Path | str | None = None,
+) -> pd.Series:
+    mts = pd.Series(dtype="float64")
+    fred = pd.Series(dtype="float64")
+    if mts_outlays_path is not None and Path(mts_outlays_path).exists():
+        mts = _load_quarterly_treasury_interest_gross_mts(mts_outlays_path)
+    if fred_interest_path is not None and Path(fred_interest_path).exists():
+        fred = load_quarterly_fred_series(fred_interest_path, agg="sum")
+
+    if mts.empty:
+        return fred.sort_index()
+    if fred.empty:
+        return mts.sort_index()
+    return mts.combine_first(fred).sort_index()
+
+
+def _load_support_series(path: Path | str | None) -> pd.Series:
+    if path is None:
+        return pd.Series(dtype="float64")
+    candidate = Path(path)
+    if not candidate.exists():
+        return pd.Series(dtype="float64")
+    frame = pd.read_csv(candidate)
+    if "date" not in frame.columns or "value" not in frame.columns:
+        raise ValueError(f"Support file {candidate} must contain date and value columns.")
+    out = pd.Series(
+        pd.to_numeric(frame["value"], errors="coerce").values,
+        index=pd.to_datetime(frame["date"], errors="coerce"),
+        dtype="float64",
+        name=candidate.stem,
+    )
+    return out.dropna().sort_index()
+
+
+def _build_sector_coupon_weight_frame(
     sector_maturity: pd.DataFrame,
     sector_panel: pd.DataFrame,
     curves: pd.DataFrame,
-    sector_keys: Iterable[str],
-    series_name: str,
-) -> pd.Series:
+) -> pd.DataFrame:
     maturity = prepare_sector_maturity(sector_maturity)
     panel = prepare_sector_panel(sector_panel)
     curve_frame = prepare_curve_file(curves)
     curve_points = _curve_points(curve_frame)
 
-    selected = set(str(key).strip() for key in sector_keys)
     merged = maturity.merge(panel, on=["date", "sector_key"], how="inner")
-    merged = merged[merged["sector_key"].isin(selected)].copy()
     if merged.empty:
-        return pd.Series(dtype="float64", name=series_name)
+        return pd.DataFrame(columns=["date", "sector_key", "raw_coupon_weight"])
 
     rows: list[dict[str, object]] = []
     for date, frame in merged.groupby("date", sort=True):
         curve_row = _latest_curve_row_on_or_before(curve_frame, pd.Timestamp(date))
         if curve_row is None:
             continue
-        total = 0.0
         for _, row in frame.iterrows():
             coupon_share = pd.to_numeric(row.get("coupon_share"), errors="coerce")
             maturity_years = pd.to_numeric(row.get("coupon_only_maturity_years"), errors="coerce")
@@ -379,7 +451,67 @@ def estimate_quarterly_sector_coupon_interest_proxy(
             annual_rate = _interpolate_curve_yield(curve_row, float(maturity_years), curve_points)
             if annual_rate is None:
                 continue
-            total += float(level) * max(float(coupon_share), 0.0) * max(float(annual_rate), 0.0) / 4.0
+            raw_coupon_weight = float(level) * max(float(coupon_share), 0.0) * max(float(annual_rate), 0.0) / 4.0
+            rows.append(
+                {
+                    "date": pd.Timestamp(date).normalize(),
+                    "sector_key": str(row["sector_key"]).strip(),
+                    "raw_coupon_weight": raw_coupon_weight,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def estimate_quarterly_sector_coupon_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str],
+    series_name: str,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
+    fed_sector_keys: Iterable[str] = DEFAULT_FED_SECTOR_KEYS,
+) -> pd.Series:
+    selected = set(str(key).strip() for key in sector_keys)
+    weights = _build_sector_coupon_weight_frame(sector_maturity, sector_panel, curves)
+    if weights.empty:
+        return pd.Series(dtype="float64", name=series_name)
+
+    aggregate_interest_proxy = (
+        pd.to_numeric(aggregate_interest_proxy, errors="coerce").sort_index()
+        if aggregate_interest_proxy is not None
+        else pd.Series(dtype="float64")
+    )
+    exact_fed_coupon_proxy = (
+        pd.to_numeric(exact_fed_coupon_proxy, errors="coerce").sort_index()
+        if exact_fed_coupon_proxy is not None
+        else pd.Series(dtype="float64")
+    )
+    fed_keys = set(str(key).strip() for key in fed_sector_keys)
+
+    rows: list[dict[str, object]] = []
+    for date, frame in weights.groupby("date", sort=True):
+        selected_total = float(frame.loc[frame["sector_key"].isin(selected), "raw_coupon_weight"].sum())
+        total = selected_total
+
+        observed_total = pd.to_numeric(aggregate_interest_proxy.reindex([pd.Timestamp(date)]), errors="coerce")
+        observed_value = float(observed_total.iloc[0]) if not observed_total.empty and pd.notna(observed_total.iloc[0]) else None
+        if use_observed_interest_anchor and observed_value is not None:
+            exact_fed = pd.to_numeric(exact_fed_coupon_proxy.reindex([pd.Timestamp(date)]), errors="coerce")
+            exact_fed_value = float(exact_fed.iloc[0]) if not exact_fed.empty and pd.notna(exact_fed.iloc[0]) else None
+            if exact_fed_value is not None:
+                alloc_frame = frame.loc[~frame["sector_key"].isin(fed_keys)]
+                alloc_raw_total = float(alloc_frame["raw_coupon_weight"].sum())
+                observed_pool = max(observed_value - max(exact_fed_value, 0.0), 0.0)
+            else:
+                alloc_frame = frame
+                alloc_raw_total = float(alloc_frame["raw_coupon_weight"].sum())
+                observed_pool = max(observed_value, 0.0)
+            if alloc_raw_total > 0.0 and alloc_frame["sector_key"].nunique() >= MIN_CASH_ANCHORED_SECTOR_COUNT:
+                total = observed_pool * (selected_total / alloc_raw_total)
+
         rows.append({"date": pd.Timestamp(date).normalize(), "value": total})
 
     out = pd.DataFrame(rows).sort_values("date")
@@ -396,6 +528,9 @@ def estimate_quarterly_bank_coupon_interest_proxy(
     sector_panel: pd.DataFrame,
     curves: pd.DataFrame,
     sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
 ) -> pd.Series:
     return estimate_quarterly_sector_coupon_interest_proxy(
         sector_maturity=sector_maturity,
@@ -403,6 +538,9 @@ def estimate_quarterly_bank_coupon_interest_proxy(
         curves=curves,
         sector_keys=sector_keys,
         series_name="bank_tsy_coupon_interest_proxy",
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
 
 
@@ -411,6 +549,9 @@ def estimate_quarterly_row_coupon_interest_proxy(
     sector_panel: pd.DataFrame,
     curves: pd.DataFrame,
     sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
 ) -> pd.Series:
     return estimate_quarterly_sector_coupon_interest_proxy(
         sector_maturity=sector_maturity,
@@ -418,6 +559,9 @@ def estimate_quarterly_row_coupon_interest_proxy(
         curves=curves,
         sector_keys=sector_keys,
         series_name="row_tsy_coupon_interest_proxy",
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
 
 
@@ -438,12 +582,18 @@ def write_quarterly_bank_coupon_interest_proxy(
     curve_path: Path | str,
     out_path: Path | str,
     sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
 ) -> Path:
     series = estimate_quarterly_bank_coupon_interest_proxy(
         sector_maturity=read_sector_maturity_table(sector_maturity_path),
         sector_panel=read_sector_panel_table(sector_panel_path),
         curves=read_table(curve_path),
         sector_keys=sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
     return write_sector_coupon_interest_proxy(series, out_path)
 
@@ -454,12 +604,18 @@ def write_quarterly_row_coupon_interest_proxy(
     curve_path: Path | str,
     out_path: Path | str,
     sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
 ) -> Path:
     series = estimate_quarterly_row_coupon_interest_proxy(
         sector_maturity=read_sector_maturity_table(sector_maturity_path),
         sector_panel=read_sector_panel_table(sector_panel_path),
         curves=read_table(curve_path),
         sector_keys=sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
     return write_sector_coupon_interest_proxy(series, out_path)
 
@@ -472,13 +628,28 @@ def write_quarterly_tier2_coupon_interest_proxies(
     row_out_path: Path | str,
     bank_sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
     row_sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    mts_outlays_path: Path | str | None = None,
+    fred_interest_path: Path | str | None = None,
+    fed_coupon_path: Path | str | None = None,
 ) -> tuple[Path, Path]:
+    aggregate_interest_proxy = pd.Series(dtype="float64")
+    exact_fed_coupon_proxy = pd.Series(dtype="float64")
+    if use_observed_interest_anchor:
+        aggregate_interest_proxy = load_quarterly_treasury_interest_gross_proxy(
+            mts_outlays_path=mts_outlays_path,
+            fred_interest_path=fred_interest_path,
+        )
+        exact_fed_coupon_proxy = _load_support_series(fed_coupon_path)
     bank_written = write_quarterly_bank_coupon_interest_proxy(
         sector_maturity_path=sector_maturity_path,
         sector_panel_path=sector_panel_path,
         curve_path=curve_path,
         out_path=bank_out_path,
         sector_keys=bank_sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
     row_written = write_quarterly_row_coupon_interest_proxy(
         sector_maturity_path=sector_maturity_path,
@@ -486,5 +657,8 @@ def write_quarterly_tier2_coupon_interest_proxies(
         curve_path=curve_path,
         out_path=row_out_path,
         sector_keys=row_sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
     return bank_written, row_written

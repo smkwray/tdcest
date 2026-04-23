@@ -6,7 +6,7 @@ This repo is built around a practical empirical estimate of the **treasury-attri
 
 The default headline is a **marketable-Treasury, transaction-based, bank-only** estimate:
 
-$$
+```math
 \widehat{\Delta D}^{mkt,bank}_{TDC,t}
 =
 \left(
@@ -20,17 +20,17 @@ $$
 \Delta TOC^{tx}_{Treasury,t}
 +
 Remit^{+}_{Fed,t}
-$$
+```
 
 The repo also publishes a **broad-depository** alternative:
 
-$$
+```math
 \widehat{\Delta D}^{mkt,broad}_{TDC,t}
 =
 \widehat{\Delta D}^{mkt,bank}_{TDC,t}
 +
 \Delta TS^{tx}_{CU^{NP},t}
-$$
+```
 
 Where `CU^{NP}` denotes natural-person credit unions.
 
@@ -136,23 +136,23 @@ The bank and ROW coupon proxies are still approximations rather than security-le
 
 First, the builder forms sector coupon-intensity weights:
 
-$$
+```math
 \widetilde I^{TS}_{s,t}
 \approx
 \frac{Level_{s,t} \times CouponShare_{s,t} \times CurveRate_{s,t}}{4}
-$$
+```
 
 where the curve rate is read from a nominal Treasury curve at the sector's coupon-only maturity estimate, using linear interpolation when the estimate falls between standard tenors.
 
 The research-only cash-anchored variant rescales those non-Fed sector weights to the observed non-Fed Treasury interest pool:
 
-$$
+```math
 \widehat I^{TS}_{s,t}
 \approx
 \left(I^{TS,gross}_{t} - Coupon^F_t\right)
 \times
 \frac{\widetilde I^{TS}_{s,t}}{\sum_{j \neq F}\widetilde I^{TS}_{j,t}}
-$$
+```
 
 The live Tier 2 support files currently publish the raw quarter-end weight approximation $\widetilde I^{TS}_{s,t}$. The cash-anchored variant is retained only as a nondefault diagnostic path.
 
@@ -171,9 +171,9 @@ These use holdings-level differences instead of transactions. They are compariso
 
 A rough proxy based on:
 
-$$
+```math
 \Delta M - \Delta C - \Delta BankCredit_{nonTS}
-$$
+```
 
 This is not the preferred empirical estimate. It is included because it can be useful in exploratory work and diagnostics.
 
@@ -197,9 +197,9 @@ The H.4.1 remittance series is a weekly level series with two regimes:
 
 For TDC estimation, the repo applies:
 
-$$
+```math
 Remit^{+}_{Fed,t} = \sum_{w \in t} \max(0, H41_w)
-$$
+```
 
 ## Recommended research workflow
 

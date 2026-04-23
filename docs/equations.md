@@ -14,13 +14,13 @@ These are informational and conceptual. They should not be read as claims that e
 
 ### 1. DU-Facing Definition
 
-```text
-ΔD^TDC_DU
+$$
+\Delta D^{TDC}_{DU}
 =
-(G^ND_DU - R^T_DU)
-+ DS^T_DU
-+ (Q^T_DU→RU - Q^T_RU→DU)
-```
+\left(G^{ND}_{DU} - R^{T}_{DU}\right)
++ DS^{T}_{DU}
++ \left(Q^{T}_{DU \to RU} - Q^{T}_{RU \to DU}\right)
+$$
 
 Plain English:
 - TDC is the Treasury-driven part of deposit change seen from the domestic nonbank deposit-user side.
@@ -28,13 +28,13 @@ Plain English:
 
 ### 2. Treasury-Cash Constraint Version
 
-```text
-ΔD^TDC_DU
+$$
+\Delta D^{TDC}_{DU}
 =
-(Q^T_DU→RU - Q^T_RU→DU)
-+ (I^T + R^T_RU + Π^F_T - G^ND_RU - DS^T_RU)
-- ΔTOC
-```
+\left(Q^{T}_{DU \to RU} - Q^{T}_{RU \to DU}\right)
++ \left(I^{T} + R^{T}_{RU} + \Pi^{F}_{T} - G^{ND}_{RU} - DS^{T}_{RU}\right)
+- \Delta TOC
+$$
 
 Plain English:
 - This is the main Treasury-cash identity behind the measurement program.
@@ -44,10 +44,13 @@ Plain English:
 
 ### 3. Fed Remittance and Deferred-Asset Treatment
 
-```text
-Π^F_T,t = max(0, E^F_t - DA^F_t-1)
-DA^F_t = max(0, DA^F_t-1 - E^F_t)
-```
+$$
+\Pi^{F}_{T,t} = \max(0, E^{F}_{t} - DA^{F}_{t-1})
+$$
+
+$$
+DA^{F}_{t} = \max(0, DA^{F}_{t-1} - E^{F}_{t})
+$$
 
 Plain English:
 - Negative Fed earnings do not imply Treasury pays the Fed.
@@ -55,15 +58,15 @@ Plain English:
 
 ### 4. Residual Deposit-Decomposition Version
 
-```text
-ΔD^TDC_DU
+$$
+\Delta D^{TDC}_{DU}
 =
-(ΔM - ΔC - ΔX)
-- (ΔL^B_DU + ΔA^B,NT_DU)
-- ΔA^CB,NT_DU
-- ΔF^NT_DU
-- ε
-```
+\left(\Delta M - \Delta C - \Delta X\right)
+- \left(\Delta L^{B}_{DU} + \Delta A^{B,NT}_{DU}\right)
+- \Delta A^{CB,NT}_{DU}
+- \Delta F^{NT}_{DU}
+- \varepsilon
+$$
 
 Plain English:
 - This is the residual or monetary-disaggregated framing.
@@ -75,39 +78,39 @@ These are the live measurement approximations currently used by `tdcest`.
 
 ### Bank-Only Baseline
 
-```text
-ΔD^mkt,bank_TDC,t
+$$
+\Delta D^{mkt,bank}_{TDC,t}
 =
-ΔTS^tx_Fed,t
-+ ΔTS^tx_Banks,t
-+ ΔTS^tx_ROW,t
-- ΔTOC^tx_Treasury,t
-+ Remit^+_Fed,t
-```
+\Delta TS^{tx}_{Fed,t}
++ \Delta TS^{tx}_{Banks,t}
++ \Delta TS^{tx}_{ROW,t}
+- \Delta TOC^{tx}_{Treasury,t}
++ Remit^{+}_{Fed,t}
+$$
 
 This is the current bank-only headline.
 
 ### Broad-Depository Natural-Person Credit-Union Alternative
 
-```text
-ΔD^mkt,broad_TDC,t
+$$
+\Delta D^{mkt,broad}_{TDC,t}
 =
-ΔD^mkt,bank_TDC,t
-+ ΔTS^tx_CU^NP,t
-```
+\Delta D^{mkt,bank}_{TDC,t}
++ \Delta TS^{tx}_{CU^{NP},t}
+$$
 
 This is the main broader-perimeter comparison, not the preferred headline.
 
 ### Tier 2 Interest-Corrected Approximation
 
-```text
-ΔD^Tier2,bank_TDC,t
+$$
+\Delta D^{Tier2,bank}_{TDC,t}
 =
-ΔD^mkt,bank_TDC,t
-- Coupon^F_t
-- Coupon^Banks_t
-- Coupon^ROW_t
-```
+\Delta D^{mkt,bank}_{TDC,t}
+- Coupon^{F}_{t}
+- Coupon^{Banks}_{t}
+- Coupon^{ROW}_{t}
+$$
 
 This removes coupon-interest distortions from the base transaction ladder.
 
@@ -120,16 +123,16 @@ Current construction note:
 
 ### Tier 3 Fiscal-Corrected Approximation
 
-```text
-ΔD^Tier3,bank_TDC,t
+$$
+\Delta D^{Tier3,bank}_{TDC,t}
 =
-ΔD^Tier2,bank_TDC,t
-- Outlay^Banks_t
-- Outlay^ROW_t
-+ Receipt^Banks_t
-+ Receipt^ROW_t
-+ CashFactor_t
-```
+\Delta D^{Tier2,bank}_{TDC,t}
+- Outlay^{Banks}_{t}
+- Outlay^{ROW}_{t}
++ Receipt^{Banks}_{t}
++ Receipt^{ROW}_{t}
++ CashFactor_{t}
+$$
 
 This is the main live corrected estimate in the repo.
 
@@ -142,33 +145,33 @@ Important caveat:
 
 ### Historical Bank-Receipt Overlay
 
-```text
-ΔD^HistBank_TDC,t
+$$
+\Delta D^{HistBank}_{TDC,t}
 =
-ΔD^Tier3,bank_TDC,t
-+ ΔReceipt^Bank,Table5.1_t
-```
+\Delta D^{Tier3,bank}_{TDC,t}
++ \Delta Receipt^{Bank,Table5.1}_{t}
+$$
 
 This is the strongest bank-receipt result in the repo, but only inside the age-eligible historical window.
 
 ### MRV ROW Pilot
 
-```text
-ΔReceipt^ROW,MRV_t ⊂ ΔD^Tier3,bank_TDC,t
-```
+$$
+\Delta Receipt^{ROW,MRV}_{t} \subset \Delta D^{Tier3,bank}_{TDC,t}
+$$
 
 This is the only serious recurring ROW receipt candidate currently carried forward. It remains nondefault.
 
 ### Monetary Cross-Check
 
-```text
-ΔD^decomp_TDC,t
-≈
-ΔM_t
-- ΔC_t
-- ΔX_t
-- non-Treasury deposit drivers
-```
+$$
+\Delta D^{decomp}_{TDC,t}
+\approx
+\Delta M_t
+- \Delta C_t
+- \Delta X_t
+- \text{non-Treasury deposit drivers}
+$$
 
 This is diagnostic only. It is useful as a cross-check, not as the headline estimator.
 

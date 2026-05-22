@@ -5,7 +5,9 @@ from pathlib import Path
 import pandas as pd
 
 from tdc_estimator.sector_coupon import (
+    estimate_quarterly_bank_bill_discount_interest_proxy,
     estimate_quarterly_bank_coupon_interest_proxy,
+    estimate_quarterly_credit_union_coupon_interest_proxy,
     estimate_quarterly_row_coupon_interest_proxy,
     resolve_wamest_artifact_paths,
     write_quarterly_tier2_coupon_interest_proxies,
@@ -64,6 +66,94 @@ def test_estimate_quarterly_sector_coupon_proxies_from_wamest_style_inputs():
     assert round(float(row.loc[pd.Timestamp("2025-03-31")]), 6) == round(200.0 * 0.85 * 0.06 / 4.0, 6)
     assert round(float(bank.loc[pd.Timestamp("2025-06-30")]), 6) == round(110.0 * 0.92 * 0.042 / 4.0 + 22.0 * 0.75 * 0.022 / 4.0 + 12.0 * 0.72 * 0.012 / 4.0, 6)
     assert round(float(row.loc[pd.Timestamp("2025-06-30")]), 6) == round(210.0 * 0.88 * 0.064 / 4.0, 6)
+
+
+def test_estimate_quarterly_bill_discount_proxy_uses_bill_share_and_bill_wam():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["bank_us_chartered"],
+            "bill_share": [0.25],
+            "coupon_only_maturity_years": [4.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["bank_us_chartered"],
+            "level": [100.0],
+        }
+    )
+    curves = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "3m": [4.0],
+            "1y": [5.0],
+        }
+    )
+    bill_wam = pd.DataFrame({"date": ["2025-03-31"], "bill_wam_years": [0.25]})
+
+    bank = estimate_quarterly_bank_bill_discount_interest_proxy(
+        sector_maturity,
+        sector_panel,
+        curves,
+        bill_wam_support=bill_wam,
+    )
+
+    assert round(float(bank.loc[pd.Timestamp("2025-03-31")]), 6) == round(100.0 * 0.25 * 0.04 / 4.0, 6)
+
+
+def test_estimate_quarterly_credit_union_coupon_proxy_from_wamest_sector_key():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["credit_unions_marketable_proxy"],
+            "coupon_share": [0.60],
+            "coupon_only_maturity_years": [2.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["credit_unions_marketable_proxy"],
+            "level": [50.0],
+        }
+    )
+    curves = pd.DataFrame({"date": ["2025-03-31"], "2y": [4.0]})
+
+    credit_union = estimate_quarterly_credit_union_coupon_interest_proxy(sector_maturity, sector_panel, curves)
+
+    assert round(float(credit_union.loc[pd.Timestamp("2025-03-31")]), 6) == round(50.0 * 0.60 * 0.04 / 4.0, 6)
+
+
+def test_estimate_quarterly_sector_coupon_proxies_prefers_bill_wam_adjusted_coupon_maturity():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["foreigners_total"],
+            "coupon_share": [1.0],
+            "coupon_only_maturity_years": [10.0],
+            "coupon_only_maturity_years_bill_wam_adjusted": [2.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["foreigners_total"],
+            "level": [100.0],
+        }
+    )
+    curves = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "2y": [2.0],
+            "10y": [10.0],
+        }
+    )
+
+    row = estimate_quarterly_row_coupon_interest_proxy(sector_maturity, sector_panel, curves)
+
+    assert round(float(row.loc[pd.Timestamp("2025-03-31")]), 6) == 0.5
 
 
 def test_estimate_quarterly_sector_coupon_proxies_can_scale_to_observed_interest_pool():
@@ -232,6 +322,49 @@ def test_write_quarterly_tier2_coupon_interest_proxies_writes_default_date_value
     assert row_frame.loc[0, "date"] == "2025-03-31"
     assert round(float(bank_frame.loc[0, "value"]), 6) == 0.9
     assert round(float(row_frame.loc[0, "value"]), 6) == 2.125
+
+
+def test_write_quarterly_tier2_coupon_interest_proxies_can_write_credit_union_file(tmp_path: Path):
+    sector_maturity_path = tmp_path / "sector_effective_maturity.csv"
+    sector_panel_path = tmp_path / "sector_panel.csv"
+    curve_path = tmp_path / "h15_curves.csv"
+    bank_out = tmp_path / "support__bank_tsy_coupon_interest_proxy.csv"
+    row_out = tmp_path / "support__row_tsy_coupon_interest_proxy.csv"
+    credit_union_out = tmp_path / "support__credit_union_tsy_coupon_interest_proxy.csv"
+
+    pd.DataFrame(
+        {
+            "date": ["2025-03-31", "2025-03-31", "2025-03-31"],
+            "sector_key": ["bank_us_chartered", "foreigners_total", "credit_unions_marketable_proxy"],
+            "coupon_share": [1.0, 1.0, 0.5],
+            "coupon_only_maturity_years": [2.0, 2.0, 2.0],
+        }
+    ).to_csv(sector_maturity_path, index=False)
+    pd.DataFrame(
+        {
+            "date": ["2025-03-31", "2025-03-31", "2025-03-31"],
+            "sector_key": ["bank_us_chartered", "foreigners_total", "credit_unions_marketable_proxy"],
+            "level": [100.0, 200.0, 40.0],
+        }
+    ).to_csv(sector_panel_path, index=False)
+    pd.DataFrame({"date": ["2025-03-31"], "2y": [4.0]}).to_csv(curve_path, index=False)
+
+    written_bank, written_row, written_credit_union = write_quarterly_tier2_coupon_interest_proxies(
+        sector_maturity_path=sector_maturity_path,
+        sector_panel_path=sector_panel_path,
+        curve_path=curve_path,
+        bank_out_path=bank_out,
+        row_out_path=row_out,
+        credit_union_out_path=credit_union_out,
+    )
+
+    credit_union_frame = pd.read_csv(written_credit_union)
+
+    assert written_bank == bank_out
+    assert written_row == row_out
+    assert written_credit_union == credit_union_out
+    assert list(credit_union_frame.columns) == ["date", "value"]
+    assert round(float(credit_union_frame.loc[0, "value"]), 6) == round(40.0 * 0.5 * 0.04 / 4.0, 6)
 
 
 def test_write_quarterly_tier2_coupon_interest_proxies_can_use_observed_interest_anchor_when_requested(tmp_path: Path):
@@ -439,6 +572,60 @@ def test_write_quarterly_tier2_coupon_interest_proxies_can_use_full_coverage_rel
     assert list(row_frame["date"]) == ["2002-03-31"]
     assert round(float(bank_frame.loc[0, "value"]), 6) == round(100.0 * 0.80 * 0.04 / 4.0, 6)
     assert round(float(row_frame.loc[0, "value"]), 6) == round(200.0 * 0.90 * 0.05 / 4.0, 6)
+
+
+def test_full_coverage_release_input_bridge_can_reconstruct_computed_credit_union_level(tmp_path: Path):
+    release_dir = tmp_path / "wamest" / "outputs" / "full_coverage_release"
+    release_dir.mkdir(parents=True, exist_ok=True)
+    curve_path = tmp_path / "wamest" / "data" / "external" / "normalized" / "h15_curves_auto_nominal_treasury_constant_maturity.csv"
+    curve_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sector_maturity_path = release_dir / "canonical_sector_maturity.csv"
+    sector_panel_path = release_dir / "z1_series_auto_full.csv"
+    inventory_path = release_dir / "required_sector_inventory.csv"
+    bank_out = tmp_path / "support__bank_tsy_coupon_interest_proxy.csv"
+    row_out = tmp_path / "support__row_tsy_coupon_interest_proxy.csv"
+    credit_union_out = tmp_path / "support__credit_union_tsy_coupon_interest_proxy.csv"
+
+    pd.DataFrame(
+        {
+            "date": ["2002-03-31"],
+            "sector_key": ["credit_unions_marketable_proxy"],
+            "coupon_share": [0.75],
+            "coupon_only_maturity_years": [2.0],
+            "publication_status": ["published_estimate"],
+        }
+    ).to_csv(sector_maturity_path, index=False)
+    pd.DataFrame(
+        {
+            "date": ["2002-03-31", "2002-03-31"],
+            "series_code": ["FL473061103.Q", "FL473061153.Q"],
+            "value": [100.0, 20.0],
+        }
+    ).to_csv(sector_panel_path, index=False)
+    pd.DataFrame(
+        {
+            "sector_key": ["credit_unions_marketable_proxy"],
+            "level_source_code": [None],
+            "dependency_level_source_codes": ["FL473061103.Q, FL473061153.Q"],
+        }
+    ).to_csv(inventory_path, index=False)
+    pd.DataFrame({"date": ["2002-03-31"], "2y": [4.0]}).to_csv(curve_path, index=False)
+
+    written_bank, written_row, written_credit_union = write_quarterly_tier2_coupon_interest_proxies(
+        sector_maturity_path=sector_maturity_path,
+        sector_panel_path=sector_panel_path,
+        curve_path=curve_path,
+        bank_out_path=bank_out,
+        row_out_path=row_out,
+        credit_union_out_path=credit_union_out,
+    )
+
+    credit_union_frame = pd.read_csv(written_credit_union)
+
+    assert written_bank == bank_out
+    assert written_row == row_out
+    assert round(float(credit_union_frame.loc[0, "value"]), 6) == round(120.0 * 0.75 * 0.04 / 4.0, 6)
 
 
 def test_reconstructed_full_coverage_release_levels_stay_in_millions():

@@ -64,7 +64,7 @@ def test_build_tier3_research_comparison_includes_live_and_historical_rows() -> 
         receipt_unblock_status=_sample_receipt_status(),
     )
 
-    assert frame["comparison_key"].isin(["latest_live_defaults", "latest_historical_bank_window"]).all()
+    assert frame["comparison_key"].isin(["latest_live_tier2_vs_partial_shell", "latest_historical_bank_window"]).all()
     hist = frame.loc[frame["comparison_key"].eq("latest_historical_bank_window")].iloc[0]
     assert float(hist["historical_bank_receipt_variant_mil"]) == 103.0
 

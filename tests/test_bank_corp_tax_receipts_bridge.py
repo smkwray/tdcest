@@ -7,7 +7,9 @@ import pandas as pd
 
 from tdc_estimator.bank_corp_tax_receipts_bridge import (
     build_bank_corp_tax_receipts_bridge,
+    build_bank_corp_tax_receipts_bridge_guardrail_audit,
     render_bank_corp_tax_receipts_bridge_markdown,
+    render_bank_corp_tax_receipts_bridge_guardrail_audit_markdown,
 )
 from tdc_estimator.irs_soi import extract_publication16_table11_row, extract_publication16_table51_row
 
@@ -79,6 +81,62 @@ def test_build_bank_corp_tax_receipts_bridge_applies_annual_shares_to_quarterly_
     assert int(latest_2026["stale_share_years"]) == 1
 
 
+def test_build_bank_corp_tax_receipts_bridge_uses_historical_major_industry_shares(tmp_path: Path):
+    mts_path = tmp_path / "mts_receipts.csv"
+    shares_path = tmp_path / "irs_shares_extended.csv"
+
+    pd.DataFrame(
+        [
+            ["2003-01-31", "Corporation Income Taxes", 100_000_000.0, 10_000_000.0, 90_000_000.0],
+            ["2003-02-28", "Corporation Income Taxes", 120_000_000.0, 20_000_000.0, 100_000_000.0],
+            ["2003-03-31", "Corporation Income Taxes", 140_000_000.0, 30_000_000.0, 110_000_000.0],
+        ],
+        columns=[
+            "record_date",
+            "classification_desc",
+            "current_month_gross_rcpt_amt",
+            "current_month_refund_amt",
+            "current_month_net_rcpt_amt",
+        ],
+    ).to_csv(mts_path, index=False)
+
+    pd.DataFrame(
+        [
+            {
+                "tax_year": 2003,
+                "source_table": "Publication 16 historical Table 6",
+                "source_granularity": "historical_major_industry",
+                "mapping_confidence": "major_industry_credit_intermediation_not_minor_bank",
+                "naics_revision": "NAICS_2002",
+                "all_total_income_tax_after_credits_thousands": 1000.0,
+                "finance_and_insurance_total_income_tax_after_credits_thousands": 250.0,
+                "commercial_banking_total_income_tax_after_credits_thousands": pd.NA,
+                "savings_and_other_depository_credit_intermediation_total_income_tax_after_credits_thousands": pd.NA,
+                "bank_holding_companies_total_income_tax_after_credits_thousands": pd.NA,
+                "finance_share_after_credits": 0.25,
+                "strict_depository_share_after_credits": pd.NA,
+                "depository_plus_bhc_share_after_credits": pd.NA,
+                "historical_credit_intermediation_share_after_credits": 0.09,
+                "historical_credit_intermediation_plus_management_share_after_credits": 0.20,
+            }
+        ]
+    ).to_csv(shares_path, index=False)
+
+    bridge = build_bank_corp_tax_receipts_bridge(
+        mts_receipts_path=mts_path,
+        irs_soi_bank_tax_shares_path=shares_path,
+        start="2003-03-31",
+    )
+
+    row = bridge.loc[pd.Timestamp("2003-03-31")]
+
+    assert round(row["mts_corp_income_tax_gross_mil"], 3) == 360.000
+    assert round(row["bank_corp_tax_receipts_gross_strict_depository_mil"], 3) == 32.400
+    assert round(row["bank_corp_tax_receipts_gross_depository_plus_bhc_mil"], 3) == 72.000
+    assert row["bank_share_method"] == "historical_credit_intermediation_major_industry"
+    assert row["mapping_confidence"] == "major_industry_credit_intermediation_not_minor_bank"
+
+
 def test_render_bank_corp_tax_receipts_bridge_markdown_mentions_table51_bridge():
     bridge = pd.DataFrame(
         {
@@ -109,6 +167,50 @@ def test_render_bank_corp_tax_receipts_bridge_markdown_mentions_table51_bridge()
     assert "Table 5.1" in markdown
     assert "Age-eligible for default" in markdown
     assert "2025-12-31" in markdown
+
+
+def test_build_bank_corp_tax_receipts_bridge_guardrail_audit_flags_historical_broad_warning() -> None:
+    bridge = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2005-12-31", "2014-12-31"]),
+            "bank_share_method": ["historical_credit_intermediation_major_industry", "current_exact_minor_industry"],
+            "mapping_confidence": [
+                "major_industry_credit_intermediation_not_minor_bank",
+                "exact_current_minor_industry_labels",
+            ],
+            "mts_corp_income_tax_gross_mil": [100.0, 200.0],
+            "bank_corp_tax_receipts_gross_strict_depository_mil": [5.0, 2.0],
+            "bank_corp_tax_receipts_gross_depository_plus_bhc_mil": [19.0, 18.0],
+            "bank_corp_tax_receipts_gross_finance_share_mil": [17.0, 40.0],
+        }
+    )
+
+    audit = build_bank_corp_tax_receipts_bridge_guardrail_audit(bridge)
+    order = audit.loc[audit["check_key"].eq("quarterly_variant_order")]
+
+    assert set(order["audit_status"]) == {"warn_historical_broad_exceeds_finance", "pass"}
+    assert audit.loc[audit["check_key"].eq("annual_estimate_not_above_gross_corp_tax_cash"), "audit_status"].eq("pass").all()
+    markdown = render_bank_corp_tax_receipts_bridge_guardrail_audit_markdown(audit)
+    assert "Warnings: 1" in markdown
+    assert "Failures: 0" in markdown
+
+
+def test_build_bank_corp_tax_receipts_bridge_guardrail_audit_fails_current_order_violation() -> None:
+    bridge = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2014-12-31"]),
+            "bank_share_method": ["current_exact_minor_industry"],
+            "mapping_confidence": ["exact_current_minor_industry_labels"],
+            "mts_corp_income_tax_gross_mil": [100.0],
+            "bank_corp_tax_receipts_gross_strict_depository_mil": [30.0],
+            "bank_corp_tax_receipts_gross_depository_plus_bhc_mil": [20.0],
+            "bank_corp_tax_receipts_gross_finance_share_mil": [40.0],
+        }
+    )
+
+    audit = build_bank_corp_tax_receipts_bridge_guardrail_audit(bridge)
+
+    assert "fail" in set(audit["audit_status"])
 
 
 def test_extract_publication16_table11_row_reads_minimal_xlsx_payload(tmp_path: Path):

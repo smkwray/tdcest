@@ -134,30 +134,30 @@ def build_fiscal_receipt_boundary_review(
         {
             "boundary_key": "bank_live_default_receipt_cell",
             "counterparty_group": "bank",
-            "receipt_family": "live_default_receipt_cell",
-            "current_repo_role": "default_zero_cell",
-            "included_in_live_tier3_headline": True,
+            "receipt_family": "missing_live_receipt_cell",
+            "current_repo_role": "missing_not_measured_cell",
+            "included_in_live_tier3_headline": False,
             "included_in_historical_overlay": False,
             "latest_reference_date": bank_default.get("last_date"),
             "latest_value_millions": _fmt_value(bank_default.get("latest_value_millions")),
             "strongest_supporting_surface": "tdc_fiscal_source_quality.csv",
             "binding_blocker": str(bank_current.get("binding_blocker", "stale_share_rule")),
-            "downstream_use": "Treat as the live default receipt cell in current-quarter fiscal-flow work, while keeping its zero value explicit.",
-            "interpretation": "The live Tier 3 bank receipt cell is still a zero default, not because bank receipts are irrelevant, but because current-quarter promotion remains blocked by stale public shares.",
+            "downstream_use": "Treat as missing/not measured in current-quarter fiscal-flow work; any numeric zero is an arithmetic placeholder only.",
+            "interpretation": "The live Tier 3 bank receipt cell is missing/not measured, not evidence that bank receipts are negligible; current-quarter promotion remains blocked by stale public shares.",
         },
         {
             "boundary_key": "row_live_default_receipt_cell",
             "counterparty_group": "row",
-            "receipt_family": "live_default_receipt_cell",
-            "current_repo_role": "default_zero_cell",
-            "included_in_live_tier3_headline": True,
+            "receipt_family": "missing_live_receipt_cell",
+            "current_repo_role": "missing_not_measured_cell",
+            "included_in_live_tier3_headline": False,
             "included_in_historical_overlay": False,
             "latest_reference_date": row_default.get("last_date"),
             "latest_value_millions": _fmt_value(row_default.get("latest_value_millions")),
             "strongest_supporting_surface": "tdc_fiscal_source_quality.csv",
             "binding_blocker": str(row_mrv.get("binding_blocker", "evidence_boundary")),
-            "downstream_use": "Treat as the live default ROW receipt cell in current-quarter fiscal-flow work, while keeping its zero value explicit.",
-            "interpretation": "The live Tier 3 ROW receipt cell is still a zero default because the MRV branch remains a bounded nondefault pilot rather than a promotable additive correction.",
+            "downstream_use": "Treat as missing/not measured in current-quarter fiscal-flow work; MRV remains a bounded nondefault pilot.",
+            "interpretation": "The live Tier 3 ROW receipt cell is missing/not measured because the MRV branch remains a bounded nondefault pilot rather than a promotable additive correction.",
         },
         {
             "boundary_key": "bank_receipt_bridge_depository_plus_bhc",
@@ -230,8 +230,8 @@ def build_fiscal_receipt_boundary_review(
             "latest_value_millions": historical_lower_effect,
             "strongest_supporting_surface": "tdc_tier3_historical_bank_receipt_research.csv",
             "binding_blocker": "none_within_current_policy_window",
-            "downstream_use": "Use as the conservative historical lower-bound effect versus default Tier 3, not as the candidate-minus-lower-bound spread.",
-            "interpretation": "This lower bound keeps the historical bank overlay from being treated as a single-point truth by showing the conservative additive effect versus default Tier 3.",
+            "downstream_use": "Use as the conservative historical lower-bound effect versus the Tier 3 partial shell, not as the candidate-minus-lower-bound spread.",
+            "interpretation": "This lower bound keeps the historical bank overlay from being treated as a single-point truth by showing the conservative additive effect versus the partial shell.",
         },
         {
             "boundary_key": "row_mrv_primary_nondefault_pilot",
@@ -277,7 +277,7 @@ def build_fiscal_receipt_boundary_review(
 def render_fiscal_receipt_boundary_review_markdown(frame: pd.DataFrame) -> str:
     title = "# Fiscal Receipt Boundary Review"
     intro = (
-        "Receipt-side boundary map for the fiscal shell. It shows which receipt cells are live defaults, "
+        "Receipt-side boundary map for the fiscal shell. It shows which receipt cells are missing/not measured in the live partial shell, "
         "which are historical-only overlays, which are bounded nondefault pilots, and which remain benchmark-only."
     )
     if frame.empty:

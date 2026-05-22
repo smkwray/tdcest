@@ -52,8 +52,8 @@ def test_build_source_backed_tier3_input_table_overlays_full_quarters_only(tmp_p
     assert round(table.loc[pd.Timestamp("2025-03-31"), "bank_noninterest_outlay_proxy"], 6) == 1.0
     assert round(table.loc[pd.Timestamp("2025-06-30"), "bank_noninterest_outlay_proxy"], 6) == 330.0
     assert round(table.loc[pd.Timestamp("2025-06-30"), "row_noninterest_outlay_proxy"], 6) == 700.0
-    assert round(table.loc[pd.Timestamp("2025-06-30"), "bank_nonborrow_receipt_proxy"], 6) == 0.0
-    assert round(table.loc[pd.Timestamp("2025-06-30"), "row_nonborrow_receipt_proxy"], 6) == 0.0
+    assert round(table.loc[pd.Timestamp("2025-06-30"), "bank_nonborrow_receipt_proxy"], 6) == 6.0
+    assert round(table.loc[pd.Timestamp("2025-06-30"), "row_nonborrow_receipt_proxy"], 6) == 8.0
     assert round(table.loc[pd.Timestamp("2025-06-30"), "mint_cb_cash_factor_proxy"], 6) == 600.0
 
 
@@ -85,6 +85,9 @@ def test_build_tier3_source_diagnostics_exposes_row_components(tmp_path):
     assert round(row["row_outlay_total_selected"], 6) == 900.0
     assert round(row["row_outlay_default_selected"], 6) == 700.0
     assert round(row["row_outlay_broad_selected"], 6) == 900.0
+    assert round(row["row_outlay_core_institutional_selected"], 6) == 400.0
+    assert round(row["row_outlay_humanitarian_addon_selected"], 6) == 300.0
+    assert round(row["row_outlay_agency_addon_selected"], 6) == 0.0
     assert round(row["row_outlay_security_selected"], 6) == 200.0
     assert round(row["row_outlay_humanitarian_development_selected"], 6) == 300.0
     assert round(row["row_outlay_institutions_selected"], 6) == 400.0
@@ -106,6 +109,9 @@ def test_render_tier3_source_diagnostics_markdown_includes_latest_components():
             "row_outlay_broad_selected": [900.0],
             "row_outlay_total_selected": [900.0],
             "row_outlay_security_selected": [200.0],
+            "row_outlay_core_institutional_selected": [400.0],
+            "row_outlay_humanitarian_addon_selected": [300.0],
+            "row_outlay_agency_addon_selected": [0.0],
             "row_outlay_humanitarian_development_selected": [300.0],
             "row_outlay_institutions_selected": [400.0],
             "mint_net_outlay_source": [-600.0],
@@ -118,6 +124,7 @@ def test_render_tier3_source_diagnostics_markdown_includes_latest_components():
 
     assert "Latest source-covered quarter: 2025-06-30." in markdown
     assert "ROW default 700.000; ROW broad 900.000;" in markdown
+    assert "Bank and ROW receipt corrections are source-boundary missing cells" in markdown
     assert "Top ROW components:" in markdown
     assert "foreign_military_financing=200.000" in markdown
     assert "international_orgs=400.000" in markdown

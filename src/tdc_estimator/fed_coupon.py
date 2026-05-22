@@ -92,12 +92,19 @@ def prepare_soma_holdings(df: pd.DataFrame) -> pd.DataFrame:
         df["coupon_rate_pct"] = pd.to_numeric(df[coupon_col], errors="coerce").fillna(0.0)
     else:
         df["coupon_rate_pct"] = 0.0
+    inflation_col = _first_existing(df, ["inflation_compensation", "inflation_comp", "inflation_accretion"])
+    if inflation_col is not None:
+        df["inflation_compensation"] = pd.to_numeric(df[inflation_col], errors="coerce")
+    else:
+        df["inflation_compensation"] = pd.NA
 
     df["security_text"] = ""
     if type_col is not None:
-        df["security_text"] = df[type_col].astype(str)
+        df["security_text"] = df[type_col].fillna("").astype(str)
     if desc_col is not None:
-        df["security_text"] = (df["security_text"].astype(str) + " " + df[desc_col].astype(str)).str.strip()
+        df["security_text"] = (
+            df["security_text"].fillna("").astype(str) + " " + df[desc_col].fillna("").astype(str)
+        ).str.strip()
 
     if "cusip" in df.columns:
         df["cusip"] = df["cusip"].astype(str).str.replace("'", "", regex=False).str.strip()
@@ -108,7 +115,16 @@ def prepare_soma_holdings(df: pd.DataFrame) -> pd.DataFrame:
     df["instrument_type"] = df.apply(_classify_instrument, axis=1)
     df = df[df["instrument_type"].isin(["bill", "coupon", "tips", "frn"])].copy()
     return df[
-        ["as_of_date", "maturity_date", "par_value", "coupon_rate_pct", "instrument_type", "cusip", "security_text"]
+        [
+            "as_of_date",
+            "maturity_date",
+            "par_value",
+            "coupon_rate_pct",
+            "instrument_type",
+            "cusip",
+            "security_text",
+            "inflation_compensation",
+        ]
     ].reset_index(drop=True)
 
 
@@ -240,6 +256,146 @@ def estimate_quarterly_fed_coupon_interest_from_soma_csv(path: Path | str) -> pd
 
 def estimate_quarterly_fed_coupon_interest_from_soma_csvs(paths: Sequence[Path | str]) -> pd.Series:
     return estimate_quarterly_fed_coupon_interest_from_soma_snapshots(read_soma_holdings_many(paths))
+
+
+def _first_full_soma_coupon_quarter(holdings: pd.DataFrame) -> pd.Timestamp | None:
+    prepared = prepare_soma_holdings(holdings)
+    if prepared.empty:
+        return None
+    first_snapshot = pd.to_datetime(prepared["as_of_date"], errors="coerce").dropna().min().normalize()
+    quarter = first_snapshot.to_period("Q")
+    quarter_start = quarter.start_time.normalize()
+    quarter_end = quarter.end_time.normalize()
+    if first_snapshot <= quarter_start:
+        return quarter_end
+    return (quarter_end + pd.offsets.QuarterEnd()).normalize()
+
+
+def estimate_quarterly_fed_coupon_interest_backcast_from_wamest(
+    *,
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    before_date: pd.Timestamp,
+    start_date: pd.Timestamp | str | None = None,
+) -> pd.Series:
+    """Infer pre-SOMA Fed Treasury coupon interest from WAMEST/H.15 coupon intensity."""
+
+    from .sector_coupon import (  # Local import avoids a module-level cycle.
+        _curve_points,
+        _interpolate_curve_yield,
+        _latest_curve_row_on_or_before,
+        prepare_curve_file,
+        prepare_sector_maturity,
+        prepare_sector_panel,
+    )
+
+    maturity = prepare_sector_maturity(sector_maturity)
+    panel = prepare_sector_panel(sector_panel)
+    curve_frame = prepare_curve_file(curves)
+    curve_points = _curve_points(curve_frame)
+
+    fed_maturity = (
+        maturity.loc[maturity["sector_key"].eq("fed"), ["date", "coupon_share", "coupon_only_maturity_years"]]
+        .sort_values("date")
+        .copy()
+    )
+    fed_panel = panel.loc[panel["sector_key"].eq("fed"), ["date", "level"]].sort_values("date").copy()
+    if fed_maturity.empty or fed_panel.empty:
+        return pd.Series(dtype="float64", name="fed_tsy_coupon_interest_proxy")
+
+    merged = fed_panel.merge(fed_maturity, on="date", how="left").sort_values("date")
+    merged[["coupon_share", "coupon_only_maturity_years"]] = merged[
+        ["coupon_share", "coupon_only_maturity_years"]
+    ].ffill()
+    merged["date"] = pd.to_datetime(merged["date"], errors="coerce")
+    merged = merged.loc[merged["date"].notna() & merged["date"].lt(pd.Timestamp(before_date))]
+    if start_date is not None:
+        merged = merged.loc[merged["date"].ge(pd.Timestamp(start_date))]
+
+    rows: list[dict[str, object]] = []
+    for _, row in merged.iterrows():
+        date = pd.Timestamp(row["date"]).normalize()
+        level = pd.to_numeric(row.get("level"), errors="coerce")
+        coupon_share = pd.to_numeric(row.get("coupon_share"), errors="coerce")
+        maturity_years = pd.to_numeric(row.get("coupon_only_maturity_years"), errors="coerce")
+        if pd.isna(level) or pd.isna(coupon_share) or pd.isna(maturity_years):
+            continue
+        curve_row = _latest_curve_row_on_or_before(curve_frame, date)
+        if curve_row is None:
+            continue
+        annual_rate = _interpolate_curve_yield(curve_row, float(maturity_years), curve_points)
+        if annual_rate is None:
+            continue
+        rows.append(
+            {
+                "date": date,
+                "value": float(level) * max(float(coupon_share), 0.0) * max(float(annual_rate), 0.0) / 4.0,
+            }
+        )
+
+    if not rows:
+        return pd.Series(dtype="float64", name="fed_tsy_coupon_interest_proxy")
+    out = pd.DataFrame(rows).drop_duplicates(subset=["date"], keep="last").sort_values("date")
+    return pd.Series(
+        pd.to_numeric(out["value"], errors="coerce").values,
+        index=pd.to_datetime(out["date"]),
+        name="fed_tsy_coupon_interest_proxy",
+        dtype="float64",
+    )
+
+
+def estimate_quarterly_fed_coupon_interest_with_wamest_backcast(
+    *,
+    soma_holdings: pd.DataFrame,
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    start_date: pd.Timestamp | str | None = "2002-03-31",
+) -> pd.Series:
+    exact = estimate_quarterly_fed_coupon_interest_from_soma_snapshots(soma_holdings)
+    first_full_quarter = _first_full_soma_coupon_quarter(soma_holdings)
+    if first_full_quarter is None:
+        return exact
+
+    backcast = estimate_quarterly_fed_coupon_interest_backcast_from_wamest(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        before_date=first_full_quarter,
+        start_date=start_date,
+    )
+    exact_full = (
+        exact.loc[pd.to_datetime(exact.index) >= first_full_quarter]
+        if not exact.empty
+        else pd.Series(dtype="float64", name="fed_tsy_coupon_interest_proxy")
+    )
+    return exact_full.combine_first(backcast).sort_index().rename("fed_tsy_coupon_interest_proxy")
+
+
+def write_quarterly_fed_coupon_interest_proxy_with_wamest_backcast(
+    *,
+    soma_paths: Sequence[Path | str],
+    sector_maturity_path: Path | str,
+    sector_panel_path: Path | str,
+    curve_path: Path | str,
+    out_path: Path | str,
+    start_date: pd.Timestamp | str | None = "2002-03-31",
+) -> Path:
+    from .sector_coupon import read_sector_maturity_table, read_sector_panel_table, read_table
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    series = estimate_quarterly_fed_coupon_interest_with_wamest_backcast(
+        soma_holdings=read_soma_holdings_many(soma_paths),
+        sector_maturity=read_sector_maturity_table(sector_maturity_path),
+        sector_panel=read_sector_panel_table(sector_panel_path),
+        curves=read_table(curve_path),
+        start_date=start_date,
+    )
+    frame = pd.DataFrame({"date": series.index, "value": series.values})
+    frame.to_csv(out_path, index=False)
+    return out_path
 
 
 def write_quarterly_fed_coupon_interest_proxy_from_soma_csv(

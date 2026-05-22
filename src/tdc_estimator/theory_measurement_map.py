@@ -140,18 +140,18 @@ def build_theory_measurement_map() -> pd.DataFrame:
             "display_order": 7,
             "equation_key": "implemented_tier3_fiscal_correction",
             "equation_family": "implemented_estimate",
-            "display_title": "Implemented Tier 3 Fiscal-Corrected Estimate",
-            "repo_role": "live_corrected_estimate",
+            "display_title": "Tier 3 Partial Fiscal-Shell Diagnostic",
+            "repo_role": "partial_fiscal_shell_diagnostic",
             "latex": r"\widehat{\Delta D}^{Tier3,bank}_{TDC,t} = \widehat{\Delta D}^{Tier2,bank}_{TDC,t} - Outlay^{Banks}_t - Outlay^{ROW}_t + Receipt^{Banks}_t + Receipt^{ROW}_t + CashFactor_t",
             "plain_english_summary": (
-                "Tier 2 plus narrow fiscal-flow corrections for bank and ROW outlays, bank and ROW receipts, and mint or central-bank cash factors."
+                "The intended Tier 3 formula is Tier 2 plus paired fiscal-flow corrections, but the current live artifact is only the outlay-backed partial shell because receipt cells have not cleared default gates."
             ),
             "current_measurement_mapping": (
-                "This is the repo's bounded fiscal-flow comparison layer. It shows how the ladder moves once the currently measurable fiscal corrections are added."
+                "The live numeric series subtracts measured bank/FAS and narrow ROW outlays and adds the Mint cash factor. Bank and ROW receipts remain missing/not measured default cells rather than economic zeros."
             ),
-            "implementation_status": "implemented_live_bounded",
+            "implementation_status": "diagnostic_partial_shell",
             "main_caveat": (
-                "Receipt-side cells remain partial. Current bank receipts stay nondefault, and MRV remains a bounded nondefault ROW pilot."
+                "Do not treat this as a promoted fiscal-corrected point estimate until bank and ROW receipt measures clear comparable source, timing, and payer-identity gates."
             ),
             "primary_artifact": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
         },

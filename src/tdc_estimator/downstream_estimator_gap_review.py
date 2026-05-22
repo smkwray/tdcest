@@ -137,12 +137,27 @@ def build_downstream_estimator_gap_review(
         rhs="tdc_base_bank_only_ru_flow",
         delta=base_to_tier2,
         candidates=[
-            ("tier2_row_coupon_correction", "coupon", _value(corr, latest, "tier2_row_coupon_correction"), "additive_driver"),
-            ("tier1_fed_coupon_correction", "coupon", _value(corr, latest, "tier1_fed_coupon_correction"), "additive_driver"),
-            ("tier2_bank_coupon_correction", "coupon", _value(corr, latest, "tier2_bank_coupon_correction"), "additive_driver"),
+            (
+                "tier2_row_coupon_correction",
+                "interest_cleanup",
+                _value(corr, latest, "tier2_row_coupon_correction"),
+                "additive_driver",
+            ),
+            (
+                "tier1_fed_coupon_correction",
+                "interest_cleanup",
+                _value(corr, latest, "tier1_fed_coupon_correction"),
+                "additive_driver",
+            ),
+            (
+                "tier2_bank_coupon_correction",
+                "interest_cleanup",
+                _value(corr, latest, "tier2_bank_coupon_correction"),
+                "additive_driver",
+            ),
         ],
         gap_role="interest_cleanup_gap",
-        interpretation="Difference between the base headline and Tier 2 bank-only, dominated by coupon-correction assumptions.",
+        interpretation="Difference between the base headline and Tier 2 bank-only, dominated by Treasury interest-cleanup assumptions.",
     )
 
     tier2_to_tier3 = (_value(est, latest, "tdc_tier3_fiscal_corrected_bank_only_ru_flow") or 0.0) - (

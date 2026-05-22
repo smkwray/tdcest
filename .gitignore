@@ -2,11 +2,15 @@ do/
 dist/
 output/
 .playwright-cli/
+.playwright-mcp/
 site/data/*
 !site/data/bundle.json
 examples/demo_build/
 docs/frontend_agent_prompt.md
 docs/holder_maturity_project.md
+reports/
+figures/
+mmf-slide-*.png
 ._*
 .DS_Store
 __pycache__/
@@ -14,6 +18,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
 pytest-cache-files-*/
 .coverage
 .venv/

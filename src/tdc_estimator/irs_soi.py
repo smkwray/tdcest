@@ -38,6 +38,16 @@ TABLE53_LABELS = {
     "total_income_tax_after_credits": "total income tax after credits",
 }
 
+IRS_CORPORATION_COMPLETE_CURRENT_PAGE_URL = (
+    "https://www.irs.gov/statistics/soi-tax-stats-corporation-income-tax-returns-complete-report-publication-16"
+)
+IRS_CORPORATION_COMPLETE_HISTORICAL_PAGE_URL = (
+    "https://www.irs.gov/statistics/soi-tax-stats-corporation-complete-report-1994-to-2013"
+)
+IRS_CORPORATION_COMPLETE_HISTORICAL_TABLE6_PAGE_URL = (
+    "https://www.irs.gov/statistics/soi-tax-stats-returns-of-active-corporations-table-6"
+)
+
 
 @dataclass(frozen=True)
 class Publication16Table11Row:
@@ -125,6 +135,33 @@ class Publication16Table53AvailabilityRow:
         )
 
 
+@dataclass(frozen=True)
+class Publication16HistoricalTable6Row:
+    tax_year: int
+    source_url: str
+    source_table: str
+    all_total_income_tax_after_credits_thousands: float
+    finance_and_insurance_total_income_tax_after_credits_thousands: float
+    credit_intermediation_total_income_tax_after_credits_thousands: float
+    management_holding_companies_total_income_tax_after_credits_thousands: float
+
+    @property
+    def finance_share_after_credits(self) -> float:
+        return self.finance_and_insurance_total_income_tax_after_credits_thousands / self.all_total_income_tax_after_credits_thousands
+
+    @property
+    def historical_credit_intermediation_share_after_credits(self) -> float:
+        return self.credit_intermediation_total_income_tax_after_credits_thousands / self.all_total_income_tax_after_credits_thousands
+
+    @property
+    def historical_credit_intermediation_plus_management_share_after_credits(self) -> float:
+        numerator = (
+            self.credit_intermediation_total_income_tax_after_credits_thousands
+            + self.management_holding_companies_total_income_tax_after_credits_thousands
+        )
+        return numerator / self.all_total_income_tax_after_credits_thousands
+
+
 def publication16_table11_url(tax_year: int) -> str:
     yy = str(tax_year)[-2:]
     return f"https://www.irs.gov/pub/irs-soi/{yy}co11ccr.xlsx"
@@ -138,6 +175,96 @@ def publication16_table51_url(tax_year: int) -> str:
 def publication16_table53_url(tax_year: int) -> str:
     yy = str(tax_year)[-2:]
     return f"https://www.irs.gov/pub/irs-soi/{yy}co53ccr.xlsx"
+
+
+def publication16_historical_table6_url(tax_year: int) -> str:
+    yy = str(tax_year)[-2:]
+    suffix = "nr" if tax_year == 2003 else "ccr"
+    return f"https://www.irs.gov/pub/irs-soi/{yy}co06{suffix}.xls"
+
+
+def publication16_bank_share_source_url(tax_year: int) -> str:
+    if tax_year <= 2013:
+        return publication16_historical_table6_url(tax_year)
+    return publication16_table51_url(tax_year)
+
+
+def _naics_revision_for_tax_year(tax_year: int) -> str:
+    if tax_year >= 2022:
+        return "NAICS_2022"
+    if tax_year >= 2017:
+        return "NAICS_2017"
+    if tax_year >= 2012:
+        return "NAICS_2012"
+    if tax_year >= 2007:
+        return "NAICS_2007"
+    return "NAICS_2002"
+
+
+def build_publication16_bank_share_source_manifest(
+    *,
+    start_year: int = 2003,
+    end_year: int = 2022,
+    cache_dir: Path | str = "data/raw/irs_soi_pub16",
+) -> pd.DataFrame:
+    cache_dir = Path(cache_dir)
+    rows: list[dict[str, object]] = []
+    for tax_year in range(start_year, end_year + 1):
+        historical = tax_year <= 2013
+        source_url = publication16_bank_share_source_url(tax_year)
+        extension = ".xls" if historical else ".xlsx"
+        cache_path = cache_dir / f"{tax_year}_bank_share_source{extension}"
+        rows.append(
+            {
+                "tax_year": tax_year,
+                "source_family": "irs_soi_publication_16",
+                "source_table": "Publication 16 historical Table 6" if historical else "Publication 16 Basic Table 5.1",
+                "source_table_printed_nbr": "6" if historical else "5.1",
+                "current_table_equivalent": "Basic Table 5.1",
+                "table_concept": "returns_of_active_corporations_tax_items_by_industry",
+                "classified_by": "Major Industry" if historical else "Minor Industry",
+                "source_url": source_url,
+                "source_page_url": (
+                    IRS_CORPORATION_COMPLETE_HISTORICAL_TABLE6_PAGE_URL
+                    if historical
+                    else IRS_CORPORATION_COMPLETE_CURRENT_PAGE_URL
+                ),
+                "archive_page_url": IRS_CORPORATION_COMPLETE_HISTORICAL_PAGE_URL if historical else "",
+                "cache_path": str(cache_path),
+                "file_format": "xls" if historical else "xlsx",
+                "cache_exists": cache_path.exists(),
+                "naics_revision": _naics_revision_for_tax_year(tax_year),
+                "target_naics_codes": "522110|522120|551111",
+                "target_share_variants": "strict_depository|depository_plus_bhc|finance_upper",
+                "parser_status": "needs_xls_parser" if historical else "current_xlsx_parser_available",
+                "notes": (
+                    "Historical Table 6 is the current Table 5.1 concept per project crosswalk; parse by concept and labels, not table number."
+                    if historical
+                    else "Current Publication 16 Table 5.1 parser exists."
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_publication16_bank_share_source_manifest(
+    *,
+    out_path: Path | str,
+    start_year: int = 2003,
+    end_year: int = 2022,
+    cache_dir: Path | str | None = None,
+) -> Path:
+    out_path = Path(out_path)
+    if cache_dir is None:
+        cache_dir = out_path.parent / "irs_soi_pub16"
+    manifest = build_publication16_bank_share_source_manifest(
+        start_year=start_year,
+        end_year=end_year,
+        cache_dir=cache_dir,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest.to_csv(out_path, index=False)
+    return out_path
 
 
 def download_publication16_table11_xlsx(tax_year: int, out_path: Path | str) -> Path:
@@ -165,6 +292,71 @@ def download_publication16_table53_xlsx(tax_year: int, out_path: Path | str) -> 
     with urlopen(req, timeout=60) as resp:
         out_path.write_bytes(resp.read())
     return out_path
+
+
+def download_publication16_bank_share_source(
+    *,
+    tax_year: int,
+    out_path: Path | str,
+) -> Path:
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    req = Request(publication16_bank_share_source_url(tax_year), headers={"User-Agent": USER_AGENT})
+    with urlopen(req, timeout=90) as resp:
+        out_path.write_bytes(resp.read())
+    return out_path
+
+
+def cache_publication16_bank_share_sources_from_manifest(
+    manifest: pd.DataFrame,
+    *,
+    overwrite: bool = False,
+    continue_on_error: bool = True,
+) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for _, source_row in manifest.iterrows():
+        tax_year = int(source_row["tax_year"])
+        cache_path = Path(str(source_row["cache_path"]))
+        status = "cached_existing" if cache_path.exists() and not overwrite else "pending"
+        error = ""
+        if status == "pending":
+            try:
+                download_publication16_bank_share_source(tax_year=tax_year, out_path=cache_path)
+                status = "downloaded"
+            except Exception as exc:
+                status = "download_failed"
+                error = str(exc)
+                if not continue_on_error:
+                    raise
+        rows.append(
+            {
+                **source_row.to_dict(),
+                "cache_exists": cache_path.exists(),
+                "cache_size_bytes": cache_path.stat().st_size if cache_path.exists() else 0,
+                "cache_status": status,
+                "cache_error": error,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_cached_publication16_bank_share_sources_from_manifest(
+    *,
+    manifest_path: Path | str,
+    out_path: Path | str | None = None,
+    overwrite: bool = False,
+    continue_on_error: bool = True,
+) -> Path:
+    manifest = pd.read_csv(manifest_path)
+    cached = cache_publication16_bank_share_sources_from_manifest(
+        manifest,
+        overwrite=overwrite,
+        continue_on_error=continue_on_error,
+    )
+    out = Path(out_path) if out_path is not None else Path(manifest_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cached.to_csv(out, index=False)
+    return out
 
 
 def _cell_column(ref: str) -> str:
@@ -264,6 +456,59 @@ def _classify_observation(raw_value: str | None) -> tuple[str, float | None]:
         return "non_numeric", None
 
 
+def _normalize_frame_text(value: object) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value)
+
+
+def _find_frame_row_containing(frame: pd.DataFrame, label: str) -> int:
+    target = _normalize_label(label)
+    for row_idx in range(len(frame)):
+        row_text = " ".join(_normalize_frame_text(value) for value in frame.iloc[row_idx].tolist())
+        if target in _normalize_label(row_text):
+            return row_idx
+    raise ValueError(f"Could not find row containing {label!r}")
+
+
+def _find_frame_column_containing(frame: pd.DataFrame, label: str, *, header_rows: int = 13) -> int:
+    target = _normalize_label(label)
+    search_rows = min(header_rows, len(frame))
+    for col_idx in range(frame.shape[1]):
+        col_text = " ".join(_normalize_frame_text(frame.iat[row_idx, col_idx]) for row_idx in range(search_rows))
+        if target in _normalize_label(col_text):
+            return col_idx
+    raise ValueError(f"Could not find column containing {label!r}")
+
+
+def _find_frame_parent_total_column(frame: pd.DataFrame, label: str, *, total_row: int, header_rows: int = 13) -> int:
+    label_col = _find_frame_column_containing(frame, label, header_rows=header_rows)
+    label_header = " ".join(_normalize_frame_text(frame.iat[row_idx, label_col]) for row_idx in range(min(header_rows, len(frame))))
+    label_header_norm = _normalize_label(label_header)
+    if "total" in label_header_norm:
+        return label_col
+
+    for col_idx in range(max(0, label_col - 4), label_col):
+        header = " ".join(_normalize_frame_text(frame.iat[row_idx, col_idx]) for row_idx in range(min(header_rows, len(frame))))
+        status, _ = _classify_observation(_normalize_frame_text(frame.iat[total_row, col_idx]))
+        if "total" in _normalize_label(header) and status == "observed":
+            return col_idx
+    for col_idx in range(label_col + 1, min(frame.shape[1], label_col + 5)):
+        header = " ".join(_normalize_frame_text(frame.iat[row_idx, col_idx]) for row_idx in range(min(header_rows, len(frame))))
+        status, _ = _classify_observation(_normalize_frame_text(frame.iat[total_row, col_idx]))
+        if "total" in _normalize_label(header) and status == "observed":
+            return col_idx
+    return label_col
+
+
+def _frame_float_or_raise(frame: pd.DataFrame, row: int, col: int) -> float:
+    raw_value = frame.iat[row, col]
+    status, value = _classify_observation(None if pd.isna(raw_value) else str(raw_value))
+    if status == "observed" and value is not None:
+        return value
+    raise ValueError(f"Expected observed numeric value at row {row}, column {col}; found {raw_value!r}")
+
+
 def extract_publication16_table11_row(path: Path | str, *, tax_year: int | None = None) -> Publication16Table11Row:
     source_path = Path(path)
     cells = _xlsx_cells(source_path)
@@ -309,6 +554,67 @@ def extract_publication16_table11_row(path: Path | str, *, tax_year: int | None 
         management_holding_companies_total_income_tax_after_credits_thousands=_float_or_raise(
             cells[f"{management_col}{total_after_credits_row}"], ref=f"{management_col}{total_after_credits_row}"
         ),
+    )
+
+
+def _extract_publication16_historical_table6_row_from_frame(
+    frame: pd.DataFrame,
+    *,
+    tax_year: int,
+    source_url: str,
+) -> Publication16HistoricalTable6Row:
+    total_after_credits_row = _find_frame_row_containing(frame, "Total income tax after credits")
+    all_col = _find_frame_column_containing(frame, "All industries")
+    finance_col = _find_frame_parent_total_column(
+        frame,
+        "Finance and insurance",
+        total_row=total_after_credits_row,
+    )
+    credit_col = _find_frame_column_containing(frame, "Credit intermediation")
+    management_col = _find_frame_column_containing(frame, "Management of companies holding companies")
+    return Publication16HistoricalTable6Row(
+        tax_year=tax_year,
+        source_url=source_url,
+        source_table="Publication 16 historical Table 6",
+        all_total_income_tax_after_credits_thousands=_frame_float_or_raise(frame, total_after_credits_row, all_col),
+        finance_and_insurance_total_income_tax_after_credits_thousands=_frame_float_or_raise(
+            frame,
+            total_after_credits_row,
+            finance_col,
+        ),
+        credit_intermediation_total_income_tax_after_credits_thousands=_frame_float_or_raise(
+            frame,
+            total_after_credits_row,
+            credit_col,
+        ),
+        management_holding_companies_total_income_tax_after_credits_thousands=_frame_float_or_raise(
+            frame,
+            total_after_credits_row,
+            management_col,
+        ),
+    )
+
+
+def extract_publication16_historical_table6_row(
+    path: Path | str,
+    *,
+    tax_year: int | None = None,
+) -> Publication16HistoricalTable6Row:
+    source_path = Path(path)
+    inferred_year = tax_year
+    if inferred_year is None:
+        stem = source_path.stem
+        if len(stem) >= 4 and stem[:4].isdigit():
+            inferred_year = int(stem[:4])
+        elif len(stem) >= 2 and stem[:2].isdigit():
+            inferred_year = 2000 + int(stem[:2])
+    if inferred_year is None:
+        raise ValueError(f"Could not infer tax year from {source_path}")
+    frame = pd.read_excel(source_path, sheet_name=0, header=None, dtype=object)
+    return _extract_publication16_historical_table6_row_from_frame(
+        frame,
+        tax_year=inferred_year,
+        source_url=publication16_historical_table6_url(inferred_year),
     )
 
 
@@ -497,6 +803,80 @@ def build_publication16_table51_share_table(paths: list[Path | str]) -> pd.DataF
     return frame
 
 
+def build_publication16_historical_table6_share_table(paths: list[Path | str]) -> pd.DataFrame:
+    rows = []
+    for path in paths:
+        row = extract_publication16_historical_table6_row(path)
+        rows.append(
+            {
+                "tax_year": row.tax_year,
+                "source_table": row.source_table,
+                "source_url": row.source_url,
+                "source_granularity": "historical_major_industry",
+                "mapping_confidence": "major_industry_credit_intermediation_not_minor_bank",
+                "all_total_income_tax_after_credits_thousands": row.all_total_income_tax_after_credits_thousands,
+                "finance_and_insurance_total_income_tax_after_credits_thousands": row.finance_and_insurance_total_income_tax_after_credits_thousands,
+                "commercial_banking_total_income_tax_after_credits_thousands": None,
+                "savings_and_other_depository_credit_intermediation_total_income_tax_after_credits_thousands": None,
+                "bank_holding_companies_total_income_tax_after_credits_thousands": None,
+                "historical_credit_intermediation_total_income_tax_after_credits_thousands": row.credit_intermediation_total_income_tax_after_credits_thousands,
+                "historical_management_holding_companies_total_income_tax_after_credits_thousands": row.management_holding_companies_total_income_tax_after_credits_thousands,
+                "finance_share_after_credits": row.finance_share_after_credits,
+                "strict_depository_share_after_credits": None,
+                "depository_plus_bhc_share_after_credits": None,
+                "historical_credit_intermediation_share_after_credits": row.historical_credit_intermediation_share_after_credits,
+                "historical_credit_intermediation_plus_management_share_after_credits": row.historical_credit_intermediation_plus_management_share_after_credits,
+            }
+        )
+    return pd.DataFrame(rows).sort_values("tax_year").reset_index(drop=True)
+
+
+def build_publication16_bank_tax_share_table_from_manifest(manifest: pd.DataFrame) -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    table_nbr = manifest["source_table_printed_nbr"].astype(str).str.replace(r"\.0$", "", regex=True)
+    historical_paths = [
+        Path(str(row["cache_path"]))
+        for _, row in manifest.loc[table_nbr.eq("6")].iterrows()
+        if Path(str(row["cache_path"])).exists()
+    ]
+    if historical_paths:
+        frames.append(build_publication16_historical_table6_share_table(historical_paths))
+
+    current_paths = [
+        Path(str(row["cache_path"]))
+        for _, row in manifest.loc[table_nbr.eq("5.1")].iterrows()
+        if Path(str(row["cache_path"])).exists()
+    ]
+    if current_paths:
+        current = build_publication16_table51_share_table(current_paths)
+        current["source_granularity"] = "current_minor_industry"
+        current["mapping_confidence"] = "exact_current_minor_industry_labels"
+        current["historical_credit_intermediation_total_income_tax_after_credits_thousands"] = None
+        current["historical_management_holding_companies_total_income_tax_after_credits_thousands"] = None
+        current["historical_credit_intermediation_share_after_credits"] = None
+        current["historical_credit_intermediation_plus_management_share_after_credits"] = None
+        frames.append(current)
+
+    if not frames:
+        return pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True, sort=False)
+    if "tax_year" in manifest.columns:
+        metadata = manifest[
+            [
+                "tax_year",
+                "source_table_printed_nbr",
+                "current_table_equivalent",
+                "table_concept",
+                "classified_by",
+                "cache_path",
+                "naics_revision",
+                "parser_status",
+            ]
+        ].copy()
+        out = out.merge(metadata, on="tax_year", how="left")
+    return out.sort_values("tax_year").reset_index(drop=True)
+
+
 def build_publication16_table53_availability_table(paths: list[Path | str]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for path in paths:
@@ -555,5 +935,18 @@ def write_publication16_table53_availability_table(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     frame = build_publication16_table53_availability_table(paths)
+    frame.to_csv(out_path, index=False)
+    return out_path
+
+
+def write_publication16_bank_tax_share_table_from_manifest(
+    *,
+    manifest_path: Path | str,
+    out_path: Path | str,
+) -> Path:
+    manifest = pd.read_csv(manifest_path)
+    frame = build_publication16_bank_tax_share_table_from_manifest(manifest)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(out_path, index=False)
     return out_path

@@ -56,13 +56,13 @@ const METHOD_LABELS = {
   tdc_base_bank_only_ru_flow: "Uncorrected bank-only baseline",
   tdc_tier1_fed_corrected_bank_only_ru_flow: "Fed-corrected bank-only estimate",
   tdc_tier2_interest_corrected_bank_only_ru_flow: "Interest-corrected bank-only estimate",
-  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Fiscal-corrected bank-only headline",
+  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Partial fiscal-shell bank-only diagnostic",
   tdc_base_broad_depository_np_cu_ru_flow: "Uncorrected broad-depository baseline",
   tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow: "Fed-corrected broad-depository estimate",
   tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow: "Interest-corrected broad-depository estimate",
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "Fiscal-corrected broad-depository estimate",
-  tdc_du_fiscal_flow_first_pass_narrow: "DU fiscal-flow first pass (narrow)",
-  tdc_du_fiscal_flow_first_pass_broad: "DU fiscal-flow first pass (broad)",
+  tdc_du_fiscal_flow_first_pass_narrow: "DU residual proxy",
+  tdc_du_fiscal_flow_first_pass_broad: "DU residual proxy (legacy broad ID)",
   tdc_credit_union_aggregate_sensitivity: "Aggregate credit-union sensitivity",
   tdc_decomposition_proxy_bank_centric: "Bank-centric decomposition proxy",
   tdc_bank_only_extended_1990: "Historical bank-only extension",
@@ -84,7 +84,7 @@ const METHOD_LABELS = {
 const METHOD_FAMILY_LABELS = {
   bank_only_ladder: "Bank-only correction ladder",
   broad_depository_ladder: "Broader deposit perimeter ladder",
-  du_fiscal_flow: "DU fiscal-flow first pass",
+  du_fiscal_flow: "DU residual fiscal proxy",
   headline_vs_sensitivity: "Headline and sensitivity views",
 };
 
@@ -260,15 +260,15 @@ const METHOD_DESCRIPTIONS = {
   tdc_base_bank_only_ru_flow: "Raw bank-only baseline built from Treasury security transactions, Treasury operating cash, and positive Fed remittances.",
   tdc_tier1_fed_corrected_bank_only_ru_flow: "Step one of the correction ladder, removing the Fed coupon distortion from the raw bank-only baseline.",
   tdc_tier2_interest_corrected_bank_only_ru_flow: "Transfer-side cleanup after removing coupon distortions for the Fed, banks, and foreign holders.",
-  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Current headline estimate after adding the narrow fiscal-flow correction layer.",
+  tdc_tier3_fiscal_corrected_bank_only_ru_flow: "Partial fiscal-shell diagnostic with unresolved current receipt cells kept below headline status.",
   tdc_base_broad_depository_np_cu_ru_flow: "Broader perimeter baseline that adds natural-person credit unions to the bank-only baseline.",
   tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the Fed-corrected estimate.",
   tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the interest-corrected ladder.",
-  tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter version of the fiscal-corrected ladder, used for perimeter comparison rather than as the headline.",
+  tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow: "Broader-perimeter partial fiscal-shell diagnostic, used for perimeter comparison rather than as the headline.",
   tdc_du_fiscal_flow_first_pass_narrow:
-    "DU-facing first pass using total Treasury cash totals, a narrow DU Treasury-security proxy, and direct DU coupon estimation where available.",
+    "DU-facing residual proxy using total Treasury cash totals, residual DU Treasury-security purchases, and residual DU coupon interest.",
   tdc_du_fiscal_flow_first_pass_broad:
-    "Broader DU-facing first pass using total Treasury cash totals, a broader private DU Treasury-security proxy, and direct DU coupon estimation where available.",
+    "DU-facing residual proxy using total Treasury cash totals, residual DU Treasury-security purchases, and residual DU coupon interest.",
   tdc_credit_union_aggregate_sensitivity: "Sensitivity view for credit-union treatment, kept outside the headline ladder.",
   tdc_decomposition_proxy_bank_centric: "Proxy decomposition view used for context rather than as the main estimator.",
   tdc_bank_only_extended_1990: "Historical extension used to compare the modern transaction-era ladder against a longer bank-only history.",
@@ -292,9 +292,9 @@ const METHOD_PLAIN_FORMULAS = {
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow:
     "Interest-corrected broad-depository estimate + fiscal outlay and receipt adjustments + mint and cash-factor adjustment.",
   tdc_du_fiscal_flow_first_pass_narrow:
-    "Narrow DU Treasury-security proxy + DU noninterest outlay proxy - DU receipt proxy - DU coupon proxy, with direct DU coupon estimation where available and residual fallback otherwise.",
+    "- residual DU Treasury-security purchases + DU noninterest outlay proxy - DU receipt proxy + residual DU coupon proxy.",
   tdc_du_fiscal_flow_first_pass_broad:
-    "Broad DU Treasury-security proxy + DU noninterest outlay proxy - DU receipt proxy - DU coupon proxy, with direct DU coupon estimation where available and residual fallback otherwise.",
+    "- residual DU Treasury-security purchases + DU noninterest outlay proxy - DU receipt proxy + residual DU coupon proxy.",
 };
 
 const REPO_URL = "https://github.com/smkwray/tdcest";
@@ -479,9 +479,9 @@ const METHOD_EQUATIONS = {
   tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow:
     "\\text{Tier 3}_{broad}=\\text{Tier 2}_{broad}+Adj^{fiscal}_{bank}+Adj^{fiscal}_{ROW}+Adj^{cash}_{Mint}",
   tdc_du_fiscal_flow_first_pass_narrow:
-    "\\Delta D^{DU,narrow}_{TDC}=Q^{T,DU}_{proxy}+G^{DU}_{proxy}-R^{DU}_{proxy}-DS^{DU}_{proxy}",
+    "\\Delta D^{DU,resid}_{TDC}=G^{DU}_{proxy}-R^{DU}_{proxy}+DS^{DU}_{resid}-Q^{T,DU}_{resid}",
   tdc_du_fiscal_flow_first_pass_broad:
-    "\\Delta D^{DU,broad}_{TDC}=Q^{T,DU,broad}_{proxy}+G^{DU}_{proxy}-R^{DU}_{proxy}-DS^{DU}_{proxy}",
+    "\\Delta D^{DU,resid,broad}_{TDC}=G^{DU}_{proxy}-R^{DU}_{proxy}+DS^{DU}_{resid}-Q^{T,DU}_{resid}",
   bank_receipt_historical_default_view:
     "\\text{Historical Tier 3}^{bank}_{overlay}=\\text{Tier 3}_{bank}+Receipt^{hist}_{bank}",
   row_mrv_primary_nondefault_pilot:
@@ -634,22 +634,25 @@ function renderHero(bundle) {
     chip("Monetary", STATUS_SHORT_LABELS[monetary?.current_status] || humanizeKey(monetary?.current_status || "n/a")),
   ].join("");
   document.querySelector("#hero-notes").innerHTML = [
-    `<div class="hero-note"><span class="hero-note-kicker">Live headline</span><p>The fiscal-corrected bank-only estimate is the current headline for recent quarters. It is the corrected estimate, not the raw Treasury-transaction baseline.</p></div>`,
+    `<div class="hero-note"><span class="hero-note-kicker">Current anchor</span><p>The canonical Tier 2 row is the current measurement anchor. The fiscal shell stays visible, but current bank and foreign receipt cells remain boundary choices.</p></div>`,
     `<div class="hero-note"><span class="hero-note-kicker">Receipt boundary</span><p>Current bank and foreign receipt terms remain explicit boundary choices. Historical bank overlays and the MRV pilot stay visible but separate.</p></div>`,
   ].join("");
 
   const latest = bundle.summary.latest_methods || {};
+  const canonicalTier2 =
+    latest.tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow ??
+    latest.tdc_tier2_interest_corrected_bank_only_ru_flow;
   const ladder = bundle.site?.latest_ladder?.bank_only || {};
   document.querySelector("#hero-panel").innerHTML = `
     <article class="hero-feature">
-      <p class="eyebrow">Current headline estimate</p>
+      <p class="eyebrow">Current measurement anchor</p>
       <div class="hero-feature-head">
         <div>
-          <h3>Fiscal-corrected bank-only headline</h3>
-          <p class="metric-subtext">Main live fiscal-flow-corrected estimate, with receipt-side boundaries still explicit.</p>
+          <h3>Canonical Tier 2 deposit component</h3>
+          <p class="metric-subtext">Current corrected measurement row. The Tier 3 fiscal shell remains diagnostic until receipt gates clear.</p>
         </div>
         <div class="hero-feature-value">
-          <em>${formatBillions(latest.tdc_tier3_fiscal_corrected_bank_only_ru_flow)}</em>
+          <em>${formatBillions(canonicalTier2)}</em>
           <span class="hero-feature-units">${bundle.summary.latest_period || "n/a"} · USD billions per quarter</span>
         </div>
       </div>
@@ -657,22 +660,23 @@ function renderHero(bundle) {
         <div class="hero-step"><span>Uncorrected baseline</span><strong>${formatSignedBillions(ladder.tier0)}</strong></div>
         <div class="hero-step"><span>After Fed coupon correction</span><strong>${formatSignedBillions(ladder.tier1)}</strong></div>
         <div class="hero-step"><span>After interest corrections</span><strong>${formatSignedBillions(ladder.tier2)}</strong></div>
-        <div class="hero-step hero-step-active"><span>After fiscal corrections</span><strong>${formatSignedBillions(ladder.tier3)}</strong></div>
+        <div class="hero-step hero-step-active"><span>Canonical Tier 2 anchor</span><strong>${formatSignedBillions(canonicalTier2)}</strong></div>
+        <div class="hero-step"><span>Partial fiscal shell</span><strong>${formatSignedBillions(ladder.tier3)}</strong></div>
       </div>
       <div class="chip-row">
-        ${chip("Current headline estimate", "Fiscal-corrected bank-only headline")}
-        ${chip("Broader perimeter view", formatBillions(latest.tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow))}
+        ${chip("Current anchor", "Canonical Tier 2")}
+        ${chip("Partial fiscal shell", formatBillions(latest.tdc_tier3_fiscal_corrected_bank_only_ru_flow))}
       </div>
       <div class="posture-legend">
-        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--live"></span><strong>Live</strong><span>Main estimate now</span></div>
+        <div class="posture-legend-item"><span class="posture-swatch posture-swatch--live"></span><strong>Live</strong><span>Current measurement anchor</span></div>
         <div class="posture-legend-item"><span class="posture-swatch posture-swatch--historical"></span><strong>Historical</strong><span>Bounded window with fresher support</span></div>
         <div class="posture-legend-item"><span class="posture-swatch posture-swatch--bounded"></span><strong>Bounded</strong><span>Visible, but kept separate from the main estimate</span></div>
         <div class="posture-legend-item"><span class="posture-swatch posture-swatch--diagnostic"></span><strong>Diagnostic</strong><span>Cross-check or residual view</span></div>
       </div>
       <div class="poster-foot">
         <div><span>Uncorrected baseline</span><strong>${formatBillions(latest.tdc_base_bank_only_ru_flow)}</strong></div>
-        <div><span>After interest corrections</span><strong>${formatBillions(latest.tdc_tier2_interest_corrected_bank_only_ru_flow)}</strong></div>
-        <div><span>Final correction step</span><strong>${formatSignedMillions((latest.tdc_tier3_fiscal_corrected_bank_only_ru_flow ?? 0) - (latest.tdc_tier2_interest_corrected_bank_only_ru_flow ?? 0))}</strong></div>
+        <div><span>Canonical Tier 2</span><strong>${formatBillions(canonicalTier2)}</strong></div>
+        <div><span>Fiscal-shell wedge</span><strong>${formatSignedMillions((latest.tdc_tier3_fiscal_corrected_bank_only_ru_flow ?? 0) - (canonicalTier2 ?? 0))}</strong></div>
       </div>
     </article>
   `;
@@ -687,9 +691,9 @@ function renderSignalBand(bundle) {
 
   document.querySelector("#signal-strip").innerHTML = [
     posterMetric(
-      "Current live estimate",
+      "Partial fiscal shell",
       formatBillions(liveComparison?.tier3_bank_only_mil),
-      `Fiscal-corrected bank-only headline at ${liveComparison?.reference_date || "n/a"}. This is the current headline estimate.`,
+      `Fiscal-shell diagnostic at ${liveComparison?.reference_date || "n/a"}. Current receipt cells remain boundary choices, not headline evidence.`,
       "live",
     ),
     posterMetric(
@@ -817,13 +821,13 @@ function renderMethodExplorer(bundle) {
 function renderMethodStory(bundle, familyKey, rangeKey, methods) {
   const latest = bundle.summary.latest_methods || {};
   const familyCopy = {
-    bank_only_ladder: "This view tracks the bank-only correction ladder from the raw baseline to the live fiscal-corrected headline.",
+    bank_only_ladder: "This view tracks the bank-only correction ladder from the raw baseline through Tier 2 and the partial fiscal shell.",
     broad_depository_ladder: "This view keeps the same ladder shape but widens the deposit perimeter to include natural-person credit unions.",
-    headline_vs_sensitivity: "This view contrasts the current headline with historical and sensitivity variants that should not be read the same way.",
+    headline_vs_sensitivity: "This view contrasts the current anchor with historical and sensitivity variants that should not be read the same way.",
   };
   const familyNarratives = {
     bank_only_ladder: {
-      primaryLabel: "Live headline",
+      primaryLabel: "Partial fiscal shell",
       primaryMethod: "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
       secondaryLabel: "Uncorrected baseline",
       secondaryMethod: "tdc_base_bank_only_ru_flow",
@@ -1198,7 +1202,7 @@ function renderReceiptSection(bundle) {
         <ul class="summary-list">
           <li>Bank current window: ${escapeHtml(BLOCKER_LABELS[bankCurrent?.binding_blocker] || humanizeKey(bankCurrent?.binding_blocker || "stale_share_rule"))}</li>
           <li>Foreign current window: ${escapeHtml(BLOCKER_LABELS[rowMrv?.binding_blocker] || humanizeKey(rowMrv?.binding_blocker || "evidence_boundary"))}</li>
-          <li>Live fiscal-corrected bank-only headline at ${escapeHtml(liveComparison?.reference_date || "n/a")}: ${formatMillions(liveComparison?.tier3_bank_only_mil)}</li>
+          <li>Partial fiscal-shell bank-only diagnostic at ${escapeHtml(liveComparison?.reference_date || "n/a")}: ${formatMillions(liveComparison?.tier3_bank_only_mil)}</li>
         </ul>
       </article>
       <article class="summary-card">
@@ -1443,7 +1447,7 @@ function renderWorkstreamSection(bundle) {
 
 function renderFooter(bundle) {
   document.querySelector("#site-footer-note").textContent =
-    "Public estimator ladder for Treasury-attributed deposit effects, with bounded receipt and cross-check branches kept explicit.";
+    "Public estimator ladder for Treasury Deposit Component work, with bounded receipt and cross-check branches kept explicit.";
   document.querySelector("#site-footer-meta").innerHTML = `
     <a class="footer-link" href="${REPO_URL}/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a>
     <span class="footer-pill">Updated ${formatUtcDate(bundle.metadata?.generated_at_utc || bundle.generated_at_utc)}</span>

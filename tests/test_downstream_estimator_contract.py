@@ -138,6 +138,11 @@ def test_downstream_estimator_contract_builds_key_rows():
     assert "fiscal_reconciliation_shell" in keys
     assert "monetary_depository_crosscheck" in keys
     assert contract["latest_reference_date"].astype(str).str.contains("T").sum() == 0
+    tier2 = contract.loc[contract["artifact_key"].eq("tdc_tier2_interest_corrected_bank_only_ru_flow")].iloc[0]
+    tier3 = contract.loc[contract["artifact_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[0]
+    assert tier2["default_classification"] == "headline_default"
+    assert tier3["default_classification"] == "diagnostic_outlay_only_partial_shell"
+    assert tier3["current_role"] == "partial_fiscal_shell_diagnostic"
 
 
 def test_downstream_estimator_contract_demotes_corrected_layers_when_coupon_audit_is_flagged():

@@ -1,11 +1,12 @@
 TDC_VENV ?= $(HOME)/venvs/tdcest
-PYTHON ?= $(TDC_VENV)/bin/python
+PYTHON ?= $(or $(firstword $(wildcard $(TDC_VENV)/.venv/bin/python $(TDC_VENV)/bin/python)),python3)
 PYTHONPYCACHEPREFIX ?= $(TDC_VENV)/pycache
 PIP_CACHE_DIR ?= $(HOME)/venvs/.pip-cache
 PYTEST_CACHE_DIR ?= $(TDC_VENV)/pytest-cache
 FED_COUPON_OUT ?= data/raw/support__fed_tsy_coupon_interest_proxy.csv
 BANK_COUPON_OUT ?= data/raw/support__bank_tsy_coupon_interest_proxy.csv
 ROW_COUPON_OUT ?= data/raw/support__row_tsy_coupon_interest_proxy.csv
+CU_COUPON_OUT ?= data/raw/support__credit_union_tsy_coupon_interest_proxy.csv
 
 export PYTHONPYCACHEPREFIX
 export PIP_CACHE_DIR
@@ -48,9 +49,9 @@ endif
 ifndef CURVE_FILE
 	$(error Either WAMEST_ROOT or the full set of SECTOR_MATURITY_FILE, SECTOR_PANEL_FILE, and CURVE_FILE is required.)
 endif
-	$(PYTHON) scripts/build_tier2_coupon_proxies.py tier2-coupon-proxies --sector-maturity-file $(SECTOR_MATURITY_FILE) --sector-panel-file $(SECTOR_PANEL_FILE) --curve-file $(CURVE_FILE) --bank-out $(BANK_COUPON_OUT) --row-out $(ROW_COUPON_OUT)
+	$(PYTHON) scripts/build_tier2_coupon_proxies.py tier2-coupon-proxies --sector-maturity-file $(SECTOR_MATURITY_FILE) --sector-panel-file $(SECTOR_PANEL_FILE) --curve-file $(CURVE_FILE) --bank-out $(BANK_COUPON_OUT) --row-out $(ROW_COUPON_OUT) --credit-union-out $(CU_COUPON_OUT)
 else
-	$(PYTHON) scripts/build_tier2_coupon_proxies.py tier2-coupon-proxies --wamest-root $(WAMEST_ROOT) --bank-out $(BANK_COUPON_OUT) --row-out $(ROW_COUPON_OUT)
+	$(PYTHON) scripts/build_tier2_coupon_proxies.py tier2-coupon-proxies --wamest-root $(WAMEST_ROOT) --bank-out $(BANK_COUPON_OUT) --row-out $(ROW_COUPON_OUT) --credit-union-out $(CU_COUPON_OUT)
 endif
 
 tier3-support-files:
@@ -91,6 +92,9 @@ site-stage:
 
 site-serve: site-stage
 	python3 -m http.server 8123
+
+release-hygiene:
+	$(PYTHON) -B scripts/check_release_hygiene.py
 
 test:
 	$(PYTHON) -m pytest -q -o cache_dir=$(PYTEST_CACHE_DIR)

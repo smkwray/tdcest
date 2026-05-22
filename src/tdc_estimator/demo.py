@@ -178,6 +178,9 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
     )
     bank_coupon_proxy = 5 + 0.018 * np.maximum(bank_sector_level, 0) / 100 + rng.normal(0, 0.45, n)
     row_coupon_proxy = 9 + 0.006 * np.maximum(level_starts["row_tsy_level"] + np.cumsum(row_tsy_tx), 0) / 100 + rng.normal(0, 0.65, n)
+    credit_union_coupon_proxy = 0.4 + 0.010 * np.maximum(
+        level_starts["np_credit_unions_tsy_level"] + np.cumsum(np_credit_unions_tsy_tx), 0
+    ) / 100 + rng.normal(0, 0.08, n)
     bank_noninterest_outlay_proxy = 1.2 + rng.normal(0, 0.2, n)
     row_noninterest_outlay_proxy = 0.7 + rng.normal(0, 0.15, n)
     bank_nonborrow_receipt_proxy = 0.35 + rng.normal(0, 0.08, n)
@@ -186,6 +189,7 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
     _write_series(raw_dir / "support__fed_tsy_coupon_interest_proxy.csv", q, np.clip(fed_coupon_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__bank_tsy_coupon_interest_proxy.csv", q, np.clip(bank_coupon_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__row_tsy_coupon_interest_proxy.csv", q, np.clip(row_coupon_proxy, a_min=0.0, a_max=None))
+    _write_series(raw_dir / "support__credit_union_tsy_coupon_interest_proxy.csv", q, np.clip(credit_union_coupon_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__bank_noninterest_outlay_proxy.csv", q, np.clip(bank_noninterest_outlay_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__row_noninterest_outlay_proxy.csv", q, np.clip(row_noninterest_outlay_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__bank_nonborrow_receipt_proxy.csv", q, np.clip(bank_nonborrow_receipt_proxy, a_min=0.0, a_max=None))
@@ -195,6 +199,28 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
     thrift_deposits = 610000 + np.cumsum(rng.normal(3500, 6000, n))
     _write_series(raw_dir / "support__credit_union_deposits.csv", q, np.clip(credit_union_deposits, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__thrift_deposits.csv", q, np.clip(thrift_deposits, a_min=0.0, a_max=None))
+    mmf_rows = []
+    for fund_id, offset in [("demo_fund_a", 0.0), ("demo_fund_b", 80.0)]:
+        fed_rrp = np.clip(500 + offset + np.cumsum(rng.normal(-2.0, 16.0, m)), a_min=0.0, a_max=None)
+        treasury_bills = np.clip(220 + offset / 3 + np.cumsum(rng.normal(3.0, 12.0, m)), a_min=0.0, a_max=None)
+        treasury_other = np.clip(90 + offset / 4 + np.cumsum(rng.normal(1.0, 5.0, m)), a_min=0.0, a_max=None)
+        other_assets = np.clip(180 + offset / 5 + np.cumsum(rng.normal(0.5, 8.0, m)), a_min=0.0, a_max=None)
+        nav = fed_rrp + treasury_bills + treasury_other + other_assets + rng.normal(0.0, 3.0, m)
+        for date, rrp, bills, other_tsy, other_asset, nav_value in zip(
+            monthly, fed_rrp, treasury_bills, treasury_other, other_assets, nav
+        ):
+            mmf_rows.append(
+                {
+                    "date": date,
+                    "fund_id": fund_id,
+                    "fed_rrp": rrp,
+                    "treasury_bills": bills,
+                    "treasury_other": other_tsy,
+                    "non_treasury_non_fed_rrp_assets": other_asset,
+                    "nav": nav_value,
+                }
+            )
+    pd.DataFrame(mmf_rows).to_csv(raw_dir / "support__mmf_fund_month.csv", index=False)
     pd.DataFrame(
         {
             "date": q,

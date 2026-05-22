@@ -162,42 +162,48 @@ def build_downstream_estimator_contract(
         (
             "tdc_base_bank_only_ru_flow",
             "headline_estimator",
-            "headline_default",
-            "Primary downstream bank-only TDC estimate and the anchor for deposit-effect work.",
+            "base_headline_default",
+            "Base bank-only TDC estimate and anchor for raw-vs-corrected comparisons.",
         ),
         (
             "tdc_tier2_interest_corrected_bank_only_ru_flow",
-            "corrected_estimator",
-            "default_sensitivity_with_stronger_transfer_cleanup",
-            "Interest-cleaned comparison against the base headline to isolate coupon-related bias.",
+            "working_corrected_headline",
+            "headline_default",
+            "Primary corrected bank-only TDC estimate for downstream deposit-effect work.",
         ),
         (
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
-            "corrected_estimator",
-            "live_default_with_partial_receipt_cells",
-            "Main fiscal-flow-corrected live estimator, with explicit receipt-side caveats.",
+            "partial_fiscal_shell_diagnostic",
+            "diagnostic_outlay_only_partial_shell",
+            "Outlay-backed Tier 3 diagnostic; compare against Tier 2 to see the one-sided fiscal shell, not as a promoted point estimate.",
         ),
         (
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow",
-            "alternative_estimator",
-            "broad_depository_default",
-            "Best live broad-depository comparison when downstream work needs a wider deposit perimeter.",
+            "broad_depository_partial_shell_diagnostic",
+            "diagnostic_broad_depository_partial_shell",
+            "Broad-depository perimeter comparison around the partial fiscal shell; keep Tier 2 as the corrected headline anchor.",
         ),
     ]:
         latest_date, latest_value = _latest_value(estimates, key)
         classification = default_classification
-        binding_blocker = "none" if key != "tdc_tier3_fiscal_corrected_bank_only_ru_flow" else "receipt_side_completion"
+        binding_blocker = "none" if "tdc_tier3_fiscal_corrected" not in key else "receipt_side_completion"
         main_known_boundary = (
-            "Receipt-side default corrections remain incomplete; bank current quarters stay nondefault and MRV stays nondefault."
-            if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
+            "Receipt-side default corrections remain missing/not measured; bank current quarters stay nondefault and MRV stays nondefault, so this is a partial shell."
+            if "tdc_tier3_fiscal_corrected" in key
             else "Perimeter and correction assumptions remain explicit in method metadata."
         )
         next_finite_push = (
-            "Keep polishing historical bank and receipt-boundary comparisons around this ladder."
-            if key == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
+            "Keep polishing historical bank and receipt-boundary comparisons without promoting the partial shell."
+            if "tdc_tier3_fiscal_corrected" in key
             else "Maintain as comparison anchor."
         )
         summary_note = method_descriptions.get(key, "")
+        if key == "tdc_base_bank_only_ru_flow":
+            summary_note = "Base bank-only anchor for raw ladder comparisons; Tier 2 is the working corrected headline."
+        elif key == "tdc_tier2_interest_corrected_bank_only_ru_flow":
+            summary_note = "Working corrected headline. Coupon-cleaned bank-only TDC remains the default downstream anchor while Tier 3 receipts are unresolved."
+        elif "tdc_tier3_fiscal_corrected" in key:
+            summary_note = "Tier 3 partial fiscal shell. Outlays and Mint are wired, but bank and ROW receipts remain missing/not measured default cells, so this is diagnostic only."
 
         if coupon_gate["failed"] and key in {
             "tdc_tier2_interest_corrected_bank_only_ru_flow",
@@ -229,7 +235,7 @@ def build_downstream_estimator_contract(
                 "strongest_supporting_surface": "tdc_estimates.csv",
                 "core_equation_or_claim": method_formulas.get(key, method_descriptions.get(key, "")),
                 "best_downstream_use": best_use,
-                "comparison_anchor": "Compare against Tier 0, Tier 2, Tier 3, and historical bank overlay to isolate where correction layers change TDC.",
+                "comparison_anchor": "Use Tier 2 as the corrected headline anchor; compare Tier 3 partial-shell and historical receipt overlays to isolate where fiscal assumptions move TDC.",
                 "binding_blocker": binding_blocker,
                 "main_known_boundary": main_known_boundary,
                 "next_finite_push": next_finite_push,
@@ -296,7 +302,7 @@ def build_downstream_estimator_contract(
                 "strongest_supporting_surface": "tdc_row_mrv_nondefault_evidence_summary.csv",
                 "core_equation_or_claim": "MRV-first / CBSP recurring ROW receipt candidate, kept nondefault until remitter and quarterly cash timing evidence clears.",
                 "best_downstream_use": "Bounded ROW receipt sensitivity and boundary marker, not a default additive correction.",
-                "comparison_anchor": "Compare against the zero default ROW receipt correction and keep secondary visa outside the main pilot.",
+                "comparison_anchor": "Compare against the missing/not-measured ROW receipt placeholder and keep secondary visa outside the main pilot.",
                 "binding_blocker": str(row_mrv.get("binding_blocker", "evidence_boundary")),
                 "main_known_boundary": str(latest_mrv.get("binding_default_blocker", "legal_remitter_or_debited_account_proof;observed_quarterly_cash_timing_or_remittance_schedule")),
                 "next_finite_push": str(work_mrv.get("next_finite_push", "Tighten MRV payment-chain and reconciliation layers.")),

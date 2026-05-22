@@ -1166,8 +1166,15 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 ### Corrections
 
 - `tier1_fed_coupon_correction` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tier2_bank_coupon_correction` if `support__bank_tsy_coupon_interest_proxy.csv` is present
-- `tier2_row_coupon_correction` if `support__row_tsy_coupon_interest_proxy.csv` is present
+- `tier1_fed_component_extension_correction` if `support__fed_tier1_component_extension_proxy.csv` is present and component-anchored rows are available
+- `tier2_bank_coupon_correction` if promoted component support or legacy H15 support is present; component support is used when available
+- `tier2_row_coupon_correction` if promoted component support or legacy H15 support is present; component support is used when available
+- `tier2_bank_h15_coupon_correction` if `support__bank_tsy_coupon_interest_proxy.csv` is present
+- `tier2_row_h15_coupon_correction` if `support__row_tsy_coupon_interest_proxy.csv` is present
+- `tier2_credit_union_h15_coupon_correction` if `support__credit_union_tsy_coupon_interest_proxy.csv` is present
+- `tier2_bank_component_interest_correction` if `support__bank_tier2_component_interest_proxy.csv` is present
+- `tier2_row_component_interest_correction` if `support__row_tier2_component_interest_proxy.csv` is present
+- `tier2_credit_union_component_interest_correction` if `support__credit_union_tier2_component_interest_proxy.csv` is present
 - `tier3_bank_noninterest_outlay_correction` if `support__bank_noninterest_outlay_proxy.csv` is present
 - `tier3_row_noninterest_outlay_correction` if `support__row_noninterest_outlay_proxy.csv` is present
 - `tier3_bank_nonborrow_receipt_correction` if `support__bank_nonborrow_receipt_proxy.csv` is present
@@ -1182,6 +1189,12 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 - `tdc_tier2_broad_depository_np_cu_delta_from_tier1` if Tier 2 broad-depository is present
 - `tdc_tier2_domestic_bank_only_delta_from_base` if Tier 2 domestic-only is present
 - `tdc_tier2_domestic_bank_only_delta_from_tier1` if Tier 2 domestic-only is present
+- `tdc_tier2_component_anchored_bank_only_delta_from_base` if component-anchored Tier 2 bank-only is present
+- `tdc_tier2_component_anchored_bank_only_delta_from_tier1` if component-anchored Tier 2 bank-only is present
+- `tdc_tier2_component_anchored_broad_depository_np_cu_delta_from_base` if component-anchored Tier 2 broad-depository is present
+- `tdc_tier2_component_anchored_broad_depository_np_cu_delta_from_tier1` if component-anchored Tier 2 broad-depository is present
+- `tdc_tier2_component_anchored_domestic_bank_only_delta_from_base` if component-anchored Tier 2 domestic-only is present
+- `tdc_tier2_component_anchored_domestic_bank_only_delta_from_tier1` if component-anchored Tier 2 domestic-only is present
 - `tdc_tier3_bank_only_delta_from_base` if Tier 3 bank-only is present
 - `tdc_tier3_bank_only_delta_from_tier2` if Tier 3 bank-only is present
 - `tdc_tier3_broad_depository_np_cu_delta_from_base` if Tier 3 broad-depository is present
@@ -1195,9 +1208,21 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 - `tdc_tier1_fed_corrected_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
 - `tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
 - `tdc_tier1_fed_corrected_domestic_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tdc_tier2_interest_corrected_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv`, `support__bank_tsy_coupon_interest_proxy.csv`, and `support__row_tsy_coupon_interest_proxy.csv` are present
-- `tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv`, `support__bank_tsy_coupon_interest_proxy.csv`, and `support__row_tsy_coupon_interest_proxy.csv` are present
-- `tdc_tier2_interest_corrected_domestic_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` and `support__bank_tsy_coupon_interest_proxy.csv` are present
+- `tdc_tier2_interest_corrected_bank_only_ru_flow` if Fed coupon support plus promoted component support or legacy H15 support is present; component support is used when available
+- `tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow` if Fed coupon support plus promoted component support or legacy H15 support is present; component support is used when available
+- `tdc_tier2_interest_corrected_domestic_bank_only_ru_flow` if Fed coupon support plus promoted bank component support or legacy H15 bank support is present; component support is used when available
+- `tdc_tier2_h15_intensity_corrected_bank_only_ru_flow`, `tdc_tier2_h15_intensity_corrected_broad_depository_np_cu_ru_flow`, `tdc_tier2_h15_intensity_corrected_domestic_bank_only_ru_flow`, and `tdc_tier2_h15_intensity_corrected_depository_institution_np_cu_ru_flow` if the legacy WAMEST/H15 support files are present
+- `tdc_tier2_component_anchored_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv`, `support__bank_tier2_component_interest_proxy.csv`, and `support__row_tier2_component_interest_proxy.csv` are present
+- `tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow` if the Fed, bank, and ROW component-anchored support inputs are present
+- `tdc_tier2_component_anchored_domestic_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` and `support__bank_tier2_component_interest_proxy.csv` are present
+- `tdc_tier2_component_anchored_depository_institution_np_cu_ru_flow` if the component-anchored broad-depository row and `support__credit_union_tier2_component_interest_proxy.csv` are present
+- `tdc_tier2_component_anchored_mmf_rrp_prop_bank_only_ru_flow` and `tdc_tier2_component_anchored_mmf_rrp_prop_depository_institution_np_cu_ru_flow` if the relevant component-anchored Tier 2 row and preferred MMF/RRP input are present
+- `tdc_tier2_component_anchored_fed_extension_bank_only_ru_flow`, `tdc_tier2_component_anchored_fed_extension_broad_depository_np_cu_ru_flow`, `tdc_tier2_component_anchored_fed_extension_domestic_bank_only_ru_flow`, and `tdc_tier2_component_anchored_fed_extension_depository_institution_np_cu_ru_flow` if component-anchored rows and `support__fed_tier1_component_extension_proxy.csv` are present
+- `tdc_tier2_component_anchored_fed_extension_mmf_rrp_*` variants if Fed-extension component-anchored rows and MMF/RRP inputs are present
+- `tdc_tier2_h15_treasury_interest_robust_bank_only_ru_flow` if the legacy H15 Tier 2 coupon inputs plus bank and ROW bill-discount support proxies are present
+- `tdc_tier2_h15_treasury_interest_robust_depository_institution_np_cu_ru_flow` if the legacy H15 DI Tier 2 inputs plus bank, ROW, and credit-union bill-discount support proxies are present
+- `tdc_tier2_h15_treasury_interest_robust_mmf_rrp_prop_bank_only_ru_flow` if the legacy H15 bill-discount robustness and preferred MMF/RRP inputs are present
+- `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` if DI, bill-discount, and preferred MMF/RRP inputs are present
 - `tdc_tier3_fiscal_corrected_bank_only_ru_flow` if the Tier 2 bank-only inputs plus all Tier 3 fiscal support inputs are present
 - `tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow` if the Tier 2 broad-depository inputs plus all Tier 3 fiscal support inputs are present
 - `tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow` if the Tier 2 domestic-only inputs plus bank-side Tier 3 fiscal support inputs are present
@@ -1228,8 +1253,15 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 - `minus_treasury_operating_cash_tx`
 - `fed_remit_positive`
 - `fed_tsy_coupon_interest_proxy` if `support__fed_tsy_coupon_interest_proxy.csv` is present
+- `fed_tier1_component_extension_proxy` if `support__fed_tier1_component_extension_proxy.csv` is present
 - `bank_tsy_coupon_interest_proxy` if `support__bank_tsy_coupon_interest_proxy.csv` is present
 - `row_tsy_coupon_interest_proxy` if `support__row_tsy_coupon_interest_proxy.csv` is present
+- `bank_tsy_bill_discount_interest_proxy` if `support__bank_tsy_bill_discount_interest_proxy.csv` is present
+- `row_tsy_bill_discount_interest_proxy` if `support__row_tsy_bill_discount_interest_proxy.csv` is present
+- `credit_union_tsy_bill_discount_interest_proxy` if `support__credit_union_tsy_bill_discount_interest_proxy.csv` is present
+- `bank_tier2_component_interest_proxy` if `support__bank_tier2_component_interest_proxy.csv` is present
+- `row_tier2_component_interest_proxy` if `support__row_tier2_component_interest_proxy.csv` is present
+- `credit_union_tier2_component_interest_proxy` if `support__credit_union_tier2_component_interest_proxy.csv` is present
 - `bank_noninterest_outlay_proxy` if `support__bank_noninterest_outlay_proxy.csv` is present
 - `row_noninterest_outlay_proxy` if `support__row_noninterest_outlay_proxy.csv` is present
 - `bank_nonborrow_receipt_proxy` if `support__bank_nonborrow_receipt_proxy.csv` is present
@@ -1237,6 +1269,95 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 - `mint_cb_cash_factor_proxy` if `support__mint_cb_cash_factor_proxy.csv` is present
 - `tdc_base_bank_only_ru_flow`
 - `tdc_base_broad_depository_np_cu_ru_flow`
+
+## `tdc_mmf_rrp_source_comparison.csv`
+
+Optional quarterly source-comparison table written when both `data/raw/support__mmf_fund_month.csv` and `data/raw/support__mmf_fund_month_ofr_aggregate.csv` are present. It compares the preferred SEC Form N-MFP fund-month MMF/RRP adjustment with the aggregate OFR fallback and reports:
+
+- preferred and fallback `rrp_runoff`
+- preferred and fallback Treasury increases
+- preferred and fallback other uses
+- preferred and fallback lower/proportional/upper MMF/RRP adjustments
+- preferred-minus-fallback proportional adjustment
+- absolute difference
+- preferred-to-fallback ratio
+- material-difference flag
+
+The paired markdown file `tdc_mmf_rrp_source_comparison.md` summarizes common-quarter count, material-quarter count, latest-quarter difference, and the largest absolute source differences.
+
+## `tdc_gse_rrp_boundary_check.csv`
+
+Optional boundary diagnostic written on every pipeline run. It becomes substantive when both `gse_tsy_tx` / `gse_tsy_level` and `support__gse_on_rrp.csv` are present. The artifact reports:
+
+- GSE Treasury transactions
+- quarter-end GSE ON RRP levels
+- positive GSE ON RRP runoff
+- positive GSE Treasury acquisition, preferably from the GSE Treasury level difference
+- `gse_rrp_boundary_adjustment = min(max(0, GSE Treasury acquisition), max(0, -Delta GSE ON RRP))`
+
+This is diagnostic-only. It is meant to test whether GSE Treasury absorption funded by running down ON RRP is material enough to discuss; it is not added to any headline TDC estimator.
+
+The paired markdown file `tdc_gse_rrp_boundary_check.md` summarizes row count, positive-adjustment count, and the latest diagnostic row.
+
+## `bill_discount_validation.csv`
+
+Optional validation table written by `tdc bill-discount-validation`. It compares the sector bill-discount proxies used in Treasury-interest-robust Tier 2 rows with the aggregate Treasury FiscalData bill amortized-discount benchmark.
+
+Columns:
+
+- `date`
+- `treasury_bill_amortized_discount_mil`
+- `bank_tsy_bill_discount_interest_proxy`
+- `row_tsy_bill_discount_interest_proxy`
+- `credit_union_tsy_bill_discount_interest_proxy`
+- `bank_row_proxy_mil`
+- `bank_row_cu_proxy_mil`
+- `bank_row_share_of_aggregate`
+- `bank_row_cu_share_of_aggregate`
+- `has_treasury_bill_benchmark`
+- `has_all_sector_proxies`
+
+The paired markdown file `bill_discount_validation.md` summarizes benchmark coverage, latest-quarter scale, and median sector-proxy shares over the common coverage window.
+
+## `tier2_regression_interest_backcast.csv`
+
+Long regression-grade Tier 2 interest backcast by sector. It combines the
+constrained component method for 2022 onward, official component-pool plus
+WAMEST bucket-weight backcasts from 2010 through 2021, and scaled legacy
+WAMEST/H15 backcasts before the component ledger starts.
+
+Key fields:
+
+- `date`
+- `sector_group`
+- `tier2_regression_interest_proxy`
+- `method_tier`
+- `evidence_grade`
+- `backcast_flag`
+
+## `tier2_regression_interest_backcast_wide.csv`
+
+Wide regression handoff form of the same backcast, with bank, ROW, credit-union,
+bank+ROW, and depository-institution Tier 2 interest proxies plus sector
+method-tier columns.
+
+## `tdc_tier2_regression_series.csv`
+
+Regression-ready TDC series corrected with the Tier 2 regression interest
+backcast. This is separate from the live canonical estimate table because the
+pre-2022 history intentionally mixes evidence tiers: constrained component
+support from 2022 onward, component-pool/WAMEST-bucket backcast from 2010
+through 2021, and scaled legacy WAMEST/H15 backcast before 2010.
+
+Key fields:
+
+- `date`
+- `tdc_tier2_regression_domestic_bank_only_ru_flow`
+- `tdc_tier2_regression_bank_only_ru_flow`
+- `tdc_tier2_regression_broad_depository_np_cu_ru_flow`
+- `tdc_tier2_regression_depository_institution_np_cu_ru_flow`
+- `tier2_regression_bank_row_method_tier`
+- `tier2_regression_di_method_tier`
 
 ## Intended front-end usage
 

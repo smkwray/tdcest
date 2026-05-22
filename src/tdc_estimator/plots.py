@@ -279,7 +279,7 @@ def plot_historical_bank_receipt_research(
         frame.index,
         frame["tdc_tier3_fiscal_corrected_bank_only_ru_flow"],
         linewidth=2.3,
-        label="Default Tier 3 bank-only",
+        label="Tier 3 partial shell",
         color="#222222",
         alpha=0.95,
     )
@@ -341,7 +341,7 @@ def plot_tier2_tier3_research_comparison(
         frame.index,
         frame["tdc_tier3_fiscal_corrected_bank_only_ru_flow"],
         linewidth=2.4,
-        label="Default Tier 3 bank-only",
+        label="Tier 3 partial shell",
         color="#222222",
         alpha=0.95,
     )

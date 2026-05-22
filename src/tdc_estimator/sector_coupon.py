@@ -15,6 +15,7 @@ DEFAULT_BANK_SECTOR_KEYS = [
     "bank_foreign_banking_offices_us",
     "bank_us_affiliated_areas",
 ]
+DEFAULT_CREDIT_UNION_SECTOR_KEYS = ["credit_unions_marketable_proxy"]
 DEFAULT_ROW_SECTOR_KEYS = ["foreigners_total"]
 DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES = [
     Path("outputs/full_coverage_release/canonical_sector_maturity.csv"),
@@ -91,28 +92,93 @@ def read_sector_panel_table(path: Path | str) -> pd.DataFrame:
         ),
         None,
     )
-    if inventory_code_col is None or "sector_key" not in inventory.columns:
+    if "sector_key" not in inventory.columns:
         return df
 
+    computed = _computed_sector_panel_from_dependency_codes(
+        df=df,
+        inventory=inventory,
+        series_code_col=series_code_col,
+        level_col=level_col,
+    )
     code_map = (
         inventory.loc[:, ["sector_key", inventory_code_col]]
         .dropna()
         .drop_duplicates(subset=["sector_key"])
         .rename(columns={inventory_code_col: series_code_col})
+        if inventory_code_col is not None
+        else pd.DataFrame(columns=["sector_key", series_code_col])
     )
-    if code_map.empty:
+    if code_map.empty and computed.empty:
         return df
 
     merged = df.merge(code_map, on=series_code_col, how="inner")
-    if merged.empty or "date" not in merged.columns:
+    if merged.empty and computed.empty or "date" not in df.columns:
         return df
 
-    out = merged.loc[:, ["date", "sector_key", level_col]].copy()
-    out = out.rename(columns={level_col: "level"})
+    frames: list[pd.DataFrame] = []
+    if not merged.empty:
+        out = merged.loc[:, ["date", "sector_key", level_col]].copy()
+        out = out.rename(columns={level_col: "level"})
+        frames.append(out)
+    if not computed.empty:
+        frames.append(computed)
+
+    out = pd.concat(frames, ignore_index=True)
     # Normalized FRED/Z.1 levels already use the repo's millions convention.
     out["level_units"] = "millions"
     out["method_priority"] = "full_coverage_release_level_map"
     return out
+
+
+def _split_inventory_codes(value: object) -> list[str]:
+    if pd.isna(value):
+        return []
+    return [code.strip() for code in str(value).split(",") if code.strip()]
+
+
+def _computed_sector_panel_from_dependency_codes(
+    df: pd.DataFrame,
+    inventory: pd.DataFrame,
+    series_code_col: str,
+    level_col: str,
+) -> pd.DataFrame:
+    if "dependency_level_source_codes" not in inventory.columns or "date" not in df.columns:
+        return pd.DataFrame(columns=["date", "sector_key", "level"])
+
+    direct_code_col = _first_existing(inventory, ["level_source_code", "level_series_key", "level_fred_id"])
+    direct_codes = (
+        inventory[direct_code_col].notna() & inventory[direct_code_col].astype(str).str.strip().ne("")
+        if direct_code_col is not None
+        else pd.Series(False, index=inventory.index)
+    )
+    candidates = inventory.loc[~direct_codes, ["sector_key", "dependency_level_source_codes"]].copy()
+    if candidates.empty:
+        return pd.DataFrame(columns=["date", "sector_key", "level"])
+
+    source = df.loc[:, ["date", series_code_col, level_col]].copy()
+    source["date"] = pd.to_datetime(source["date"], errors="coerce")
+    source[level_col] = pd.to_numeric(source[level_col], errors="coerce")
+    source = source.dropna(subset=["date", series_code_col])
+    if source.empty:
+        return pd.DataFrame(columns=["date", "sector_key", "level"])
+
+    rows: list[pd.DataFrame] = []
+    for _, sector in candidates.iterrows():
+        codes = _split_inventory_codes(sector.get("dependency_level_source_codes"))
+        if not codes:
+            continue
+        matched = source.loc[source[series_code_col].isin(codes), ["date", level_col]].copy()
+        if matched.empty:
+            continue
+        summed = matched.groupby("date", as_index=False)[level_col].sum(min_count=1)
+        summed = summed.rename(columns={level_col: "level"})
+        summed["sector_key"] = str(sector["sector_key"]).strip()
+        rows.append(summed.loc[:, ["date", "sector_key", "level"]])
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "sector_key", "level"])
+    return pd.concat(rows, ignore_index=True)
 
 
 def _resolve_inventory_path(table_path: Path) -> Path | None:
@@ -144,6 +210,7 @@ def resolve_wamest_artifact_paths(
     sector_maturity_file: Path | str | None = None,
     sector_panel_file: Path | str | None = None,
     curve_file: Path | str | None = None,
+    prefer_normalized_sector_panel: bool = False,
 ) -> tuple[Path, Path, Path]:
     root = Path(wamest_root)
 
@@ -160,11 +227,12 @@ def resolve_wamest_artifact_paths(
         if sector_maturity_file is not None
         else resolve_first_existing(root, DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES)
     )
-    sector_panel_path = (
-        Path(sector_panel_file)
-        if sector_panel_file is not None
-        else resolve_first_existing(root, DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES)
-    )
+    if sector_panel_file is not None:
+        sector_panel_path = Path(sector_panel_file)
+    elif prefer_normalized_sector_panel and (root / "data/external/normalized/z1_series_fred.csv").exists():
+        sector_panel_path = root / "data/external/normalized/z1_series_fred.csv"
+    else:
+        sector_panel_path = resolve_first_existing(root, DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES)
     curve_path = (
         Path(curve_file)
         if curve_file is not None
@@ -288,16 +356,27 @@ def prepare_sector_maturity(df: pd.DataFrame) -> pd.DataFrame:
     out["date"] = pd.to_datetime(df[date_col], errors="coerce").dt.normalize()
     out["sector_key"] = df["sector_key"].astype(str).str.strip()
 
+    if "bill_share" in df.columns:
+        out["bill_share"] = pd.to_numeric(df["bill_share"], errors="coerce")
+    else:
+        out["bill_share"] = pd.NA
+
     if "coupon_share" in df.columns:
         out["coupon_share"] = pd.to_numeric(df["coupon_share"], errors="coerce")
+        out["bill_share"] = out["bill_share"].fillna(1.0 - out["coupon_share"])
     elif "bill_share" in df.columns:
-        out["coupon_share"] = 1.0 - pd.to_numeric(df["bill_share"], errors="coerce")
+        out["coupon_share"] = 1.0 - out["bill_share"]
     else:
         raise ValueError("Sector maturity file needs coupon_share or bill_share.")
 
     maturity_col = _first_existing(
         df,
-        ["coupon_only_maturity_years", "effective_duration_years", "zero_coupon_equivalent_years"],
+        [
+            "coupon_only_maturity_years_bill_wam_adjusted",
+            "coupon_only_maturity_years",
+            "effective_duration_years",
+            "zero_coupon_equivalent_years",
+        ],
     )
     if maturity_col is None:
         raise ValueError(
@@ -305,6 +384,24 @@ def prepare_sector_maturity(df: pd.DataFrame) -> pd.DataFrame:
         )
     out["coupon_only_maturity_years"] = pd.to_numeric(df[maturity_col], errors="coerce")
     return out.dropna(subset=["date", "sector_key"]).reset_index(drop=True)
+
+
+def prepare_bill_wam_support(df: pd.DataFrame | None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["date", "bill_wam_years"])
+    frame = read_table(df) if isinstance(df, (str, Path)) else df.copy()
+    frame = frame.rename(columns={column: normalize_col(column) for column in frame.columns})
+    date_col = _first_existing(frame, ["date", "record_date", "quarter_date"])
+    wam_col = _first_existing(frame, ["nonfed_bill_wam_years", "bill_wam_years", "aggregate_bill_wam_years"])
+    if date_col is None or wam_col is None:
+        raise ValueError("Bill WAM support needs date and bill_wam_years-style columns.")
+    out = pd.DataFrame(
+        {
+            "date": pd.to_datetime(frame[date_col], errors="coerce").dt.normalize(),
+            "bill_wam_years": pd.to_numeric(frame[wam_col], errors="coerce"),
+        }
+    )
+    return out.dropna(subset=["date", "bill_wam_years"]).sort_values("date").reset_index(drop=True)
 
 
 def prepare_sector_panel(df: pd.DataFrame) -> pd.DataFrame:
@@ -463,6 +560,134 @@ def _build_sector_coupon_weight_frame(
     return pd.DataFrame(rows)
 
 
+def _bill_wam_for_date(bill_wam: pd.DataFrame, target_date: pd.Timestamp) -> float:
+    if bill_wam.empty:
+        return 0.25
+    eligible = bill_wam.loc[bill_wam["date"].le(pd.Timestamp(target_date).normalize())]
+    if eligible.empty:
+        return 0.25
+    value = pd.to_numeric(eligible.iloc[-1].get("bill_wam_years"), errors="coerce")
+    if pd.isna(value) or float(value) <= 0.0:
+        return 0.25
+    return float(value)
+
+
+def _build_sector_bill_discount_weight_frame(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    bill_wam_support: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    maturity = prepare_sector_maturity(sector_maturity)
+    panel = prepare_sector_panel(sector_panel)
+    curve_frame = prepare_curve_file(curves)
+    curve_points = _curve_points(curve_frame)
+    bill_wam = prepare_bill_wam_support(bill_wam_support)
+
+    merged = maturity.merge(panel, on=["date", "sector_key"], how="inner")
+    if merged.empty:
+        return pd.DataFrame(columns=["date", "sector_key", "raw_bill_discount_weight"])
+
+    rows: list[dict[str, object]] = []
+    for date, frame in merged.groupby("date", sort=True):
+        curve_row = _latest_curve_row_on_or_before(curve_frame, pd.Timestamp(date))
+        if curve_row is None:
+            continue
+        bill_wam_years = _bill_wam_for_date(bill_wam, pd.Timestamp(date))
+        annual_rate = _interpolate_curve_yield(curve_row, bill_wam_years, curve_points)
+        if annual_rate is None:
+            continue
+        for _, row in frame.iterrows():
+            bill_share = pd.to_numeric(row.get("bill_share"), errors="coerce")
+            level = pd.to_numeric(row.get("level"), errors="coerce")
+            if pd.isna(bill_share) or pd.isna(level):
+                continue
+            raw_bill_discount_weight = float(level) * max(float(bill_share), 0.0) * max(float(annual_rate), 0.0) / 4.0
+            rows.append(
+                {
+                    "date": pd.Timestamp(date).normalize(),
+                    "sector_key": str(row["sector_key"]).strip(),
+                    "raw_bill_discount_weight": raw_bill_discount_weight,
+                    "bill_wam_years": bill_wam_years,
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def estimate_quarterly_sector_bill_discount_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str],
+    series_name: str,
+    bill_wam_support: pd.DataFrame | None = None,
+) -> pd.Series:
+    selected = set(str(key).strip() for key in sector_keys)
+    weights = _build_sector_bill_discount_weight_frame(sector_maturity, sector_panel, curves, bill_wam_support)
+    if weights.empty:
+        return pd.Series(dtype="float64", name=series_name)
+    out = (
+        weights.loc[weights["sector_key"].isin(selected)]
+        .groupby("date")["raw_bill_discount_weight"]
+        .sum(min_count=1)
+        .sort_index()
+    )
+    out.name = series_name
+    return out.astype("float64")
+
+
+def estimate_quarterly_bank_bill_discount_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
+    bill_wam_support: pd.DataFrame | None = None,
+) -> pd.Series:
+    return estimate_quarterly_sector_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=sector_keys,
+        series_name="bank_tsy_bill_discount_interest_proxy",
+        bill_wam_support=bill_wam_support,
+    )
+
+
+def estimate_quarterly_row_bill_discount_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    bill_wam_support: pd.DataFrame | None = None,
+) -> pd.Series:
+    return estimate_quarterly_sector_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=sector_keys,
+        series_name="row_tsy_bill_discount_interest_proxy",
+        bill_wam_support=bill_wam_support,
+    )
+
+
+def estimate_quarterly_credit_union_bill_discount_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str] = DEFAULT_CREDIT_UNION_SECTOR_KEYS,
+    bill_wam_support: pd.DataFrame | None = None,
+) -> pd.Series:
+    return estimate_quarterly_sector_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=sector_keys,
+        series_name="credit_union_tsy_bill_discount_interest_proxy",
+        bill_wam_support=bill_wam_support,
+    )
+
+
 def estimate_quarterly_sector_coupon_interest_proxy(
     sector_maturity: pd.DataFrame,
     sector_panel: pd.DataFrame,
@@ -565,6 +790,27 @@ def estimate_quarterly_row_coupon_interest_proxy(
     )
 
 
+def estimate_quarterly_credit_union_coupon_interest_proxy(
+    sector_maturity: pd.DataFrame,
+    sector_panel: pd.DataFrame,
+    curves: pd.DataFrame,
+    sector_keys: Iterable[str] = DEFAULT_CREDIT_UNION_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
+) -> pd.Series:
+    return estimate_quarterly_sector_coupon_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=sector_keys,
+        series_name="credit_union_tsy_coupon_interest_proxy",
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
+    )
+
+
 def write_sector_coupon_interest_proxy(
     series: pd.Series,
     out_path: Path | str,
@@ -574,6 +820,53 @@ def write_sector_coupon_interest_proxy(
     frame = pd.DataFrame({"date": series.index, "value": series.values})
     frame.to_csv(out_path, index=False)
     return out_path
+
+
+def write_quarterly_tier2_bill_discount_interest_proxies(
+    sector_maturity_path: Path | str,
+    sector_panel_path: Path | str,
+    curve_path: Path | str,
+    bank_out_path: Path | str,
+    row_out_path: Path | str,
+    credit_union_out_path: Path | str | None = None,
+    bill_wam_path: Path | str | None = None,
+    bank_sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
+    row_sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    credit_union_sector_keys: Iterable[str] = DEFAULT_CREDIT_UNION_SECTOR_KEYS,
+) -> tuple[Path, Path] | tuple[Path, Path, Path]:
+    sector_maturity = read_sector_maturity_table(sector_maturity_path)
+    sector_panel = read_sector_panel_table(sector_panel_path)
+    curves = read_table(curve_path)
+    bill_wam_support = read_table(bill_wam_path) if bill_wam_path is not None and Path(bill_wam_path).exists() else None
+
+    bank = estimate_quarterly_bank_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=bank_sector_keys,
+        bill_wam_support=bill_wam_support,
+    )
+    row = estimate_quarterly_row_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=row_sector_keys,
+        bill_wam_support=bill_wam_support,
+    )
+    bank_written = write_sector_coupon_interest_proxy(bank, bank_out_path)
+    row_written = write_sector_coupon_interest_proxy(row, row_out_path)
+    if credit_union_out_path is None:
+        return bank_written, row_written
+
+    credit_union = estimate_quarterly_credit_union_bill_discount_interest_proxy(
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        sector_keys=credit_union_sector_keys,
+        bill_wam_support=bill_wam_support,
+    )
+    credit_union_written = write_sector_coupon_interest_proxy(credit_union, credit_union_out_path)
+    return bank_written, row_written, credit_union_written
 
 
 def write_quarterly_bank_coupon_interest_proxy(
@@ -620,19 +913,43 @@ def write_quarterly_row_coupon_interest_proxy(
     return write_sector_coupon_interest_proxy(series, out_path)
 
 
+def write_quarterly_credit_union_coupon_interest_proxy(
+    sector_maturity_path: Path | str,
+    sector_panel_path: Path | str,
+    curve_path: Path | str,
+    out_path: Path | str,
+    sector_keys: Iterable[str] = DEFAULT_CREDIT_UNION_SECTOR_KEYS,
+    use_observed_interest_anchor: bool = False,
+    aggregate_interest_proxy: pd.Series | None = None,
+    exact_fed_coupon_proxy: pd.Series | None = None,
+) -> Path:
+    series = estimate_quarterly_credit_union_coupon_interest_proxy(
+        sector_maturity=read_sector_maturity_table(sector_maturity_path),
+        sector_panel=read_sector_panel_table(sector_panel_path),
+        curves=read_table(curve_path),
+        sector_keys=sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
+    )
+    return write_sector_coupon_interest_proxy(series, out_path)
+
+
 def write_quarterly_tier2_coupon_interest_proxies(
     sector_maturity_path: Path | str,
     sector_panel_path: Path | str,
     curve_path: Path | str,
     bank_out_path: Path | str,
     row_out_path: Path | str,
+    credit_union_out_path: Path | str | None = None,
     bank_sector_keys: Iterable[str] = DEFAULT_BANK_SECTOR_KEYS,
     row_sector_keys: Iterable[str] = DEFAULT_ROW_SECTOR_KEYS,
+    credit_union_sector_keys: Iterable[str] = DEFAULT_CREDIT_UNION_SECTOR_KEYS,
     use_observed_interest_anchor: bool = False,
     mts_outlays_path: Path | str | None = None,
     fred_interest_path: Path | str | None = None,
     fed_coupon_path: Path | str | None = None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path] | tuple[Path, Path, Path]:
     aggregate_interest_proxy = pd.Series(dtype="float64")
     exact_fed_coupon_proxy = pd.Series(dtype="float64")
     if use_observed_interest_anchor:
@@ -661,4 +978,17 @@ def write_quarterly_tier2_coupon_interest_proxies(
         aggregate_interest_proxy=aggregate_interest_proxy,
         exact_fed_coupon_proxy=exact_fed_coupon_proxy,
     )
-    return bank_written, row_written
+    if credit_union_out_path is None:
+        return bank_written, row_written
+
+    credit_union_written = write_quarterly_credit_union_coupon_interest_proxy(
+        sector_maturity_path=sector_maturity_path,
+        sector_panel_path=sector_panel_path,
+        curve_path=curve_path,
+        out_path=credit_union_out_path,
+        sector_keys=credit_union_sector_keys,
+        use_observed_interest_anchor=use_observed_interest_anchor,
+        aggregate_interest_proxy=aggregate_interest_proxy,
+        exact_fed_coupon_proxy=exact_fed_coupon_proxy,
+    )
+    return bank_written, row_written, credit_union_written

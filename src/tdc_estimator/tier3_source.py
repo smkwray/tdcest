@@ -25,6 +25,17 @@ DEFAULT_ROW_OUTLAY_COMPONENT_KEYS = [
     "row_outlay_international_monetary",
     "row_outlay_international_orgs",
 ]
+CORE_INSTITUTIONAL_ROW_OUTLAY_COMPONENT_KEYS = [
+    "row_outlay_ida_contribution",
+    "row_outlay_international_monetary",
+    "row_outlay_international_orgs",
+]
+HUMANITARIAN_ROW_OUTLAY_COMPONENT_KEYS = [
+    "row_outlay_international_disaster",
+]
+AGENCY_ROW_OUTLAY_COMPONENT_KEYS = [
+    "row_outlay_foreign_ag_service",
+]
 SECURITY_ROW_OUTLAY_COMPONENT_KEYS = [
     "row_outlay_foreign_military_financing",
     "row_outlay_international_narcotics",
@@ -77,6 +88,9 @@ def build_tier3_source_diagnostics(
     row_component_cols = list(ROW_OUTLAY_COMPONENT_LABELS.keys())
     diag["row_outlay_total_selected"] = diag[row_component_cols].sum(axis=1, min_count=1)
     diag["row_outlay_security_selected"] = diag[SECURITY_ROW_OUTLAY_COMPONENT_KEYS].sum(axis=1, min_count=1)
+    diag["row_outlay_core_institutional_selected"] = diag[CORE_INSTITUTIONAL_ROW_OUTLAY_COMPONENT_KEYS].sum(axis=1, min_count=1)
+    diag["row_outlay_humanitarian_addon_selected"] = diag[HUMANITARIAN_ROW_OUTLAY_COMPONENT_KEYS].sum(axis=1, min_count=1)
+    diag["row_outlay_agency_addon_selected"] = diag[AGENCY_ROW_OUTLAY_COMPONENT_KEYS].sum(axis=1, min_count=1)
     diag["row_outlay_humanitarian_development_selected"] = diag[
         ["row_outlay_ida_contribution", "row_outlay_foreign_ag_service", "row_outlay_international_disaster"]
     ].sum(axis=1, min_count=1)
@@ -125,8 +139,12 @@ def build_source_backed_tier3_input_table(
 
     table.loc[full_quarters, "bank_noninterest_outlay_proxy"] = bank_outlay
     table.loc[full_quarters, "row_noninterest_outlay_proxy"] = row_outlay
-    table.loc[full_quarters, "bank_nonborrow_receipt_proxy"] = 0.0
-    table.loc[full_quarters, "row_nonborrow_receipt_proxy"] = 0.0
+    table.loc[full_quarters, "bank_nonborrow_receipt_proxy"] = table.loc[
+        full_quarters, "bank_nonborrow_receipt_proxy"
+    ].fillna(0.0)
+    table.loc[full_quarters, "row_nonborrow_receipt_proxy"] = table.loc[
+        full_quarters, "row_nonborrow_receipt_proxy"
+    ].fillna(0.0)
     table.loc[full_quarters, "mint_cb_cash_factor_proxy"] = mint_factor
 
     return table.loc[table.index >= pd.Timestamp(start), TIER3_SUPPORT_KEYS].copy()
@@ -157,8 +175,9 @@ def write_source_backed_tier3_input_table(
 def render_tier3_source_diagnostics_markdown(diagnostics: pd.DataFrame) -> str:
     title = "# Tier 3 Source Diagnostics"
     intro = (
-        "Quarter-by-quarter diagnostics for the current MTS outlay-backed Tier 3 source overlay. "
-        "Amounts are in millions. The ROW total is the sum of the selected foreign and international leaf lines."
+        "Quarter-by-quarter diagnostics for the current MTS outlay-backed Tier 3 partial fiscal shell. "
+        "Amounts are in millions. The ROW total is the sum of the selected foreign and international leaf lines; "
+        "bank and ROW receipt cells remain missing/not-measured for live-default governance."
     )
     if diagnostics.empty:
         return "\n".join([title, "", intro, "", "No full-quarter MTS outlay coverage is available."])
@@ -174,6 +193,7 @@ def render_tier3_source_diagnostics_markdown(diagnostics: pd.DataFrame) -> str:
         f"Bank outlay {float(latest['bank_noninterest_outlay_source']):,.3f}; "
         f"ROW default {float(latest['row_outlay_default_selected']):,.3f}; "
         f"ROW broad {float(latest['row_outlay_broad_selected']):,.3f}; "
+        f"core institutional {float(latest['row_outlay_core_institutional_selected']):,.3f}; "
         f"security {float(latest['row_outlay_security_selected']):,.3f}; "
         f"humanitarian/development {float(latest['row_outlay_humanitarian_development_selected']):,.3f}; "
         f"institutions {float(latest['row_outlay_institutions_selected']):,.3f}; "
@@ -182,8 +202,8 @@ def render_tier3_source_diagnostics_markdown(diagnostics: pd.DataFrame) -> str:
     )
 
     header = (
-        "| Quarter | Bank outlay | ROW default | ROW broad | Security add-on | FMF | Disaster | Foreign ag | IDA | Narcotics | Intl orgs | Intl monetary | Mint factor |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| Quarter | Bank outlay | ROW core institutional | ROW narrow | ROW broad | Humanitarian add-on | Agency add-on | Security add-on | FMF | Disaster | Foreign ag | IDA | Narcotics | Intl orgs | Intl monetary | Mint factor |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     )
     rows: list[str] = []
     for date, row in diagnostics.iterrows():
@@ -193,8 +213,11 @@ def render_tier3_source_diagnostics_markdown(diagnostics: pd.DataFrame) -> str:
                 [
                     pd.Timestamp(date).date().isoformat(),
                     f"{float(row.get('bank_noninterest_outlay_source', 0.0)):,.3f}",
+                    f"{float(row.get('row_outlay_core_institutional_selected', 0.0)):,.3f}",
                     f"{float(row.get('row_outlay_default_selected', 0.0)):,.3f}",
                     f"{float(row.get('row_outlay_broad_selected', 0.0)):,.3f}",
+                    f"{float(row.get('row_outlay_humanitarian_addon_selected', 0.0)):,.3f}",
+                    f"{float(row.get('row_outlay_agency_addon_selected', 0.0)):,.3f}",
                     f"{float(row.get('row_outlay_security_selected', 0.0)):,.3f}",
                     f"{float(row.get('row_outlay_foreign_military_financing', 0.0)):,.3f}",
                     f"{float(row.get('row_outlay_international_disaster', 0.0)):,.3f}",
@@ -209,7 +232,13 @@ def render_tier3_source_diagnostics_markdown(diagnostics: pd.DataFrame) -> str:
             + " |"
         )
 
-    return "\n".join([title, "", intro, "", latest_summary, "", header, *rows, ""])
+    notes = [
+        "Notes:",
+        "- `ROW core institutional` is IDA, International Monetary Programs, and International Organizations and Conferences.",
+        "- `ROW narrow` adds International Disaster Assistance and Foreign Agricultural Service; it is a proxy, not proof of ultimate ROW cash recipient.",
+        "- Bank and ROW receipt corrections are source-boundary missing cells in the live shell, even when arithmetic support files carry zero placeholders.",
+    ]
+    return "\n".join([title, "", intro, "", latest_summary, "", header, *rows, "", *notes, ""])
 
 
 def write_tier3_source_diagnostics(

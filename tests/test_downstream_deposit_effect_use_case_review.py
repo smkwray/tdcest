@@ -12,12 +12,13 @@ def test_downstream_deposit_effect_use_case_review_maps_core_questions() -> None
         [
             {
                 "artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
-                "default_classification": "live_default_with_partial_receipt_cells",
+                "default_classification": "diagnostic_outlay_only_partial_shell",
                 "latest_reference_date": "2025-12-31",
                 "latest_value_millions": 40.0,
             },
             {
                 "artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
+                "default_classification": "headline_default",
                 "latest_reference_date": "2025-12-31",
                 "latest_value_millions": 42.0,
             },
@@ -79,7 +80,7 @@ def test_downstream_deposit_effect_use_case_review_maps_core_questions() -> None
             {
                 "gap_key": "latest_live_base_to_tier2_bank_only",
                 "dominant_component_key": "tier2_row_coupon_correction",
-                "dominant_component_family": "coupon",
+                "dominant_component_family": "interest_cleanup",
             },
         ]
     )
@@ -134,7 +135,10 @@ def test_downstream_deposit_effect_use_case_review_maps_core_questions() -> None
     assert "monetary_crosscheck_and_problem_variable_audit" in keys
 
     live = frame.loc[frame["use_case_key"].eq("current_quarter_bank_only_headline")].iloc[0]
-    assert live["dominant_problem_variable_family"] == "fiscal"
+    assert live["primary_artifact_key"] == "tdc_tier2_interest_corrected_bank_only_ru_flow"
+    assert live["comparison_artifact_key"] == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
+    assert live["readiness_status"] == "headline_default_tier3_diagnostic_only"
+    assert live["dominant_problem_variable_family"] == "interest_cleanup"
     assert "stale_share_rule" in live["binding_boundary"]
 
     hist = frame.loc[frame["use_case_key"].eq("historical_bank_receipt_backtest")].iloc[0]

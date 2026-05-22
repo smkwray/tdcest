@@ -126,7 +126,7 @@ def test_downstream_consistency_review_passes_when_contract_and_panels_align() -
             },
             {
                 "date": "2025-12-31",
-                "comparison_key": "bank_only_tier3_minus_tier2",
+                "comparison_key": "bank_only_tier3_partial_shell_minus_tier2",
                 "lhs_value_millions": -40.0,
                 "rhs_value_millions": -38.0,
                 "net_delta_millions": -2.0,
@@ -140,7 +140,7 @@ def test_downstream_consistency_review_passes_when_contract_and_panels_align() -
             },
             {
                 "date": "2024-12-31",
-                "comparison_key": "historical_bank_receipt_candidate_minus_default_tier3",
+                "comparison_key": "historical_bank_receipt_candidate_minus_partial_shell",
                 "lhs_value_millions": 103.0,
                 "rhs_value_millions": 100.0,
                 "net_delta_millions": 3.0,
@@ -230,7 +230,7 @@ def test_downstream_consistency_review_passes_when_contract_and_panels_align() -
     research_comparison = pd.DataFrame(
         [
             {
-                "comparison_key": "latest_live_defaults",
+                "comparison_key": "latest_live_tier2_vs_partial_shell",
                 "reference_date": "2025-12-31",
                 "tier2_bank_only_mil": -38.0,
                 "tier3_bank_only_mil": -40.0,

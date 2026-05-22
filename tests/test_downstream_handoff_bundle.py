@@ -73,7 +73,7 @@ def test_downstream_handoff_bundle_keys_core_backend_surfaces() -> None:
         [
             {
                 "date": "2025-12-31",
-                "comparison_key": "bank_only_tier3_minus_tier2",
+                "comparison_key": "bank_only_tier3_partial_shell_minus_tier2",
                 "historical_only": False,
                 "nondefault_only": False,
             },

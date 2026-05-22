@@ -306,14 +306,40 @@ def build_du_fiscal_flow_research(
         index=index,
     )
 
+    all_sectors_tsy_tx = _maybe(quarterly, "all_sectors_tsy_tx", index)
     domestic_financial_tx = _maybe(quarterly, "domestic_financial_tsy_tx", index)
     fed_tsy_tx = _maybe(components, "fed_tsy_tx", index)
     bank_depository_tsy_tx = _maybe(components, "bank_depository_tsy_tx", index)
+    row_tsy_tx = _maybe(components, "row_tsy_tx", index)
     credit_union_total_tsy_tx = _maybe(
         components,
         "credit_unions_total_tsy_tx_direct" if "credit_unions_total_tsy_tx_direct" in components.columns else "credit_unions_total_tsy_tx_reconstructed",
         index,
     )
+
+    out["du_residual_tsy_purchase_bank_only_ru_proxy"] = (
+        all_sectors_tsy_tx
+        - fed_tsy_tx
+        - row_tsy_tx
+        - bank_depository_tsy_tx
+    )
+    out["du_residual_tsy_purchase_np_cu_ru_proxy"] = (
+        out["du_residual_tsy_purchase_bank_only_ru_proxy"]
+        - _maybe(components, "np_credit_unions_tsy_tx", index).fillna(0.0)
+    )
+    out["du_residual_tsy_purchase_np_corp_cu_ru_proxy"] = (
+        out["du_residual_tsy_purchase_np_cu_ru_proxy"]
+        - _maybe(components, "corp_credit_unions_tsy_tx", index).fillna(0.0)
+    )
+    out["du_residual_tsy_purchase_full_cu_ru_proxy"] = (
+        all_sectors_tsy_tx
+        - fed_tsy_tx
+        - row_tsy_tx
+        - bank_depository_tsy_tx
+        - credit_union_total_tsy_tx.fillna(0.0)
+    )
+    out["du_residual_tsy_purchase_proxy"] = out["du_residual_tsy_purchase_full_cu_ru_proxy"]
+    out["du_residual_security_flow_proxy"] = -out["du_residual_tsy_purchase_proxy"]
 
     fallback_narrow_security_flow = -_maybe(quarterly, "domestic_nonfinancial_tsy_tx", index)
     fallback_private_financial_nonbank_flow = -(
@@ -354,21 +380,41 @@ def build_du_fiscal_flow_research(
         index=index,
         wamest_root=wamest_root,
     )
-    out["du_coupon_proxy_direct_narrow"] = _blend(direct_narrow_coupon, out["du_coupon_proxy_residual"])
-    out["du_coupon_proxy_direct_broad"] = _blend(direct_broad_coupon, out["du_coupon_proxy_residual"])
+    out["du_coupon_proxy_direct_narrow"] = direct_narrow_coupon
+    out["du_coupon_proxy_direct_broad"] = direct_broad_coupon
+    out["du_coupon_proxy_primary"] = out["du_coupon_proxy_residual"]
+    out["du_coupon_proxy_selected_narrow"] = _blend(direct_narrow_coupon, out["du_coupon_proxy_residual"])
 
     out["tdc_du_fiscal_flow_first_pass_narrow"] = (
+        out["du_residual_security_flow_proxy"]
+        + out["du_noninterest_outlay_proxy"]
+        - out["du_receipt_proxy"]
+        + out["du_coupon_proxy_primary"]
+    )
+    out["tdc_du_fiscal_flow_first_pass_broad"] = (
+        out["du_residual_security_flow_proxy"]
+        + out["du_noninterest_outlay_proxy"]
+        - out["du_receipt_proxy"]
+        + out["du_coupon_proxy_primary"]
+    )
+    out["tdc_du_selected_domestic_nonfinancial_proxy"] = (
         out["du_domestic_nonfinancial_security_flow_proxy"]
         + out["du_noninterest_outlay_proxy"]
         - out["du_receipt_proxy"]
-        - out["du_coupon_proxy_direct_narrow"]
+        - out["du_coupon_proxy_selected_narrow"]
     )
-    out["tdc_du_fiscal_flow_first_pass_broad"] = (
-        out["du_broad_private_security_flow_proxy"]
-        + out["du_noninterest_outlay_proxy"]
-        - out["du_receipt_proxy"]
-        - out["du_coupon_proxy_direct_broad"]
-    )
+    for suffix, purchase_column in [
+        ("bank_only_ru", "du_residual_tsy_purchase_bank_only_ru_proxy"),
+        ("np_cu_ru", "du_residual_tsy_purchase_np_cu_ru_proxy"),
+        ("np_corp_cu_ru", "du_residual_tsy_purchase_np_corp_cu_ru_proxy"),
+        ("full_cu_ru", "du_residual_tsy_purchase_full_cu_ru_proxy"),
+    ]:
+        out[f"tdc_du_residual_proxy_{suffix}"] = (
+            -out[purchase_column]
+            + out["du_noninterest_outlay_proxy"]
+            - out["du_receipt_proxy"]
+            + out["du_coupon_proxy_primary"]
+        )
 
     return out.dropna(how="all").sort_index()
 
@@ -376,9 +422,9 @@ def build_du_fiscal_flow_research(
 def render_du_fiscal_flow_research_markdown(frame: pd.DataFrame) -> str:
     title = "# DU Fiscal-Flow Research"
     intro = (
-        "First-pass DU-facing fiscal-flow surface. Amounts are in millions. "
-        "This is not yet a promoted headline estimator. It combines total MTS cash totals with DU-side Treasury-security proxies "
-        "and direct DU coupon estimation where available."
+        "Residual DU-facing fiscal-flow surface. Amounts are in millions. "
+        "This is not yet a promoted headline estimator. It combines total MTS cash totals with residual DU Treasury-security "
+        "purchases and a residual DU coupon-interest term."
     )
     if frame.empty:
         return "\n".join([title, "", intro, "", "No DU fiscal-flow research rows were available."])
@@ -387,18 +433,19 @@ def render_du_fiscal_flow_research_markdown(frame: pd.DataFrame) -> str:
     latest = frame.loc[latest_date]
     latest_summary = (
         f"Latest quarter: {pd.Timestamp(latest_date).date().isoformat()}. "
-        f"Narrow DU first pass {float(latest.get('tdc_du_fiscal_flow_first_pass_narrow', float('nan'))):,.3f}; "
-        f"broad DU first pass {float(latest.get('tdc_du_fiscal_flow_first_pass_broad', float('nan'))):,.3f}; "
+        f"DU residual proxy, narrow coupon {float(latest.get('tdc_du_fiscal_flow_first_pass_narrow', float('nan'))):,.3f}; "
+        f"DU residual proxy, broad coupon {float(latest.get('tdc_du_fiscal_flow_first_pass_broad', float('nan'))):,.3f}; "
+        f"DU residual TS purchases {float(latest.get('du_residual_tsy_purchase_proxy', float('nan'))):,.3f}; "
         f"DU noninterest outlay proxy {float(latest.get('du_noninterest_outlay_proxy', float('nan'))):,.3f}; "
         f"DU receipt proxy {float(latest.get('du_receipt_proxy', float('nan'))):,.3f}; "
-        f"DU direct narrow coupon proxy {float(latest.get('du_coupon_proxy_direct_narrow', float('nan'))):,.3f}; "
-        f"DU direct broad coupon proxy {float(latest.get('du_coupon_proxy_direct_broad', float('nan'))):,.3f}; "
-        f"DU coupon residual fallback {float(latest.get('du_coupon_proxy_residual', float('nan'))):,.3f}."
+        f"DU residual coupon proxy {float(latest.get('du_coupon_proxy_residual', float('nan'))):,.3f}; "
+        f"DU direct narrow coupon diagnostic {float(latest.get('du_coupon_proxy_direct_narrow', float('nan'))):,.3f}; "
+        f"DU direct broad coupon diagnostic {float(latest.get('du_coupon_proxy_direct_broad', float('nan'))):,.3f}."
     )
 
     header = (
-        "| Quarter | Narrow DU security | Broad DU security | DU noninterest outlays | DU receipts | DU coupon narrow | DU coupon broad | DU coupon residual fallback | Narrow DU first pass | Broad DU first pass |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+        "| Quarter | DU residual TS purchases | DU residual security flow | Narrow partial DU security | Broad partial DU security | DU noninterest outlays | DU receipts | DU coupon residual primary | DU coupon narrow diagnostic | DU coupon broad diagnostic | DU residual proxy, narrow ID | DU residual proxy, broad ID |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     )
     rows: list[str] = []
     for date, row in frame.iterrows():
@@ -407,13 +454,15 @@ def render_du_fiscal_flow_research_markdown(frame: pd.DataFrame) -> str:
             + " | ".join(
                 [
                     pd.Timestamp(date).date().isoformat(),
+                    f"{float(pd.to_numeric(row.get('du_residual_tsy_purchase_proxy'), errors='coerce')):,.3f}",
+                    f"{float(pd.to_numeric(row.get('du_residual_security_flow_proxy'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_domestic_nonfinancial_security_flow_proxy'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_broad_private_security_flow_proxy'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_noninterest_outlay_proxy'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_receipt_proxy'), errors='coerce')):,.3f}",
+                    f"{float(pd.to_numeric(row.get('du_coupon_proxy_residual'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_coupon_proxy_direct_narrow'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('du_coupon_proxy_direct_broad'), errors='coerce')):,.3f}",
-                    f"{float(pd.to_numeric(row.get('du_coupon_proxy_residual'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('tdc_du_fiscal_flow_first_pass_narrow'), errors='coerce')):,.3f}",
                     f"{float(pd.to_numeric(row.get('tdc_du_fiscal_flow_first_pass_broad'), errors='coerce')):,.3f}",
                 ]
@@ -423,10 +472,12 @@ def render_du_fiscal_flow_research_markdown(frame: pd.DataFrame) -> str:
 
     notes = [
         "Notes:",
-        "- `narrow` prefers a direct `wamest` sum of private nonfinancial DU sectors: households/nonprofits, nonfinancial corporates, and nonfinancial noncorporate business.",
-        "- `broad` adds a direct `wamest` sum of private financial nonbank DU sectors where available; otherwise it falls back to the older domestic-financial residual proxy.",
+        "- The DU Treasury-security purchase term is residual-defined as all-sector Treasury-security transactions minus Fed, ROW, bank, and credit-union Treasury-security transactions.",
+        "- The residual security-flow term is the negative of residual DU Treasury-security purchases, so DU purchases reduce the deposit-flow proxy.",
+        "- The older private nonfinancial and broad private-sector security-flow terms are retained only as partial-sector diagnostics and are no longer used in the DU fiscal-flow estimate.",
         "- Total outlays, receipts, and interest use MTS where available and otherwise fall back to quarterly BEA/FRED NSA federal current expenditures, current receipts, and interest payments.",
-        "- DU coupon terms now prefer direct `wamest` sector coupon estimates where level and maturity coverage exist, and otherwise fall back quarter-by-quarter to the residual Treasury-interest proxy minus Fed, bank, and ROW coupon proxies.",
+        "- DU coupon interest is added to the deposit-flow proxy because Treasury interest paid to DU is a cash inflow to DU deposit accounts.",
+        "- The primary DU coupon term is residual-defined as gross Treasury interest less Fed, bank, and ROW coupon proxies. Direct `wamest` sector coupon estimates are retained as diagnostics because they do not cover the full DU perimeter.",
         "- The DU receipt term currently subtracts the explicit Fed earnings receipt line from total MTS receipts before removing any live bank/ROW receipt support terms.",
     ]
     return "\n".join([title, "", intro, "", latest_summary, "", header, *rows, "", *notes, ""])

@@ -458,9 +458,9 @@ def build_downstream_consistency_review(
 
     comparison_map = {
         "latest_live_base_to_tier2_bank_only": "bank_only_tier2_minus_base",
-        "latest_live_tier2_to_tier3_bank_only": "bank_only_tier3_minus_tier2",
+        "latest_live_tier2_to_tier3_bank_only": "bank_only_tier3_partial_shell_minus_tier2",
         "latest_live_bank_to_broad_depository_tier3": "broad_depository_tier3_minus_bank_only_tier3",
-        "latest_historical_bank_receipt_overlay": "historical_bank_receipt_candidate_minus_default_tier3",
+        "latest_historical_bank_receipt_overlay": "historical_bank_receipt_candidate_minus_partial_shell",
         "latest_historical_candidate_to_lower_bound": "historical_bank_receipt_candidate_minus_lower_bound",
     }
     if not gap_review.empty and not comparison_panel.empty:
@@ -525,11 +525,11 @@ def build_downstream_consistency_review(
             }
         )
 
-    research_live = _get_row(research_comparison, "comparison_key", "latest_live_defaults")
+    research_live = _get_row(research_comparison, "comparison_key", "latest_live_tier2_vs_partial_shell")
     research_hist = _get_row(research_comparison, "comparison_key", "latest_historical_bank_window")
     if not research_comparison.empty:
         for review_key, review_row in [
-            ("latest_live_defaults", research_live),
+            ("latest_live_tier2_vs_partial_shell", research_live),
             ("latest_historical_bank_window", research_hist),
         ]:
             carries_mrv_value = _norm_num(review_row.get("current_row_mrv_pilot_mil")) is not None

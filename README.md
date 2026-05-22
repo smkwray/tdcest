@@ -1,10 +1,10 @@
-# Treasury-Attributed Component of Deposits (TDC)
+# Treasury Deposit Component (TDC)
 
 [Live site](https://smkwray.github.io/tdcest/)
 
 `tdcest` is a public research repo about a practical macro question: **how much of deposit change is linked to Treasury operations?**
 
-More specifically, it estimates the **Treasury-attributed component of deposits**: the part of deposit change associated with Treasury cash movements, Treasury security settlement, and related channels in the banking system.
+More specifically, it estimates the **Treasury Deposit Component**: the part of deposit change associated with Treasury cash movements, Treasury security settlement, and related channels in the banking system.
 
 The project combines:
 - reproducible public-data downloads
@@ -33,10 +33,10 @@ The main public sequence is:
    Built from marketable Treasury transaction flows, Treasury operating cash, and positive Fed remittances.
 2. **After Fed coupon correction**
    Removes the Fed coupon-flow distortion from the raw baseline.
-3. **After interest corrections**
-   Also removes bank-sector and foreign coupon-flow distortions.
-4. **Fiscal-corrected live estimate**
-   Adds the narrow fiscal corrections used in the current main estimate.
+3. **Canonical Tier 2 deposit component**
+   Adds the current component-anchored interest corrections and the preferred proportional MMF/RRP source-of-funds adjustment.
+4. **Long-history regression row**
+   Keeps a longer 2002Q1-forward regression/MMF-RRP row for downstream empirical work where the modern component-anchored row is too short.
 
 The repo also keeps several related surfaces visible:
 - **Broad-depository alternative**
@@ -45,6 +45,8 @@ The repo also keeps several related surfaces visible:
   A historical-only overlay for periods where bank receipt evidence is strong enough to use directly.
 - **Foreign-receipt sensitivity**
   A small recurring foreign-receipt comparison kept separate from the main estimate because the public evidence is still incomplete.
+- **Partial fiscal shell**
+  A diagnostic Tier 3 surface that keeps unresolved current bank and foreign receipt cells below headline status.
 - **Monetary cross-check**
   A diagnostic surface used for interpretation and stress testing, not as the main estimate.
 
@@ -65,9 +67,9 @@ For details:
 
 The most important machine-readable outputs are:
 - [`site/data/bundle.json`](site/data/bundle.json) for the static site
-- [`data/processed/tdc_downstream_handoff_bundle.json`](data/processed/tdc_downstream_handoff_bundle.json) for downstream analytical use
+- `data/processed/tdc_downstream_handoff_bundle.json` for downstream analytical use after a local pipeline run
 
-The handoff bundle is the best single entrypoint for downstream work because it gathers:
+`data/processed/` is generated and intentionally not committed. The handoff bundle is the best single entrypoint for downstream work after regeneration because it gathers:
 - estimator roles
 - receipt boundaries
 - use-case routing

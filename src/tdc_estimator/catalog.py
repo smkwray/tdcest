@@ -111,11 +111,50 @@ BASE_FRED_SERIES: list[FredSeries] = [
 
 OPTIONAL_FRED_SERIES: list[FredSeries] = [
     FredSeries(
+        key="all_sectors_tsy_tx",
+        series_id="BOGZ1FU893061105Q",
+        description="All Sectors; Treasury Securities; Asset, Transactions",
+        agg="sum",
+        notes=(
+            "All-sector Treasury-security asset transactions. Used to construct the residual "
+            "domestic nonbank DU Treasury-security purchase term by subtracting Fed, ROW, "
+            "bank, and credit-union Treasury-security transactions."
+        ),
+    ),
+    FredSeries(
         key="credit_unions_total_tsy_tx",
         series_id="BOGZ1FU473061105Q",
         description="Credit Unions; Treasury Securities; Asset, Transactions",
         agg="sum",
         notes="Aggregate credit-union Treasury series. In Z.1, this equals natural-person credit-union Treasuries plus corporate credit-union Treasuries plus the NCUA capitalization deposit.",
+    ),
+    FredSeries(
+        key="mmf_tsy_level",
+        series_id="BOGZ1FL633061105Q",
+        description="Money Market Funds; Treasury Securities; Asset, Level",
+        agg="last",
+        notes="Optional Z.1 L.210/L.121 MMF Treasury-security level used as an independent scale check for OFR MMF Treasury totals.",
+    ),
+    FredSeries(
+        key="mmf_tsy_bills_level",
+        series_id="BOGZ1FL633061110Q",
+        description="Money Market Funds; Treasury Bills; Asset, Level",
+        agg="last",
+        notes="Optional Z.1 L.210 MMF Treasury-bill level used as a bills-only scale check when MMF support files include bill detail.",
+    ),
+    FredSeries(
+        key="gse_tsy_tx",
+        series_id="BOGZ1FA403061105Q",
+        description="Government-Sponsored Enterprises; Treasury Securities; Asset, Transactions",
+        agg="sum",
+        notes="Optional Z.1 F.210 GSE Treasury-security transactions used only for the GSE/RRP boundary diagnostic.",
+    ),
+    FredSeries(
+        key="gse_tsy_level",
+        series_id="BOGZ1FL403061105Q",
+        description="Government-Sponsored Enterprises; Treasury Securities; Asset, Level",
+        agg="last",
+        notes="Optional Z.1 L.210 GSE Treasury-security level used only for the GSE/RRP boundary diagnostic.",
     ),
     FredSeries(
         key="fed_tsy_level",
@@ -190,14 +229,14 @@ OPTIONAL_FRED_SERIES: list[FredSeries] = [
         series_id="BOGZ1FU383061105Q",
         description="Domestic Nonfinancial Sectors; Treasury Securities; Asset, Transactions",
         agg="sum",
-        notes="Quarterly Z.1 sector-total Treasury transactions for the domestic nonfinancial block. Used as the cleanest first-pass DU-side Treasury-security proxy.",
+        notes="Quarterly Z.1 sector-total Treasury transactions for the domestic nonfinancial block. Retained as a partial-sector diagnostic only; the DU-side Treasury-security purchase term is residual-defined from all-sector transactions less Fed, ROW, banks, and credit unions.",
     ),
     FredSeries(
         key="domestic_nonfinancial_tsy_level",
         series_id="BOGZ1FL383061105Q",
         description="Domestic Nonfinancial Sectors; Treasury Securities; Asset, Level",
         agg="last",
-        notes="Quarterly Z.1 sector-total Treasury levels for the domestic nonfinancial block. Used as the cleanest first-pass DU-side Treasury-security holdings proxy.",
+        notes="Quarterly Z.1 sector-total Treasury levels for the domestic nonfinancial block. Retained as a partial-sector diagnostic only; it is not the full DU perimeter.",
     ),
     FredSeries(
         key="treasury_operating_cash_level",
@@ -416,10 +455,26 @@ OPTIONAL_FRED_SERIES: list[FredSeries] = [
 
 LOCAL_SUPPORT_SERIES: list[LocalSeries] = [
     LocalSeries(
+        key="fed_remit_mts",
+        description="Monthly Treasury Statement deposits of earnings by Federal Reserve Banks.",
+        agg="sum",
+        notes="Preferred Treasury cash-flow source for Federal Reserve remittances. Built from MTS Table 4 net receipts for `Deposits of earnings by Federal Reserve Banks` and used to override the H.4.1 remittances-due/deferred-asset stock series when present.",
+    ),
+    LocalSeries(
         key="fed_tsy_coupon_interest_proxy",
         description="Quarterly Fed Treasury coupon-interest proxy built from SOMA holdings snapshots.",
         agg="sum",
         notes="Optional local support series. This is not downloaded from FRED; it is produced locally from SOMA holdings snapshots and used for Tier 1 Fed-corrected estimator variants.",
+    ),
+    LocalSeries(
+        key="fed_tier1_component_extension_proxy",
+        description="Quarterly Fed bill-discount plus FRN-interest component extension.",
+        agg="sum",
+        notes=(
+            "Optional staged local support series. It is exported from support__fed_treasury_interest_components.csv "
+            "as exact SOMA bill-discount plus FRN interest and feeds only explicit nondefault Fed-extension "
+            "component-anchored rows."
+        ),
     ),
     LocalSeries(
         key="bank_tsy_coupon_interest_proxy",
@@ -432,6 +487,68 @@ LOCAL_SUPPORT_SERIES: list[LocalSeries] = [
         description="Quarterly rest-of-world Treasury coupon-interest proxy.",
         agg="sum",
         notes="Optional local support series. This is not downloaded from FRED; it is produced locally and used for Tier 2 interest-corrected estimator variants that include the rest-of-world Treasury term.",
+    ),
+    LocalSeries(
+        key="credit_union_tsy_coupon_interest_proxy",
+        description="Quarterly credit-union Treasury coupon-interest proxy.",
+        agg="sum",
+        notes="Optional local support series. This is not downloaded from FRED; it is produced locally and used for depository-institution Tier 2 candidates that include natural-person credit unions in the RU block.",
+    ),
+    LocalSeries(
+        key="bank_tsy_bill_discount_interest_proxy",
+        description="Quarterly bank-sector Treasury bill-discount interest robustness proxy.",
+        agg="sum",
+        notes="Optional local support series. Produced from WAMEST bill shares, sector levels, Treasury bill WAM support, and the Treasury curve. Used only for noncoupon Treasury-interest robustness rows.",
+    ),
+    LocalSeries(
+        key="row_tsy_bill_discount_interest_proxy",
+        description="Quarterly rest-of-world Treasury bill-discount interest robustness proxy.",
+        agg="sum",
+        notes="Optional local support series. Produced from WAMEST bill shares, sector levels, Treasury bill WAM support, and the Treasury curve. Used only for noncoupon Treasury-interest robustness rows.",
+    ),
+    LocalSeries(
+        key="credit_union_tsy_bill_discount_interest_proxy",
+        description="Quarterly credit-union Treasury bill-discount interest robustness proxy.",
+        agg="sum",
+        notes="Optional local support series. Produced from WAMEST bill shares, sector levels, Treasury bill WAM support, and the Treasury curve. Used only for depository-institution noncoupon Treasury-interest robustness rows.",
+    ),
+    LocalSeries(
+        key="bank_tier2_component_interest_proxy",
+        description="Quarterly bank-sector component-anchored Tier 2 Treasury interest proxy.",
+        agg="sum",
+        notes=(
+            "Optional staged local support series. It is exported from the Tier 2 component candidate and "
+            "includes the bank allocation of official coupon-accrual, bill-discount, and FRN interest pools. "
+            "When present it feeds the promoted canonical Tier 2 rows; the WAMEST/H.15 coupon proxy remains "
+            "available through explicit H15 sensitivity rows."
+        ),
+    ),
+    LocalSeries(
+        key="row_tier2_component_interest_proxy",
+        description="Quarterly rest-of-world component-anchored Tier 2 Treasury interest proxy.",
+        agg="sum",
+        notes=(
+            "Optional staged local support series. It is exported from the Tier 2 component candidate and "
+            "includes the ROW allocation of official coupon-accrual, bill-discount, and FRN interest pools. "
+            "When present it feeds the promoted canonical Tier 2 rows; the WAMEST/H.15 coupon proxy remains "
+            "available through explicit H15 sensitivity rows."
+        ),
+    ),
+    LocalSeries(
+        key="credit_union_tier2_component_interest_proxy",
+        description="Quarterly credit-union component-anchored Tier 2 Treasury interest proxy.",
+        agg="sum",
+        notes=(
+            "Optional staged local support series. It is exported from the Tier 2 component candidate and "
+            "includes the credit-union allocation of official coupon-accrual, bill-discount, and FRN interest pools. "
+            "When present it feeds the promoted canonical depository-institution Tier 2 row."
+        ),
+    ),
+    LocalSeries(
+        key="gse_on_rrp",
+        description="Quarter-end ON RRP accepted amount for government-sponsored enterprises.",
+        agg="last",
+        notes="Optional local support series built from the New York Fed reverse-repo propositions API. Used only for the GSE/RRP boundary diagnostic, not the canonical estimator.",
     ),
     LocalSeries(
         key="bank_noninterest_outlay_proxy",
@@ -524,6 +641,18 @@ TREASURY_DATASETS: list[TreasuryDataset] = [
         key="receipts_by_department",
         endpoint="/v1/accounting/od/receipts_by_department",
         description="Receipts by Department annual account-symbol detail",
+        params={"page[size]": "10000", "sort": "-record_date"},
+    ),
+    TreasuryDataset(
+        key="interest_expense",
+        endpoint="/v2/accounting/od/interest_expense",
+        description="Interest Expense on the Public Debt Outstanding",
+        params={"page[size]": "10000", "sort": "-record_date"},
+    ),
+    TreasuryDataset(
+        key="frn_daily_indexes",
+        endpoint="/v1/accounting/od/frn_daily_indexes",
+        description="Floating Rate Notes daily index and accrued interest per $100",
         params={"page[size]": "10000", "sort": "-record_date"},
     ),
 ]

@@ -153,15 +153,15 @@ def build_downstream_deposit_effect_comparison_panel(
         _rows_for_comparison(
             lhs=tier3,
             rhs=tier2,
-            comparison_key="bank_only_tier3_minus_tier2",
-            comparison_family="fiscal_layer",
+            comparison_key="bank_only_tier3_partial_shell_minus_tier2",
+            comparison_family="partial_fiscal_shell",
             lhs_series_key="tdc_tier3_fiscal_corrected_bank_only_ru_flow",
             rhs_series_key="tdc_tier2_interest_corrected_bank_only_ru_flow",
             bank_receipt_boundary=bank_boundary,
             row_receipt_boundary=row_boundary,
             historical_only=False,
             nondefault_only=False,
-            summary_note="Fiscal-layer comparison between Tier 2 and live Tier 3 bank-only.",
+            summary_note="Partial fiscal-shell comparison between Tier 2 and the outlay-backed Tier 3 diagnostic.",
         )
     )
     rows.extend(
@@ -176,7 +176,7 @@ def build_downstream_deposit_effect_comparison_panel(
             row_receipt_boundary=row_boundary,
             historical_only=False,
             nondefault_only=False,
-            summary_note="Perimeter comparison between broad-depository and bank-only Tier 3.",
+            summary_note="Perimeter comparison between broad-depository and bank-only Tier 3 partial-shell diagnostics.",
         )
     )
 
@@ -189,7 +189,7 @@ def build_downstream_deposit_effect_comparison_panel(
             _rows_for_comparison(
                 lhs=hist_candidate,
                 rhs=hist_default,
-                comparison_key="historical_bank_receipt_candidate_minus_default_tier3",
+                comparison_key="historical_bank_receipt_candidate_minus_partial_shell",
                 comparison_family="historical_receipt_overlay",
                 lhs_series_key="tdc_tier3_bank_only_plus_historical_bank_receipt_candidate",
                 rhs_series_key="tdc_tier3_fiscal_corrected_bank_only_ru_flow",
@@ -197,7 +197,7 @@ def build_downstream_deposit_effect_comparison_panel(
                 row_receipt_boundary=row_boundary,
                 historical_only=True,
                 nondefault_only=False,
-                summary_note="Historical bank receipt overlay relative to the default historical Tier 3 bank-only series.",
+                summary_note="Historical bank receipt overlay relative to the historical Tier 3 partial-shell series.",
             )
         )
         rows.extend(
@@ -224,12 +224,12 @@ def build_downstream_deposit_effect_comparison_panel(
                 comparison_key="row_mrv_nondefault_pilot_minus_live_zero",
                 comparison_family="nondefault_row_receipt_pilot",
                 lhs_series_key="row_mrv_primary_nondefault_pilot_series",
-                rhs_series_key="row_live_default_receipt_cell_zero",
+                rhs_series_key="row_live_receipt_missing_placeholder",
                 bank_receipt_boundary=bank_boundary,
                 row_receipt_boundary=row_boundary,
                 historical_only=False,
                 nondefault_only=True,
-                summary_note="Bounded MRV receipt pilot compared against the live zero default ROW receipt cell.",
+                summary_note="Bounded MRV receipt pilot compared against the missing/not-measured live ROW receipt placeholder.",
             )
         )
 

@@ -297,7 +297,7 @@ def export_site_bundle(
         "metadata": metadata_payload,
         "site": {
             "title": "TDCest",
-            "tagline": "Treasury-attributed component of deposits: estimator ladder, receipt boundaries, fiscal shell, and monetary cross-checks.",
+            "tagline": "Treasury Deposit Component: estimator ladder, canonical Tier 2 row, receipt boundaries, fiscal shell, and monetary cross-checks.",
             "thesis": "TDC should either add to deposits one-for-one or offset another deposit component one-for-one; this site compares the transaction ladder, fiscal-flow estimates, and monetary cross-checks to show where that identity is strongest and where the remaining boundaries still sit.",
             "latest_ladder": latest_ladder,
         },

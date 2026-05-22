@@ -60,15 +60,15 @@ def test_downstream_deposit_effect_comparison_panel_builds_live_historical_and_n
 
     keys = set(frame["comparison_key"])
     assert "bank_only_tier2_minus_base" in keys
-    assert "bank_only_tier3_minus_tier2" in keys
-    assert "historical_bank_receipt_candidate_minus_default_tier3" in keys
+    assert "bank_only_tier3_partial_shell_minus_tier2" in keys
+    assert "historical_bank_receipt_candidate_minus_partial_shell" in keys
     assert "row_mrv_nondefault_pilot_minus_live_zero" in keys
 
     tier2_gap = frame.loc[frame["comparison_key"].eq("bank_only_tier2_minus_base")].iloc[-1]
     assert tier2_gap["net_delta_millions"] == -2.0
 
     hist_gap = frame.loc[
-        frame["comparison_key"].eq("historical_bank_receipt_candidate_minus_default_tier3")
+        frame["comparison_key"].eq("historical_bank_receipt_candidate_minus_partial_shell")
     ].iloc[0]
     assert bool(hist_gap["historical_only"]) is True
     assert hist_gap["net_delta_millions"] == 7.0

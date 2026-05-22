@@ -53,7 +53,7 @@ def build_tier3_research_comparison(
 
     rows = [
         {
-            "comparison_key": "latest_live_defaults",
+            "comparison_key": "latest_live_tier2_vs_partial_shell",
             "reference_date": pd.Timestamp(latest_date).date().isoformat(),
             "tier2_bank_only_mil": float(latest.get("tdc_tier2_interest_corrected_bank_only_ru_flow", pd.NA)),
             "tier3_bank_only_mil": float(latest.get("tdc_tier3_fiscal_corrected_bank_only_ru_flow", pd.NA)),
@@ -63,7 +63,7 @@ def build_tier3_research_comparison(
             "row_receipt_boundary": str(row_mrv.get("promotion_boundary", "n/a")),
             "current_row_mrv_pilot_latest_date": pd.to_datetime(row_mrv.get("latest_relevant_date"), errors="coerce"),
             "current_row_mrv_pilot_mil": pd.to_numeric(row_mrv.get("latest_value_millions"), errors="coerce"),
-            "interpretation": "Latest live comparison between Tier 2 and default Tier 3, with current receipt boundaries still binding.",
+            "interpretation": "Latest live comparison between Tier 2 and the Tier 3 partial shell; current receipt cells remain missing/not measured.",
         }
     ]
 
@@ -94,14 +94,14 @@ def build_tier3_research_comparison(
 def render_tier3_research_comparison_markdown(frame: pd.DataFrame) -> str:
     title = "# Tier 3 Research Comparison"
     intro = (
-        "Compact research comparison surface tying together the live Tier 2 / Tier 3 ladder, "
+        "Compact research comparison surface tying together the live Tier 2 headline / Tier 3 partial shell, "
         "the historical bank-receipt window, and the current receipt-side promotion boundaries."
     )
     if frame.empty:
         return "\n".join([title, "", intro, "", "No Tier 3 research comparison rows are available."])
 
     header = [
-        "| Comparison | Reference date | Tier 2 bank-only | Default Tier 3 bank-only | Historical bank variant | Historical lower bound | Bank boundary | ROW boundary | MRV pilot date | MRV pilot (mil) | Interpretation |",
+        "| Comparison | Reference date | Tier 2 bank-only | Tier 3 partial shell | Historical bank variant | Historical lower bound | Bank boundary | ROW boundary | MRV pilot date | MRV pilot (mil) | Interpretation |",
         "| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | ---: | --- |",
     ]
     rows: list[str] = []

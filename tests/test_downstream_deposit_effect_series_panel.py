@@ -60,6 +60,13 @@ def test_downstream_deposit_effect_series_panel_builds_live_historical_and_nonde
     assert "tdc_tier3_bank_only_plus_historical_bank_receipt_candidate" in keys
     assert "row_mrv_primary_nondefault_pilot_series" in keys
 
+    tier2_row = frame.loc[frame["series_key"].eq("tdc_tier2_interest_corrected_bank_only_ru_flow")].iloc[-1]
+    assert tier2_row["default_classification"] == "headline_default"
+
+    tier3_row = frame.loc[frame["series_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[-1]
+    assert tier3_row["use_case_key"] == "tier3_partial_shell_diagnostic"
+    assert tier3_row["default_classification"] == "diagnostic_outlay_only_partial_shell"
+
     historical_row = frame.loc[
         frame["series_key"].eq("tdc_tier3_bank_only_plus_historical_bank_receipt_candidate")
     ].iloc[0]

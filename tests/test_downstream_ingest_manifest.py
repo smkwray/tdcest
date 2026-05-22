@@ -69,7 +69,7 @@ def test_downstream_ingest_manifest_prioritizes_handoff_and_core_contracts() -> 
     )
     comparison_panel = pd.DataFrame(
         [
-            {"date": "2025-12-31", "comparison_key": "bank_only_tier3_minus_tier2"},
+            {"date": "2025-12-31", "comparison_key": "bank_only_tier3_partial_shell_minus_tier2"},
         ]
     )
 

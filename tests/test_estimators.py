@@ -20,8 +20,20 @@ def test_base_estimator_formula_and_credit_union_ladder():
             "treasury_operating_cash_tx": [5.0, -8.0],
             "fed_remit_or_deferred": [2.0, 0.0],
             "fed_tsy_coupon_interest_proxy": [1.5, 2.0],
+            "fed_tier1_component_extension_proxy": [0.15, 0.2],
             "bank_tsy_coupon_interest_proxy": [0.7, 0.9],
             "row_tsy_coupon_interest_proxy": [1.1, 1.3],
+            "credit_union_tsy_coupon_interest_proxy": [0.2, 0.25],
+            "bank_tsy_bill_discount_interest_proxy": [0.05, 0.06],
+            "row_tsy_bill_discount_interest_proxy": [0.07, 0.08],
+            "credit_union_tsy_bill_discount_interest_proxy": [0.01, 0.02],
+            "bank_tier2_component_interest_proxy": [0.8, 1.0],
+            "row_tier2_component_interest_proxy": [1.2, 1.5],
+            "credit_union_tier2_component_interest_proxy": [0.3, 0.35],
+            "mmf_rrp_adjustment_lb": [0.5, 0.7],
+            "mmf_rrp_adjustment_prop": [1.0, 1.4],
+            "mmf_rrp_adjustment_ub": [1.8, 2.1],
+            "mmf_rrp_bills_adjustment_prop": [0.6, 0.8],
             "bank_noninterest_outlay_proxy": [0.4, 0.6],
             "row_noninterest_outlay_proxy": [0.2, 0.3],
             "bank_nonborrow_receipt_proxy": [0.1, 0.2],
@@ -56,21 +68,57 @@ def test_base_estimator_formula_and_credit_union_ladder():
         expected_tier1_broad_np[0] - 0.7 - 1.1,
         expected_tier1_broad_np[1] - 0.9 - 1.3,
     )
+    expected_tier2_di_np_cu = (
+        expected_tier2_broad_np[0] - 0.2,
+        expected_tier2_broad_np[1] - 0.25,
+    )
     expected_tier2_domestic = (
         expected_tier1_domestic[0] - 0.7,
         expected_tier1_domestic[1] - 0.9,
     )
+    expected_tier2_component_bank_only = (
+        expected_tier1_bank_only[0] - 0.8 - 1.2,
+        expected_tier1_bank_only[1] - 1.0 - 1.5,
+    )
+    expected_tier2_component_broad_np = (
+        expected_tier1_broad_np[0] - 0.8 - 1.2,
+        expected_tier1_broad_np[1] - 1.0 - 1.5,
+    )
+    expected_tier2_component_di_np_cu = (
+        expected_tier2_component_broad_np[0] - 0.3,
+        expected_tier2_component_broad_np[1] - 0.35,
+    )
+    expected_tier2_component_domestic = (
+        expected_tier1_domestic[0] - 0.8,
+        expected_tier1_domestic[1] - 1.0,
+    )
+    expected_tier2_component_fed_extension_bank_only = (
+        expected_tier2_component_bank_only[0] - 0.15,
+        expected_tier2_component_bank_only[1] - 0.2,
+    )
+    expected_tier2_component_fed_extension_di_np_cu = (
+        expected_tier2_component_di_np_cu[0] - 0.15,
+        expected_tier2_component_di_np_cu[1] - 0.2,
+    )
+    expected_tier2_interest_robust = (
+        expected_tier2_bank_only[0] - 0.05 - 0.07,
+        expected_tier2_bank_only[1] - 0.06 - 0.08,
+    )
+    expected_tier2_di_interest_robust = (
+        expected_tier2_di_np_cu[0] - 0.05 - 0.07 - 0.01,
+        expected_tier2_di_np_cu[1] - 0.06 - 0.08 - 0.02,
+    )
     expected_tier3_bank_only = (
-        expected_tier2_bank_only[0] - 0.4 - 0.2 + 0.1 + 0.05 + 0.03,
-        expected_tier2_bank_only[1] - 0.6 - 0.3 + 0.2 + 0.08 + 0.04,
+        expected_tier2_component_bank_only[0] - 0.4 - 0.2 + 0.1 + 0.05 + 0.03,
+        expected_tier2_component_bank_only[1] - 0.6 - 0.3 + 0.2 + 0.08 + 0.04,
     )
     expected_tier3_broad_np = (
-        expected_tier2_broad_np[0] - 0.4 - 0.2 + 0.1 + 0.05 + 0.03,
-        expected_tier2_broad_np[1] - 0.6 - 0.3 + 0.2 + 0.08 + 0.04,
+        expected_tier2_component_broad_np[0] - 0.4 - 0.2 + 0.1 + 0.05 + 0.03,
+        expected_tier2_component_broad_np[1] - 0.6 - 0.3 + 0.2 + 0.08 + 0.04,
     )
     expected_tier3_domestic = (
-        expected_tier2_domestic[0] - 0.4 + 0.1 + 0.03,
-        expected_tier2_domestic[1] - 0.6 + 0.2 + 0.04,
+        expected_tier2_component_domestic[0] - 0.4 + 0.1 + 0.03,
+        expected_tier2_component_domestic[1] - 0.6 + 0.2 + 0.04,
     )
 
     assert round(estimates.loc[idx[0], "tdc_base_bank_only_ru_flow"], 6) == round(expected_bank_only[0], 6)
@@ -87,12 +135,41 @@ def test_base_estimator_formula_and_credit_union_ladder():
     assert round(estimates.loc[idx[1], "tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier1_broad_np[1], 6)
     assert round(estimates.loc[idx[0], "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier1_domestic[0], 6)
     assert round(estimates.loc[idx[1], "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier1_domestic[1], 6)
-    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_bank_only_ru_flow"], 6) == round(expected_tier2_bank_only[0], 6)
-    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_bank_only_ru_flow"], 6) == round(expected_tier2_bank_only[1], 6)
-    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_broad_np[0], 6)
-    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_broad_np[1], 6)
-    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_domestic[0], 6)
-    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_domestic[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_component_broad_np[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_component_broad_np[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_h15_treasury_interest_robust_bank_only_ru_flow"], 6) == round(expected_tier2_interest_robust[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_h15_treasury_interest_robust_bank_only_ru_flow"], 6) == round(expected_tier2_interest_robust[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_h15_treasury_interest_robust_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_di_interest_robust[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_h15_treasury_interest_robust_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_di_interest_robust[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_h15_treasury_interest_robust_mmf_rrp_prop_bank_only_ru_flow"], 6) == round(expected_tier2_interest_robust[0] + 1.0, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_h15_treasury_interest_robust_mmf_rrp_prop_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_di_interest_robust[1] + 1.4, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[0] + 1.0, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[1] + 1.4, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_mmf_rrp_prop_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[0] + 1.0, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_mmf_rrp_prop_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[1] + 1.4, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_mmf_rrp_lb_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[0] + 0.5, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_mmf_rrp_ub_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[1] + 2.1, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_mmf_rrp_prop_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[0] + 1.0, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_h15_mmf_rrp_bills_prop_bank_only_ru_flow"], 6) == round(expected_tier2_bank_only[1] + 0.8, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_component_domestic[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_component_domestic[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_component_broad_np[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier2_component_broad_np[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_component_domestic[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_domestic_bank_only_ru_flow"], 6) == round(expected_tier2_component_domestic[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_mmf_rrp_prop_bank_only_ru_flow"], 6) == round(expected_tier2_component_bank_only[0] + 1.0, 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_mmf_rrp_prop_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_di_np_cu[1] + 1.4, 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_fed_extension_bank_only_ru_flow"], 6) == round(expected_tier2_component_fed_extension_bank_only[0], 6)
+    assert round(estimates.loc[idx[1], "tdc_tier2_component_anchored_fed_extension_depository_institution_np_cu_ru_flow"], 6) == round(expected_tier2_component_fed_extension_di_np_cu[1], 6)
+    assert round(estimates.loc[idx[0], "tdc_tier2_component_anchored_fed_extension_mmf_rrp_prop_bank_only_ru_flow"], 6) == round(expected_tier2_component_fed_extension_bank_only[0] + 1.0, 6)
     assert round(estimates.loc[idx[0], "tdc_tier3_fiscal_corrected_bank_only_ru_flow"], 6) == round(expected_tier3_bank_only[0], 6)
     assert round(estimates.loc[idx[1], "tdc_tier3_fiscal_corrected_bank_only_ru_flow"], 6) == round(expected_tier3_bank_only[1], 6)
     assert round(estimates.loc[idx[0], "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow"], 6) == round(expected_tier3_broad_np[0], 6)
@@ -101,22 +178,44 @@ def test_base_estimator_formula_and_credit_union_ladder():
     assert round(estimates.loc[idx[1], "tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow"], 6) == round(expected_tier3_domestic[1], 6)
     assert round(components.loc[idx[0], "fed_tsy_coupon_interest_proxy"], 6) == 1.5
     assert round(components.loc[idx[1], "fed_tsy_coupon_interest_proxy"], 6) == 2.0
+    assert round(components.loc[idx[0], "fed_tier1_component_extension_proxy"], 6) == 0.15
     assert round(components.loc[idx[0], "bank_tsy_coupon_interest_proxy"], 6) == 0.7
     assert round(components.loc[idx[1], "bank_tsy_coupon_interest_proxy"], 6) == 0.9
     assert round(components.loc[idx[0], "row_tsy_coupon_interest_proxy"], 6) == 1.1
     assert round(components.loc[idx[1], "row_tsy_coupon_interest_proxy"], 6) == 1.3
+    assert round(components.loc[idx[0], "credit_union_tsy_coupon_interest_proxy"], 6) == 0.2
+    assert round(components.loc[idx[0], "bank_tsy_bill_discount_interest_proxy"], 6) == 0.05
+    assert round(components.loc[idx[0], "row_tsy_bill_discount_interest_proxy"], 6) == 0.07
+    assert round(components.loc[idx[0], "credit_union_tsy_bill_discount_interest_proxy"], 6) == 0.01
+    assert round(components.loc[idx[0], "bank_tier2_component_interest_proxy"], 6) == 0.8
+    assert round(components.loc[idx[0], "row_tier2_component_interest_proxy"], 6) == 1.2
+    assert round(components.loc[idx[0], "credit_union_tier2_component_interest_proxy"], 6) == 0.3
+    assert round(components.loc[idx[1], "mmf_rrp_adjustment_prop"], 6) == 1.4
     assert round(corrections.loc[idx[0], "tier1_fed_coupon_correction"], 6) == -1.5
     assert round(corrections.loc[idx[1], "tier1_fed_coupon_correction"], 6) == -2.0
-    assert round(corrections.loc[idx[0], "tier2_bank_coupon_correction"], 6) == -0.7
-    assert round(corrections.loc[idx[1], "tier2_bank_coupon_correction"], 6) == -0.9
-    assert round(corrections.loc[idx[0], "tier2_row_coupon_correction"], 6) == -1.1
-    assert round(corrections.loc[idx[1], "tier2_row_coupon_correction"], 6) == -1.3
+    assert round(corrections.loc[idx[0], "tier1_fed_component_extension_correction"], 6) == -0.15
+    assert round(corrections.loc[idx[0], "tier2_bank_h15_coupon_correction"], 6) == -0.7
+    assert round(corrections.loc[idx[1], "tier2_bank_h15_coupon_correction"], 6) == -0.9
+    assert round(corrections.loc[idx[0], "tier2_row_h15_coupon_correction"], 6) == -1.1
+    assert round(corrections.loc[idx[1], "tier2_row_h15_coupon_correction"], 6) == -1.3
+    assert round(corrections.loc[idx[0], "tier2_credit_union_h15_coupon_correction"], 6) == -0.2
+    assert round(corrections.loc[idx[0], "tier2_bank_bill_discount_robustness_correction"], 6) == -0.05
+    assert round(corrections.loc[idx[0], "tier2_row_bill_discount_robustness_correction"], 6) == -0.07
+    assert round(corrections.loc[idx[0], "tier2_credit_union_bill_discount_robustness_correction"], 6) == -0.01
+    assert round(corrections.loc[idx[0], "tier2_bank_component_interest_correction"], 6) == -0.8
+    assert round(corrections.loc[idx[0], "tier2_row_component_interest_correction"], 6) == -1.2
+    assert round(corrections.loc[idx[0], "tier2_credit_union_component_interest_correction"], 6) == -0.3
+    assert round(corrections.loc[idx[1], "tier2_mmf_rrp_prop_adjustment"], 6) == 1.4
     assert round(corrections.loc[idx[0], "tdc_tier1_bank_only_delta_from_base"], 6) == -1.5
     assert round(corrections.loc[idx[1], "tdc_tier1_bank_only_delta_from_base"], 6) == -2.0
-    assert round(corrections.loc[idx[0], "tdc_tier2_bank_only_delta_from_base"], 6) == -3.3
-    assert round(corrections.loc[idx[1], "tdc_tier2_bank_only_delta_from_base"], 6) == -4.2
-    assert round(corrections.loc[idx[0], "tdc_tier2_bank_only_delta_from_tier1"], 6) == -1.8
-    assert round(corrections.loc[idx[1], "tdc_tier2_bank_only_delta_from_tier1"], 6) == -2.2
+    assert round(corrections.loc[idx[0], "tdc_tier2_bank_only_delta_from_base"], 6) == round(
+        expected_tier2_component_bank_only[0] - expected_bank_only[0], 6
+    )
+    assert round(corrections.loc[idx[1], "tdc_tier2_bank_only_delta_from_base"], 6) == round(
+        expected_tier2_component_bank_only[1] - expected_bank_only[1], 6
+    )
+    assert round(corrections.loc[idx[0], "tdc_tier2_bank_only_delta_from_tier1"], 6) == -2.0
+    assert round(corrections.loc[idx[1], "tdc_tier2_bank_only_delta_from_tier1"], 6) == -2.5
     assert round(corrections.loc[idx[0], "tier3_bank_noninterest_outlay_correction"], 6) == -0.4
     assert round(corrections.loc[idx[1], "tier3_bank_noninterest_outlay_correction"], 6) == -0.6
     assert round(corrections.loc[idx[0], "tier3_row_noninterest_outlay_correction"], 6) == -0.2
@@ -127,19 +226,31 @@ def test_base_estimator_formula_and_credit_union_ladder():
     assert round(corrections.loc[idx[1], "tier3_row_nonborrow_receipt_correction"], 6) == 0.08
     assert round(corrections.loc[idx[0], "tier3_mint_cb_cash_factor_correction"], 6) == 0.03
     assert round(corrections.loc[idx[1], "tier3_mint_cb_cash_factor_correction"], 6) == 0.04
-    assert round(corrections.loc[idx[0], "tdc_tier3_bank_only_delta_from_base"], 6) == -3.72
-    assert round(corrections.loc[idx[1], "tdc_tier3_bank_only_delta_from_base"], 6) == -4.78
+    assert round(corrections.loc[idx[0], "tdc_tier3_bank_only_delta_from_base"], 6) == round(
+        expected_tier3_bank_only[0] - expected_bank_only[0], 6
+    )
+    assert round(corrections.loc[idx[1], "tdc_tier3_bank_only_delta_from_base"], 6) == round(
+        expected_tier3_bank_only[1] - expected_bank_only[1], 6
+    )
     assert round(corrections.loc[idx[0], "tdc_tier3_bank_only_delta_from_tier2"], 6) == -0.42
     assert round(corrections.loc[idx[1], "tdc_tier3_bank_only_delta_from_tier2"], 6) == -0.58
     assert round(components.loc[idx[0], "credit_unions_total_tsy_tx_reconstructed"], 6) == 3.9
     assert round(components.loc[idx[1], "credit_unions_total_tsy_tx_reconstructed"], 6) == 5.4
     assert meta["preferred_method"] == "tdc_base_bank_only_ru_flow"
+    assert meta["canonical_tier2_method"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
+    assert meta["preferred_methods_by_deposit_concept"]["canonical_tier2"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
     assert meta["cash_term"]["transaction_series_key"] == "treasury_operating_cash_tx"
     assert meta["cash_term"]["diagnostic_only_series"] == ["tga_weekly"]
     assert "Tax and Loan" in meta["cash_term"]["historical_treatment"]
     assert meta["correction_inputs"]["fed_tsy_coupon_interest_proxy"]["raw_filename"] == "support__fed_tsy_coupon_interest_proxy.csv"
+    assert meta["correction_inputs"]["fed_tier1_component_extension_proxy"]["raw_filename"] == "support__fed_tier1_component_extension_proxy.csv"
     assert meta["correction_inputs"]["bank_tsy_coupon_interest_proxy"]["raw_filename"] == "support__bank_tsy_coupon_interest_proxy.csv"
     assert meta["correction_inputs"]["row_tsy_coupon_interest_proxy"]["raw_filename"] == "support__row_tsy_coupon_interest_proxy.csv"
+    assert meta["correction_inputs"]["credit_union_tsy_coupon_interest_proxy"]["raw_filename"] == "support__credit_union_tsy_coupon_interest_proxy.csv"
+    assert meta["correction_inputs"]["bank_tier2_component_interest_proxy"]["raw_filename"] == "support__bank_tier2_component_interest_proxy.csv"
+    assert meta["correction_inputs"]["row_tier2_component_interest_proxy"]["raw_filename"] == "support__row_tier2_component_interest_proxy.csv"
+    assert meta["correction_inputs"]["credit_union_tier2_component_interest_proxy"]["raw_filename"] == "support__credit_union_tier2_component_interest_proxy.csv"
+    assert meta["correction_inputs"]["mmf_fund_month_rrp_adjustment"]["raw_filename"] == "support__mmf_fund_month.csv"
     assert meta["correction_inputs"]["bank_noninterest_outlay_proxy"]["raw_filename"] == "support__bank_noninterest_outlay_proxy.csv"
     assert meta["correction_inputs"]["row_noninterest_outlay_proxy"]["raw_filename"] == "support__row_noninterest_outlay_proxy.csv"
     assert meta["correction_inputs"]["bank_nonborrow_receipt_proxy"]["raw_filename"] == "support__bank_nonborrow_receipt_proxy.csv"
@@ -244,3 +355,27 @@ def test_historical_extension_backfills_from_level_sensitivity_before_transactio
     assert round(estimates.loc[idx[2], "tdc_bank_only_extended_1990"], 6) == 58.5
     assert meta["historical_backfill"]["historical_extension_starts"] == "1990-03-31"
     assert meta["historical_backfill"]["transaction_history_starts"] == "2002-12-31"
+
+
+def test_transaction_history_starts_2002q1_when_mts_remittance_backfill_is_available():
+    idx = pd.to_datetime(["2002-03-31", "2002-06-30", "2002-12-31"])
+    quarterly = pd.DataFrame(
+        {
+            "fed_tsy_tx": [10.0, 11.0, 12.0],
+            "us_chartered_tsy_tx": [20.0, 21.0, 22.0],
+            "foreign_offices_tsy_tx": [1.0, 1.0, 1.0],
+            "affiliated_areas_tsy_tx": [0.5, 0.5, 0.5],
+            "np_credit_unions_tsy_tx": [3.0, 3.0, 3.0],
+            "corp_credit_unions_tsy_tx": [0.8, 0.8, 0.8],
+            "ncua_capitalization_deposit_tx": [0.1, 0.1, 0.1],
+            "row_tsy_tx": [30.0, 31.0, 32.0],
+            "treasury_operating_cash_tx": [5.0, 5.0, 5.0],
+            "fed_remit_or_deferred": [2.0, 2.0, 2.0],
+        },
+        index=idx,
+    )
+
+    estimates, _, _, meta = compute_estimates(quarterly)
+
+    assert round(estimates.loc[idx[0], "tdc_base_bank_only_ru_flow"], 6) == 58.5
+    assert meta["historical_backfill"]["transaction_history_starts"] == "2002-03-31"

@@ -83,21 +83,26 @@ def build_downstream_deposit_effect_use_case_review(
         {
             "use_case_key": "current_quarter_bank_only_headline",
             "target_question": "Best current-quarter bank-only TDC for downstream deposit-effect analysis.",
-            "primary_artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
-            "primary_role": str(tier3_bank.get("default_classification", "live_default_with_partial_receipt_cells")),
-            "comparison_artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
-            "readiness_status": "usable_with_explicit_receipt_boundary",
-            "primary_latest_reference_date": pd.to_datetime(tier3_bank.get("latest_reference_date"), errors="coerce"),
-            "primary_latest_value_millions": pd.to_numeric(tier3_bank.get("latest_value_millions"), errors="coerce"),
-            "dominant_problem_variable_key": str(gap_live.get("dominant_component_key", "n/a")),
-            "dominant_problem_variable_family": str(gap_live.get("dominant_component_family", "n/a")),
+            "primary_artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
+            "primary_role": str(tier2_bank.get("default_classification", "headline_default")),
+            "comparison_artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
+            "readiness_status": "headline_default_tier3_diagnostic_only",
+            "primary_latest_reference_date": pd.to_datetime(tier2_bank.get("latest_reference_date"), errors="coerce"),
+            "primary_latest_value_millions": pd.to_numeric(tier2_bank.get("latest_value_millions"), errors="coerce"),
+            "dominant_problem_variable_key": str(gap_interest.get("dominant_component_key", "n/a")),
+            "dominant_problem_variable_family": str(gap_interest.get("dominant_component_family", "n/a")),
             "binding_boundary": (
                 f"bank_live_default_receipt_cell={bank_live_cell.get('binding_blocker', 'n/a')}; "
                 f"row_live_default_receipt_cell={row_live_cell.get('binding_blocker', 'n/a')}"
             ),
-            "fallback_artifacts": "tdc_tier2_interest_corrected_bank_only_ru_flow;tdc_fiscal_receipt_boundary_review",
-            "recommended_reading": "Use Tier 3 as the live headline, but read it alongside the fiscal receipt boundary review and Tier 2 comparison.",
-            "summary_note": str(fiscal_goal.get("summary_note", "Live fiscal-flow view still carries receipt-side caveats.")),
+            "fallback_artifacts": "tdc_base_bank_only_ru_flow;tdc_tier3_fiscal_corrected_bank_only_ru_flow;tdc_fiscal_receipt_boundary_review",
+            "recommended_reading": "Use Tier 2 as the corrected headline; read Tier 3 as a partial fiscal-shell diagnostic beside the receipt boundary review.",
+            "summary_note": str(
+                fiscal_goal.get(
+                    "summary_note",
+                    "Tier 3 remains a partial shell because live receipt-side cells are missing/not measured.",
+                )
+            ),
         },
         {
             "use_case_key": "historical_bank_receipt_backtest",
@@ -160,7 +165,7 @@ def build_downstream_deposit_effect_use_case_review(
             "dominant_problem_variable_family": str(gap_interest.get("dominant_component_family", "n/a")),
             "binding_boundary": str(monetary_goal.get("binding_blocker", "stop_at_perimeter_stress_test")),
             "fallback_artifacts": "monetary_bank_target_stress_test;tdc_downstream_estimator_gap_review",
-            "recommended_reading": "Use the depository monetary surface as a cross-check and use the gap review to see that the biggest live cleanup wedge is still coupon-related, not receipt-side.",
+            "recommended_reading": "Use the depository monetary surface as a cross-check and use the gap review to see that the biggest live cleanup wedge is still Treasury-interest related, not receipt-side.",
             "summary_note": str(monetary_goal.get("summary_note", "Monetary branch remains diagnostic-only.")),
         },
     ]

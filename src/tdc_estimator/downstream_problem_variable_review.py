@@ -87,7 +87,7 @@ def build_downstream_problem_variable_review(
     rows = [
         {
             "variable_key": "tier2_row_coupon_correction",
-            "variable_family": "coupon",
+            "variable_family": "interest_cleanup",
             "current_repo_role": "live_default_component",
             "included_in_live_headline": True,
             "latest_reference_date": row_coupon.get("last_date"),
@@ -96,12 +96,12 @@ def build_downstream_problem_variable_review(
             "dominant_in_gap_keys": _gap_keys_text(_get_gap_rows(gap, "tier2_row_coupon_correction")),
             "binding_boundary": "proxy_scale_and_sector_allocation",
             "downstream_relevance": "largest live cleanup wedge between the base headline and Tier 2/Tier 3 bank-only views",
-            "interpretation_risk": "A large proxy-driven coupon term means downstream users should not treat Tier 0 to corrected-ladder differences as receipt-side effects.",
+            "interpretation_risk": "A large component-anchored Treasury interest cleanup term means downstream users should not treat Tier 0 to corrected-ladder differences as receipt-side effects.",
             "summary_note": str(row_coupon.get("notes", "")),
         },
         {
             "variable_key": "tier1_fed_coupon_correction",
-            "variable_family": "coupon",
+            "variable_family": "interest_cleanup",
             "current_repo_role": "live_default_component",
             "included_in_live_headline": True,
             "latest_reference_date": fed_coupon.get("last_date"),
@@ -110,42 +110,42 @@ def build_downstream_problem_variable_review(
             "dominant_in_gap_keys": _gap_keys_text(_get_gap_rows(gap, "tier1_fed_coupon_correction")),
             "binding_boundary": "measured_coupon_cleanup_not_a_receipt_boundary",
             "downstream_relevance": "secondary but still material component in the base-to-Tier-2 cleanup wedge",
-            "interpretation_risk": "Users comparing raw vs corrected TDC need to separate Fed coupon cleanup from bank or ROW receipt debates.",
+            "interpretation_risk": "Users comparing raw vs corrected TDC need to separate Fed coupon cleanup and non-Fed component interest cleanup from bank or ROW receipt debates.",
             "summary_note": str(fed_coupon.get("notes", "")),
         },
         {
             "variable_key": "tier3_row_noninterest_outlay_correction",
             "variable_family": "fiscal",
-            "current_repo_role": "live_default_component",
-            "included_in_live_headline": True,
+            "current_repo_role": "partial_shell_diagnostic_component",
+            "included_in_live_headline": False,
             "latest_reference_date": row_outlay.get("last_date"),
             "latest_value_millions": _latest_value(row_outlay.get("latest_value_millions")),
             "evidence_grade": str(row_outlay.get("reliability_grade", "n/a")),
             "dominant_in_gap_keys": _gap_keys_text(_get_gap_rows(gap, "tier3_row_noninterest_outlay_correction")),
             "binding_boundary": "narrow_row_outlay_profile",
-            "downstream_relevance": "dominant live Tier-2-to-Tier-3 fiscal-flow wedge",
-            "interpretation_risk": "Current-quarter Tier 3 changes versus Tier 2 are being driven more by ROW outlay treatment than by nonzero receipt corrections.",
+            "downstream_relevance": "dominant Tier-2-to-partial-shell fiscal-flow wedge",
+            "interpretation_risk": "Current-quarter Tier 3 partial-shell changes versus Tier 2 are being driven more by ROW outlay treatment than by nonzero receipt corrections.",
             "summary_note": str(row_outlay.get("notes", "")),
         },
         {
             "variable_key": "tier3_bank_noninterest_outlay_correction",
             "variable_family": "fiscal",
-            "current_repo_role": "live_default_component",
-            "included_in_live_headline": True,
+            "current_repo_role": "partial_shell_diagnostic_component",
+            "included_in_live_headline": False,
             "latest_reference_date": bank_outlay.get("last_date"),
             "latest_value_millions": _latest_value(bank_outlay.get("latest_value_millions")),
             "evidence_grade": str(bank_outlay.get("reliability_grade", "n/a")),
             "dominant_in_gap_keys": _gap_keys_text(_get_gap_rows(gap, "tier3_bank_noninterest_outlay_correction")),
             "binding_boundary": "narrow_bank_outlay_profile",
-            "downstream_relevance": "secondary live Tier-2-to-Tier-3 fiscal-flow wedge",
+            "downstream_relevance": "secondary Tier-2-to-partial-shell fiscal-flow wedge",
             "interpretation_risk": "Bank fiscal outlay cleanup matters, but it is smaller than the live ROW outlay wedge in the current build.",
             "summary_note": str(bank_outlay.get("notes", "")),
         },
         {
             "variable_key": "bank_live_default_receipt_cell",
             "variable_family": "receipt_boundary",
-            "current_repo_role": str(bank_live_receipt.get("current_repo_role", "default_zero_cell")),
-            "included_in_live_headline": bool(bank_live_receipt.get("included_in_live_tier3_headline", False)),
+            "current_repo_role": "missing_not_measured_cell",
+            "included_in_live_headline": False,
             "latest_reference_date": bank_live_receipt.get("latest_reference_date"),
             "latest_value_millions": _latest_value(bank_live_receipt.get("latest_value_millions")),
             "evidence_grade": "low",
@@ -158,8 +158,8 @@ def build_downstream_problem_variable_review(
         {
             "variable_key": "row_live_default_receipt_cell",
             "variable_family": "receipt_boundary",
-            "current_repo_role": str(row_live_receipt.get("current_repo_role", "default_zero_cell")),
-            "included_in_live_headline": bool(row_live_receipt.get("included_in_live_tier3_headline", False)),
+            "current_repo_role": "missing_not_measured_cell",
+            "included_in_live_headline": False,
             "latest_reference_date": row_live_receipt.get("latest_reference_date"),
             "latest_value_millions": _latest_value(row_live_receipt.get("latest_value_millions")),
             "evidence_grade": "low",
@@ -225,7 +225,7 @@ def render_downstream_problem_variable_review_markdown(frame: pd.DataFrame) -> s
     title = "# Downstream Problem-Variable Review"
     intro = (
         "Ranked backend review of the variables and boundary cells most likely to matter for downstream interpretation. "
-        "It separates large measured cleanup terms from blocked receipt cells and perimeter-only comparison terms."
+        "It separates headline cleanup terms from Tier 3 partial-shell diagnostics, blocked receipt cells, and perimeter-only comparison terms."
     )
     if frame.empty:
         return "\n".join([title, "", intro, "", "No downstream problem-variable rows are available."])
@@ -235,7 +235,7 @@ def render_downstream_problem_variable_review_markdown(frame: pd.DataFrame) -> s
         "",
         intro,
         "",
-        "| Variable | Family | Role | Live headline | Latest date | Latest value (mil) | Evidence grade | Gap keys | Boundary |",
+        "| Variable | Family | Role | Headline/default | Latest date | Latest value (mil) | Evidence grade | Gap keys | Boundary |",
         "| --- | --- | --- | --- | --- | ---: | --- | --- | --- |",
     ]
     for _, row in frame.iterrows():

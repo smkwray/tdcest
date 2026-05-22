@@ -126,7 +126,8 @@ def test_fiscal_receipt_boundary_review_maps_live_historical_and_pilot_receipt_r
     assert "row_bea_receipt_benchmark" in keys
 
     bank_live = frame.loc[frame["boundary_key"].eq("bank_live_default_receipt_cell")].iloc[0]
-    assert bool(bank_live["included_in_live_tier3_headline"]) is True
+    assert bool(bank_live["included_in_live_tier3_headline"]) is False
+    assert bank_live["current_repo_role"] == "missing_not_measured_cell"
     assert bank_live["binding_blocker"] == "stale_share_rule"
 
     bank_hist = frame.loc[frame["boundary_key"].eq("bank_receipt_historical_overlay_candidate")].iloc[0]

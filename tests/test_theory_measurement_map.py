@@ -15,4 +15,4 @@ def test_theory_measurement_map_contains_theoretical_and_implemented_rows() -> N
     assert "TOC" in treasury_cash["latex"]
 
     tier3 = frame.loc[frame["equation_key"].eq("implemented_tier3_fiscal_correction")].iloc[0]
-    assert tier3["implementation_status"] == "implemented_live_bounded"
+    assert tier3["implementation_status"] == "diagnostic_partial_shell"

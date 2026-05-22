@@ -10,6 +10,7 @@ from tdc_estimator.du_fiscal_flow_research import build_du_fiscal_flow_research
 def test_build_du_fiscal_flow_research_computes_first_pass_terms(tmp_path: Path):
     quarterly = pd.DataFrame(
         {
+            "all_sectors_tsy_tx": [90.0, 100.0],
             "domestic_nonfinancial_tsy_tx": [-10.0, -20.0],
             "domestic_financial_tsy_tx": [50.0, 60.0],
         },
@@ -18,6 +19,7 @@ def test_build_du_fiscal_flow_research_computes_first_pass_terms(tmp_path: Path)
     components = pd.DataFrame(
         {
             "fed_tsy_tx": [5.0, 6.0],
+            "row_tsy_tx": [9.0, 10.0],
             "bank_depository_tsy_tx": [7.0, 8.0],
             "credit_unions_total_tsy_tx_reconstructed": [3.0, 4.0],
             "fed_tsy_coupon_interest_proxy": [1.0, 1.0],
@@ -78,16 +80,31 @@ def test_build_du_fiscal_flow_research_computes_first_pass_terms(tmp_path: Path)
     )
 
     latest = frame.loc[pd.Timestamp("2025-06-30")]
+    assert latest["du_residual_tsy_purchase_proxy"] == 100.0 - 6.0 - 10.0 - 8.0 - 4.0
+    assert latest["du_residual_tsy_purchase_bank_only_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0
+    assert latest["du_residual_tsy_purchase_np_cu_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0
+    assert latest["du_residual_tsy_purchase_np_corp_cu_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0
+    assert latest["du_residual_tsy_purchase_full_cu_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0 - 4.0
+    assert latest["du_residual_security_flow_proxy"] == -(100.0 - 6.0 - 10.0 - 8.0 - 4.0)
     assert latest["du_domestic_nonfinancial_security_flow_proxy"] == 20.0
     assert latest["du_other_domestic_financial_nonru_security_flow_proxy"] == -(60.0 - 6.0 - 8.0 - 4.0)
     assert latest["du_noninterest_outlay_proxy"] == 360.0 - 36.0 - 4.0 - 5.0
     assert latest["du_receipt_proxy"] == 270.0 - 12.0 - 6.0 - 7.0
     assert latest["du_coupon_proxy_residual"] == 36.0 - 1.0 - 2.0 - 3.0
-    assert latest["du_coupon_proxy_direct_narrow"] == latest["du_coupon_proxy_residual"]
-    assert latest["du_coupon_proxy_direct_broad"] == latest["du_coupon_proxy_residual"]
-    assert latest["tdc_du_fiscal_flow_first_pass_narrow"] == 20.0 + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) - (36.0 - 1.0 - 2.0 - 3.0)
+    assert pd.isna(latest["du_coupon_proxy_direct_narrow"])
+    assert pd.isna(latest["du_coupon_proxy_direct_broad"])
+    assert latest["du_coupon_proxy_primary"] == latest["du_coupon_proxy_residual"]
+    assert latest["du_coupon_proxy_selected_narrow"] == latest["du_coupon_proxy_residual"]
+    assert latest["tdc_du_fiscal_flow_first_pass_narrow"] == -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
     assert latest["tdc_du_fiscal_flow_first_pass_broad"] == (
-        (20.0 - (60.0 - 6.0 - 8.0 - 4.0)) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) - (36.0 - 1.0 - 2.0 - 3.0)
+        -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
+    )
+    assert latest["tdc_du_residual_proxy_bank_only_ru"] == (
+        -(100.0 - 6.0 - 10.0 - 8.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
+    )
+    assert latest["tdc_du_residual_proxy_full_cu_ru"] == latest["tdc_du_fiscal_flow_first_pass_narrow"]
+    assert latest["tdc_du_selected_domestic_nonfinancial_proxy"] == (
+        20.0 + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) - (36.0 - 1.0 - 2.0 - 3.0)
     )
 
 
@@ -95,6 +112,7 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_sector_sums(tmp_
     index = pd.to_datetime(["2025-03-31", "2025-06-30"])
     quarterly = pd.DataFrame(
         {
+            "all_sectors_tsy_tx": [90.0, 100.0],
             "domestic_nonfinancial_tsy_tx": [-10.0, -20.0],
             "domestic_financial_tsy_tx": [50.0, 60.0],
         },
@@ -103,6 +121,7 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_sector_sums(tmp_
     components = pd.DataFrame(
         {
             "fed_tsy_tx": [5.0, 6.0],
+            "row_tsy_tx": [9.0, 10.0],
             "bank_depository_tsy_tx": [7.0, 8.0],
             "credit_unions_total_tsy_tx_reconstructed": [3.0, 4.0],
             "fed_tsy_coupon_interest_proxy": [1.0, 1.0],
@@ -215,6 +234,10 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_sector_sums(tmp_
     )
 
     latest = frame.loc[pd.Timestamp("2025-06-30")]
+    assert latest["du_residual_tsy_purchase_proxy"] == 100.0 - 6.0 - 10.0 - 8.0 - 4.0
+    assert latest["du_residual_tsy_purchase_bank_only_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0
+    assert latest["du_residual_tsy_purchase_full_cu_ru_proxy"] == 100.0 - 6.0 - 10.0 - 8.0 - 4.0
+    assert latest["du_residual_security_flow_proxy"] == -(100.0 - 6.0 - 10.0 - 8.0 - 4.0)
     assert latest["du_domestic_nonfinancial_security_flow_proxy"] == -(31.0 + 32.0 + 33.0)
     assert latest["du_other_domestic_financial_nonru_security_flow_proxy"] == -(41.0 + 42.0)
     assert latest["du_broad_private_security_flow_proxy"] == -(31.0 + 32.0 + 33.0 + 41.0 + 42.0)
@@ -224,6 +247,7 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_coupon_proxies(t
     index = pd.to_datetime(["2025-03-31", "2025-06-30"])
     quarterly = pd.DataFrame(
         {
+            "all_sectors_tsy_tx": [90.0, 100.0],
             "domestic_nonfinancial_tsy_tx": [-10.0, -20.0],
             "domestic_financial_tsy_tx": [50.0, 60.0],
         },
@@ -232,6 +256,7 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_coupon_proxies(t
     components = pd.DataFrame(
         {
             "fed_tsy_tx": [5.0, 6.0],
+            "row_tsy_tx": [9.0, 10.0],
             "bank_depository_tsy_tx": [7.0, 8.0],
             "credit_unions_total_tsy_tx_reconstructed": [3.0, 4.0],
             "fed_tsy_coupon_interest_proxy": [1.0, 1.0],
@@ -368,7 +393,9 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_coupon_proxies(t
     assert round(float(latest["du_coupon_proxy_residual"]), 6) == round(36.0 - 1.0 - 2.0 - 3.0, 6)
     assert round(float(latest["du_coupon_proxy_direct_narrow"]), 6) == round(expected_narrow_coupon, 6)
     assert round(float(latest["du_coupon_proxy_direct_broad"]), 6) == round(expected_broad_coupon, 6)
+    assert round(float(latest["du_coupon_proxy_primary"]), 6) == round(36.0 - 1.0 - 2.0 - 3.0, 6)
+    assert round(float(latest["du_coupon_proxy_selected_narrow"]), 6) == round(expected_narrow_coupon, 6)
     assert round(float(latest["tdc_du_fiscal_flow_first_pass_narrow"]), 6) == round(
-        20.0 + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) - expected_narrow_coupon,
+        -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0),
         6,
     )

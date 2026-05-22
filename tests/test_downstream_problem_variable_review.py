@@ -126,8 +126,12 @@ def test_downstream_problem_variable_review_maps_live_terms_and_boundary_cells()
     assert "latest_live_base_to_tier2_bank_only" in row_coupon["dominant_in_gap_keys"]
 
     bank_live = frame.loc[frame["variable_key"].eq("bank_live_default_receipt_cell")].iloc[0]
-    assert bool(bank_live["included_in_live_headline"]) is True
+    assert bool(bank_live["included_in_live_headline"]) is False
     assert bank_live["binding_boundary"] == "stale_share_rule"
+
+    row_outlay = frame.loc[frame["variable_key"].eq("tier3_row_noninterest_outlay_correction")].iloc[0]
+    assert row_outlay["current_repo_role"] == "partial_shell_diagnostic_component"
+    assert bool(row_outlay["included_in_live_headline"]) is False
 
     perimeter = frame.loc[frame["variable_key"].eq("np_credit_unions_tsy_tx")].iloc[0]
     assert perimeter["latest_reference_date"].date().isoformat() == "2025-12-31"

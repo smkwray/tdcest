@@ -2,9 +2,9 @@
 
 ## Concept
 
-This repo is built around a practical empirical estimate of the **treasury-attributed component of deposits (TDC)**.
+This repo is built around a practical empirical estimate of the **Treasury Deposit Component (TDC)**.
 
-The default headline is a **marketable-Treasury, transaction-based, bank-only** estimate:
+The Tier 0 starting point is a **marketable-Treasury, transaction-based, bank-only** estimate:
 
 ```math
 \widehat{\Delta D}^{mkt,bank}_{TDC,t}
@@ -154,7 +154,7 @@ The research-only cash-anchored variant rescales those non-Fed sector weights to
 \frac{\widetilde I^{TS}_{s,t}}{\sum_{j \neq F}\widetilde I^{TS}_{j,t}}
 ```
 
-The live Tier 2 support files currently publish the raw quarter-end weight approximation $\widetilde I^{TS}_{s,t}$. The cash-anchored variant is retained only as a nondefault diagnostic path.
+The promoted Tier 2 support files use component-anchored bank, ROW, and credit-union Treasury interest allocations when those files are present. The raw quarter-end WAMEST/H.15 approximation $\widetilde I^{TS}_{s,t}$ is retained as an explicit H15 sensitivity path, and the old all-in cash-anchored variant remains diagnostic rather than default.
 
 For day-to-day work, the Tier 2 builder can resolve those inputs directly from a `wamest` checkout via `--wamest-root`, using the repo's conventional full-history artifact locations.
 
@@ -190,12 +190,20 @@ A later extension can add nonmarketables using:
 
 ## Remittance treatment
 
-The H.4.1 remittance series is a weekly level series with two regimes:
+The preferred remittance input is the Monthly Treasury Statement Table 4 net receipt line for Federal Reserve earnings deposits, quarter-summed from monthly cash receipts:
+
+```math
+Remit^{+}_{Fed,t} = \sum_{m \in t} MTSFedReceipts_m
+```
+
+This is the Treasury cash-flow concept used when `data/raw/support__fed_remit_mts.csv` is present.
+
+The H.4.1 remittance series remains a fallback/comparison series. It is a weekly level series with two regimes:
 
 - positive values = estimated remittances due to Treasury
 - negative values = cumulative deferred asset position
 
-For TDC estimation, the repo applies:
+For fallback TDC estimation, the repo applies:
 
 ```math
 Remit^{+}_{Fed,t} = \sum_{w \in t} \max(0, H41_w)
@@ -203,13 +211,14 @@ Remit^{+}_{Fed,t} = \sum_{w \in t} \max(0, H41_w)
 
 ## Recommended research workflow
 
-1. Use the bank-only base RU-flow method as the starting headline series.
-2. Report the broad-depository natural-person credit-union variant alongside it.
-3. Add Tier 1 and Tier 2 coupon-interest corrections once the local support proxies are available and reviewed.
-4. Show corporate-credit-union and aggregate-CU treatments only as sensitivity checks.
-5. Show no-remit and domestic-only variants as secondary sensitivities.
-6. Show level-based and decomposition proxies only as supplemental comparisons.
-7. Add Treasury support datasets for diagnostics and the future nonmarketable extension.
+1. Use `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` as the current canonical Tier 2 measurement row when the component support files are present.
+2. Use `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow` as the preferred long-history regression row, with method-tier and sample-split caveats.
+3. Report the matched-perimeter depository-institution regression companion when a downstream comparison needs credit-union consistency.
+4. Keep the bank-only base RU-flow and broad-depository base rows visible as ladder inputs, not as the final corrected measure.
+5. Keep corporate-credit-union, aggregate-CU, no-remit, domestic-only, level-change, and decomposition rows as sensitivity or diagnostic checks.
+6. Treat Tier 3 fiscal rows as partial-shell diagnostics until current bank and ROW receipt cells clear the documented gates.
+
+The canonical Tier 2 policy target is `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow`: the depository-institution row with coupon corrections, holder-specific bill-discount corrections, and the preferred proportional MMF/RRP source-of-funds adjustment. The GSE/RRP diagnostic checks the same Fed-liability-to-Treasury-security boundary for government-sponsored enterprises, but it is not a canonical estimator input. It is reported separately as `tdc_gse_rrp_boundary_check.csv` / `.md` because GSE Treasury absorption cannot be treated as a bank-deposit-scope correction without a stronger funding-source claim.
 
 ## Monetary cross-check stance
 

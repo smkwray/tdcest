@@ -22,9 +22,42 @@ def test_build_parser_exposes_expected_commands():
         "build",
         "demo",
         "fed-coupon-proxy",
+        "fed-interest-components",
         "tier2-coupon-proxies",
         "tier3-support-files",
         "tier3-source-input",
+        "mmf-rrp-support",
+        "sec-nmfp-mmf-support",
+        "fed-remit-mts-support",
+        "mts-previous-issues-manifest",
+        "mts-table4-target-history",
+        "mts-table4-target-receipts",
+        "mts-table5-target-history",
+        "mts-table5-target-outlays",
+        "mts-stitched-target-receipts",
+        "mts-stitched-target-outlays",
+        "mts-previous-issue-coverage",
+        "mts-target-overlap-audit",
+        "gse-on-rrp-support",
+        "bill-discount-validation",
+        "treasury-interest-components",
+        "bill-discount-allocation",
+        "tier2-interest-component-candidate",
+        "tier2-interest-source-constraints",
+        "ffiec-interest-constraints",
+        "ncua-interest-constraints",
+        "tier2-interest-source-window-validation",
+        "tier2-interest-default-switch-review",
+        "tier2-tips-treatment-decision",
+        "tier2-component-support-export",
+        "tier2-component-anchor-comparison",
+        "fed-component-extension-export",
+        "tier2-component-default-decision",
+        "tier2-component-delta-attribution",
+        "tier2-cu-split-sensitivity",
+        "tier2-live-delta-acceptance",
+        "tier2-regression-backcast",
+        "tier2-regression-series",
     }
 
 
@@ -278,17 +311,33 @@ def test_cmd_fed_coupon_proxy_can_resolve_from_wamest_root(monkeypatch, tmp_path
     monkeypatch.setattr(cli, "project_paths", lambda root: _namespace(root=Path(root), raw=tmp_path / "raw", processed=tmp_path / "processed", figures=tmp_path / "figures", site=tmp_path / "site"))
     monkeypatch.setattr(cli, "ensure_project_dirs", lambda paths: calls.setdefault("ensure_project_dirs", paths))
     monkeypatch.setattr(cli, "resolve_wamest_soma_path", lambda wamest_root, soma_file=None: Path("resolved_soma_holdings.csv"))
+    monkeypatch.setattr(
+        cli,
+        "resolve_wamest_artifact_paths",
+        lambda wamest_root, prefer_normalized_sector_panel=False: (
+            Path("resolved_sector_maturity.csv"),
+            Path("resolved_sector_panel.csv"),
+            Path("resolved_curves.csv"),
+        ),
+    )
 
-    def fake_write_quarterly_fed_coupon_interest_proxy_from_soma_csvs(soma_file, out_path):
-        calls["fed_coupon"] = {"soma_file": soma_file, "out_path": Path(out_path)}
-        return Path(out_path)
+    def fake_write_quarterly_fed_coupon_interest_proxy_with_wamest_backcast(**kwargs):
+        calls["fed_coupon"] = kwargs
+        return Path(kwargs["out_path"])
 
-    monkeypatch.setattr(cli, "write_quarterly_fed_coupon_interest_proxy_from_soma_csvs", fake_write_quarterly_fed_coupon_interest_proxy_from_soma_csvs)
+    monkeypatch.setattr(
+        cli,
+        "write_quarterly_fed_coupon_interest_proxy_with_wamest_backcast",
+        fake_write_quarterly_fed_coupon_interest_proxy_with_wamest_backcast,
+    )
 
     exit_code = cli.cmd_fed_coupon_proxy(_namespace(root=tmp_path, soma_file=None, wamest_root="../wamest", out=None))
 
     assert exit_code == 0
-    assert calls["fed_coupon"]["soma_file"] == ["resolved_soma_holdings.csv"]
+    assert calls["fed_coupon"]["soma_paths"] == ["resolved_soma_holdings.csv"]
+    assert calls["fed_coupon"]["sector_maturity_path"] == Path("resolved_sector_maturity.csv")
+    assert calls["fed_coupon"]["sector_panel_path"] == Path("resolved_sector_panel.csv")
+    assert calls["fed_coupon"]["curve_path"] == Path("resolved_curves.csv")
     assert calls["fed_coupon"]["out_path"] == tmp_path / "raw" / "support__fed_tsy_coupon_interest_proxy.csv"
 
 
@@ -344,7 +393,7 @@ def test_cmd_tier2_coupon_proxies_can_resolve_from_wamest_root(monkeypatch, tmp_
     monkeypatch.setattr(
         cli,
         "resolve_wamest_artifact_paths",
-        lambda wamest_root, sector_maturity_file, sector_panel_file, curve_file: (
+        lambda wamest_root, sector_maturity_file, sector_panel_file, curve_file, **kwargs: (
             Path("resolved_sector_effective_maturity.csv"),
             Path("resolved_sector_panel.csv"),
             Path("resolved_h15.csv"),

@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from .bank_corp_tax_receipts_bridge import write_bank_corp_tax_receipts_bridge
+from .bill_discount_validation import write_bill_discount_validation
 from .bank_receipt_historical_promotion import write_bank_receipt_historical_promotion
 from .bank_minor_industry_share_availability import write_bank_minor_industry_share_availability
 from .bank_receipt_default_readiness import write_bank_receipt_default_readiness
@@ -23,7 +24,9 @@ from .fiscal_reconciliation import write_fiscal_reconciliation_outputs
 from .fiscal_receipt_boundary_review import write_fiscal_receipt_boundary_review
 from .input_audit import write_input_audit
 from .headline_validation_review import write_headline_validation_review
+from .gse_rrp_boundary import write_gse_rrp_boundary_check
 from .io import build_quarterly_frame
+from .mmf_rrp import write_mmf_rrp_adjustment_outputs, write_mmf_rrp_source_comparison
 from .monetary_stage0 import write_monetary_stage0_diagnostics
 from .monetary_control_overlap_audit import write_monetary_control_overlap_audit
 from .monetary_residual_interpretation import write_monetary_residual_interpretation
@@ -90,10 +93,85 @@ def run_estimation_pipeline(
 ) -> dict[str, Any]:
     specs = all_fred_series(include_optional=True)
     quarterly, series_meta = build_quarterly_frame(raw_dir, specs)
-    estimates, components, corrections, method_meta = compute_estimates(quarterly)
-
     processed_dir = Path(processed_dir)
     processed_dir.mkdir(parents=True, exist_ok=True)
+
+    if "fed_remit_mts" in quarterly.columns:
+        quarterly["fed_remit_or_deferred"] = quarterly["fed_remit_mts"]
+        meta = dict(series_meta.get("fed_remit_mts", {}))
+        meta["description"] = "Federal Reserve remittances from MTS Table 4 net receipts."
+        meta["notes"] = (
+            "Preferred Treasury cash-flow concept. Overrides H.4.1/FRED RESPPLLOPNWW, "
+            "which is a weekly remittances-due/deferred-asset balance-sheet stock."
+        )
+        meta["source_kind"] = "local_support_preferred_over_fred"
+        series_meta["fed_remit_or_deferred"] = meta
+
+    mmf_rrp_monthly_path = processed_dir / "tdc_mmf_rrp_fund_month_adjustments.csv"
+    mmf_rrp_quarterly_path = processed_dir / "tdc_mmf_rrp_quarterly_adjustments.csv"
+    mmf_rrp_markdown_path = processed_dir / "tdc_mmf_rrp_adjustment.md"
+    mmf_rrp_audit_path = processed_dir / "tdc_mmf_rrp_scale_audit.csv"
+    mmf_rrp_audit_markdown_path = processed_dir / "tdc_mmf_rrp_scale_audit.md"
+    mmf_rrp_source_comparison_path = processed_dir / "tdc_mmf_rrp_source_comparison.csv"
+    mmf_rrp_source_comparison_markdown_path = processed_dir / "tdc_mmf_rrp_source_comparison.md"
+    gse_rrp_boundary_path = processed_dir / "tdc_gse_rrp_boundary_check.csv"
+    gse_rrp_boundary_markdown_path = processed_dir / "tdc_gse_rrp_boundary_check.md"
+    bill_discount_validation_path = processed_dir / "bill_discount_validation.csv"
+    bill_discount_validation_markdown_path = processed_dir / "bill_discount_validation.md"
+    mmf_rrp_raw_path = Path(raw_dir) / "support__mmf_fund_month.csv"
+    mmf_rrp_fallback_raw_path = Path(raw_dir) / "support__mmf_fund_month_ofr_aggregate.csv"
+    mmf_rrp_quarterly = None
+    mmf_rrp_source_comparison = None
+    if mmf_rrp_raw_path.exists():
+        _, mmf_rrp_quarterly = write_mmf_rrp_adjustment_outputs(
+            raw_path=mmf_rrp_raw_path,
+            monthly_csv_path=mmf_rrp_monthly_path,
+            quarterly_csv_path=mmf_rrp_quarterly_path,
+            markdown_path=mmf_rrp_markdown_path,
+            audit_csv_path=mmf_rrp_audit_path,
+            audit_markdown_path=mmf_rrp_audit_markdown_path,
+            z1_mmf_treasury_level=quarterly.get("mmf_tsy_level"),
+            z1_mmf_treasury_bills_level=quarterly.get("mmf_tsy_bills_level"),
+        )
+        for column in mmf_rrp_quarterly.columns:
+            quarterly[column] = mmf_rrp_quarterly[column]
+            series_meta[column] = {
+                "series_id": None,
+                "description": f"MMF/RRP source-of-funds adjustment component: {column}",
+                "agg": "sum",
+                "transform": None,
+                "required": False,
+                "source_kind": "local_support_derived",
+                "notes": "Derived from data/raw/support__mmf_fund_month.csv by the MMF/RRP fund-month source-of-funds adjustment builder.",
+                "raw_filename": mmf_rrp_raw_path.name,
+                "raw_relative_path": str(Path("data/raw") / mmf_rrp_raw_path.name),
+            }
+        if mmf_rrp_fallback_raw_path.exists():
+            mmf_rrp_source_comparison = write_mmf_rrp_source_comparison(
+                preferred_raw_path=mmf_rrp_raw_path,
+                fallback_raw_path=mmf_rrp_fallback_raw_path,
+                csv_path=mmf_rrp_source_comparison_path,
+                markdown_path=mmf_rrp_source_comparison_markdown_path,
+            )
+
+    estimates, components, corrections, method_meta = compute_estimates(quarterly)
+    gse_rrp_boundary_check = write_gse_rrp_boundary_check(
+        quarterly=quarterly,
+        csv_path=gse_rrp_boundary_path,
+        markdown_path=gse_rrp_boundary_markdown_path,
+    )
+    bill_discount_validation = None
+    treasury_interest_path = Path(raw_dir) / "treasury__interest_expense.csv"
+    if treasury_interest_path.exists():
+        _, _ = write_bill_discount_validation(
+            treasury_interest_path=treasury_interest_path,
+            bank_proxy_path=Path(raw_dir) / "support__bank_tsy_bill_discount_interest_proxy.csv",
+            row_proxy_path=Path(raw_dir) / "support__row_tsy_bill_discount_interest_proxy.csv",
+            credit_union_proxy_path=Path(raw_dir) / "support__credit_union_tsy_bill_discount_interest_proxy.csv",
+            out_csv_path=bill_discount_validation_path,
+            out_markdown_path=bill_discount_validation_markdown_path,
+        )
+        bill_discount_validation = pd.read_csv(bill_discount_validation_path)
 
     quarterly_path = processed_dir / "quarterly_inputs.csv"
     estimates_path = processed_dir / "tdc_estimates.csv"
@@ -270,10 +348,24 @@ def run_estimation_pipeline(
         csv_path=du_fiscal_flow_research_path,
         markdown_path=du_fiscal_flow_research_markdown_path,
     )
-    for column in ["tdc_du_fiscal_flow_first_pass_narrow", "tdc_du_fiscal_flow_first_pass_broad"]:
+    for column in [
+        "tdc_du_fiscal_flow_first_pass_narrow",
+        "tdc_du_fiscal_flow_first_pass_broad",
+        "tdc_du_selected_domestic_nonfinancial_proxy",
+        "tdc_du_residual_proxy_bank_only_ru",
+        "tdc_du_residual_proxy_np_cu_ru",
+        "tdc_du_residual_proxy_np_corp_cu_ru",
+        "tdc_du_residual_proxy_full_cu_ru",
+    ]:
         if column in du_fiscal_flow_research.columns:
             estimates[column] = du_fiscal_flow_research[column]
     for column in [
+        "du_residual_tsy_purchase_proxy",
+        "du_residual_tsy_purchase_bank_only_ru_proxy",
+        "du_residual_tsy_purchase_np_cu_ru_proxy",
+        "du_residual_tsy_purchase_np_corp_cu_ru_proxy",
+        "du_residual_tsy_purchase_full_cu_ru_proxy",
+        "du_residual_security_flow_proxy",
         "du_domestic_nonfinancial_security_flow_proxy",
         "du_broad_private_security_flow_proxy",
         "du_noninterest_outlay_proxy",
@@ -281,6 +373,8 @@ def run_estimation_pipeline(
         "du_coupon_proxy_direct_narrow",
         "du_coupon_proxy_direct_broad",
         "du_coupon_proxy_residual",
+        "du_coupon_proxy_primary",
+        "du_coupon_proxy_selected_narrow",
     ]:
         if column in du_fiscal_flow_research.columns:
             components[column] = du_fiscal_flow_research[column]
@@ -289,20 +383,50 @@ def run_estimation_pipeline(
     method_meta.setdefault("method_descriptions", {}).update(
         {
             "tdc_du_fiscal_flow_first_pass_narrow": (
-                "First-pass DU-facing fiscal-flow estimate using total Treasury cash totals, the narrow DU Treasury-security proxy, and direct DU coupon estimation where available."
+                "Residual DU-facing fiscal-flow estimate using total Treasury cash totals, a residual DU Treasury-security purchase term, and residual DU coupon interest."
             ),
             "tdc_du_fiscal_flow_first_pass_broad": (
-                "First-pass DU-facing fiscal-flow estimate using total Treasury cash totals, the broad DU Treasury-security proxy, and direct DU coupon estimation where available."
+                "Residual DU-facing fiscal-flow estimate using total Treasury cash totals, a residual DU Treasury-security purchase term, and residual DU coupon interest."
+            ),
+            "tdc_du_selected_domestic_nonfinancial_proxy": (
+                "Selected domestic nonfinancial DU-side diagnostic using the partial domestic-nonfinancial Treasury-security flow, DU noninterest outlays, DU receipts, and the direct narrow coupon diagnostic. Not a full DU residual object."
+            ),
+            "tdc_du_residual_proxy_bank_only_ru": (
+                "DU residual sensitivity where credit unions remain inside DU and only Fed, ROW, and banks are removed from all-sector Treasury-security transactions."
+            ),
+            "tdc_du_residual_proxy_np_cu_ru": (
+                "DU residual sensitivity where natural-person credit unions are included in the RU/depository subtraction block."
+            ),
+            "tdc_du_residual_proxy_np_corp_cu_ru": (
+                "DU residual sensitivity where natural-person and corporate credit unions are included in the RU/depository subtraction block."
+            ),
+            "tdc_du_residual_proxy_full_cu_ru": (
+                "DU residual sensitivity where the full credit-union Treasury-security transaction proxy is included in the RU/depository subtraction block."
             ),
         }
     )
     method_meta.setdefault("method_formulas", {}).update(
         {
             "tdc_du_fiscal_flow_first_pass_narrow": (
-                "First-pass DU narrow = DU domestic-nonfinancial Treasury-security flow proxy + DU noninterest outlay proxy - DU receipt proxy - DU narrow coupon proxy."
+                "DU residual proxy = - residual DU Treasury-security purchases + DU noninterest outlay proxy - DU receipt proxy + DU residual coupon proxy. Residual DU Treasury-security purchases equal all-sector Treasury-security transactions minus Fed, ROW, bank, and credit-union Treasury-security transactions. DU residual coupon equals gross Treasury interest minus Fed, bank, and ROW coupon proxies."
             ),
             "tdc_du_fiscal_flow_first_pass_broad": (
-                "First-pass DU broad = Broad DU Treasury-security flow proxy + DU noninterest outlay proxy - DU receipt proxy - DU broad coupon proxy."
+                "DU residual proxy = - residual DU Treasury-security purchases + DU noninterest outlay proxy - DU receipt proxy + DU residual coupon proxy. Residual DU Treasury-security purchases equal all-sector Treasury-security transactions minus Fed, ROW, bank, and credit-union Treasury-security transactions. DU residual coupon equals gross Treasury interest minus Fed, bank, and ROW coupon proxies."
+            ),
+            "tdc_du_selected_domestic_nonfinancial_proxy": (
+                "Selected DU proxy = selected domestic-nonfinancial security-flow proxy + DU noninterest outlay proxy - DU receipt proxy - direct narrow coupon diagnostic. This is a narrow selected-sector diagnostic, not a full residual DU estimate."
+            ),
+            "tdc_du_residual_proxy_bank_only_ru": (
+                "DU residual, bank-only RU perimeter = - (all-sector Treasury-security transactions - Fed - ROW - bank Treasury-security transactions) + DU noninterest outlay proxy - DU receipt proxy + DU residual coupon proxy."
+            ),
+            "tdc_du_residual_proxy_np_cu_ru": (
+                "DU residual, natural-person credit-union RU perimeter = bank-only RU perimeter minus natural-person credit-union Treasury-security transactions before applying the DU residual formula."
+            ),
+            "tdc_du_residual_proxy_np_corp_cu_ru": (
+                "DU residual, natural-person plus corporate credit-union RU perimeter = bank-only RU perimeter minus natural-person and corporate credit-union Treasury-security transactions before applying the DU residual formula."
+            ),
+            "tdc_du_residual_proxy_full_cu_ru": (
+                "DU residual, full credit-union RU perimeter = bank-only RU perimeter minus the full credit-union Treasury-security transaction proxy before applying the DU residual formula."
             ),
         }
     )
@@ -1022,6 +1146,7 @@ def run_estimation_pipeline(
                 "theory_measurement_map": theory_measurement_map,
                 "du_fiscal_flow_research": du_fiscal_flow_research,
                 "headline_validation_review": headline_validation_review,
+                "bill_discount_validation": bill_discount_validation,
             },
         )
 
@@ -1100,6 +1225,10 @@ def run_estimation_pipeline(
         "monetary_target_preference_review": monetary_target_preference_review,
         "input_audit": input_audit,
         "headline_validation_review": headline_validation_review,
+        "mmf_rrp_quarterly_adjustments": mmf_rrp_quarterly,
+        "mmf_rrp_source_comparison": mmf_rrp_source_comparison,
+        "gse_rrp_boundary_check": gse_rrp_boundary_check,
+        "bill_discount_validation": bill_discount_validation,
         "series_meta": series_meta,
         "method_meta": method_meta,
         "quarterly_path": str(quarterly_path),
@@ -1112,6 +1241,29 @@ def run_estimation_pipeline(
         "input_audit_markdown_path": str(input_audit_markdown_path),
         "headline_validation_review_path": str(headline_validation_review_path),
         "headline_validation_review_markdown_path": str(headline_validation_review_markdown_path),
+        "mmf_rrp_fund_month_adjustments_path": str(mmf_rrp_monthly_path)
+        if mmf_rrp_quarterly is not None
+        else None,
+        "mmf_rrp_quarterly_adjustments_path": str(mmf_rrp_quarterly_path)
+        if mmf_rrp_quarterly is not None
+        else None,
+        "mmf_rrp_adjustment_markdown_path": str(mmf_rrp_markdown_path)
+        if mmf_rrp_quarterly is not None
+        else None,
+        "mmf_rrp_source_comparison_path": str(mmf_rrp_source_comparison_path)
+        if mmf_rrp_source_comparison is not None
+        else None,
+        "mmf_rrp_source_comparison_markdown_path": str(mmf_rrp_source_comparison_markdown_path)
+        if mmf_rrp_source_comparison is not None
+        else None,
+        "gse_rrp_boundary_check_path": str(gse_rrp_boundary_path),
+        "gse_rrp_boundary_check_markdown_path": str(gse_rrp_boundary_markdown_path),
+        "bill_discount_validation_path": str(bill_discount_validation_path)
+        if bill_discount_validation is not None
+        else None,
+        "bill_discount_validation_markdown_path": str(bill_discount_validation_markdown_path)
+        if bill_discount_validation is not None
+        else None,
         "bea_row_receipts_benchmark_path": str(bea_row_receipts_benchmark_path) if not bea_row_receipts_benchmark.empty else None,
         "bea_row_receipts_benchmark_markdown_path": str(bea_row_receipts_benchmark_markdown_path)
         if not bea_row_receipts_benchmark.empty

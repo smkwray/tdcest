@@ -14,7 +14,8 @@
 | `credit_unions_total_tsy_tx` | `BOGZ1FU473061105Q` | Credit Unions; Treasury Securities; Asset, Transactions | optional cross-check |
 | `row_tsy_tx` | `BOGZ1FU263061105Q` | Rest of the World; Treasury Securities; Asset, Transactions | bank-only and broad headlines |
 | `treasury_operating_cash_tx` | `BOGZ1FU313024000Q` | Federal Government; Treasury Operating Cash; Asset, Transactions | bank-only and broad headlines |
-| `fed_remit_or_deferred` | `RESPPLLOPNWW` | Earnings Remittances Due to the U.S. Treasury | bank-only and broad headlines |
+| `fed_remit_or_deferred` | MTS Table 4 support when present; otherwise `RESPPLLOPNWW` fallback | Federal Reserve earnings deposits / remittances | bank-only and broad headlines |
+| `gse_tsy_tx` | `BOGZ1FA403061105Q` | Government-Sponsored Enterprises; Treasury Securities; Asset, Transactions | GSE/RRP boundary diagnostic only |
 
 ## Holdings-level sensitivity series
 
@@ -25,6 +26,13 @@ These are used only for:
 - level-change sensitivities
 - diagnostics
 - visual cross-checks
+
+## Local Treasury support series
+
+- `support__fed_remit_mts.csv` is the preferred Federal Reserve remittance cash-flow input. It is built from Monthly Treasury Statement Table 4 net receipts for `Deposits of earnings by Federal Reserve Banks`, using cached official MTS PDFs before the machine-readable MTS receipts window and `treasury__mts_receipts.csv` where available. When this file is present, the pipeline uses it to override the weekly H.4.1/FRED `RESPPLLOPNWW` balance-sheet stock series.
+- `treasury__mts_receipts.csv` is the machine-readable FiscalData / MTS receipts extract used by several receipt-side bridges. For Fed remittances, it is used as the production source from its first available month onward, with PDF extraction retained for archival months.
+- `support__mmf_fund_month.csv` is the normalized MMF/RRP support file. It can be built from the OFR aggregate MMF API via `mmf-rrp-support` or from SEC Form N-MFP ZIP files via `sec-nmfp-mmf-support`; the latter is the fund-level preferred source for final MMF/RRP source-of-funds allocation.
+- `support__gse_on_rrp.csv` is the NY Fed reverse-repo propositions support file for GSE ON RRP accepted amounts. It is built by `gse-on-rrp-support` and used only in `tdc_gse_rrp_boundary_check.csv`; it is not an input to the canonical estimator.
 
 ## Optional macro support series
 
@@ -273,23 +281,32 @@ So the monetary artifact is a sign/magnitude cross-check around the ladder, not 
 - SLGS securities
 - U.S. Government Revenue Collections
 - Receipts by Department annual account-symbol detail
+- Interest Expense on the Public Debt Outstanding, used to validate sector bill-discount proxies against aggregate Treasury bill amortized discount
 
 The Tier 0 cash leg is sourced from the Z.1 Treasury operating cash concept. DTS operating-cash and `WDTGAL` TGA data are useful diagnostics, but neither should silently replace the broader operating-cash concept in historical periods where Treasury Tax and Loan balances were material.
 
 ## Optional local support series
 
-- `support__fed_tsy_coupon_interest_proxy.csv` — quarterly Fed Treasury coupon-interest proxy built locally from SOMA holdings snapshots and inferred coupon schedules, normalized to millions of U.S. dollars
+- `support__fed_tsy_coupon_interest_proxy.csv` — quarterly Fed Treasury coupon-interest proxy built locally from SOMA holdings snapshots and inferred coupon schedules, normalized to millions of U.S. dollars; when built with `--wamest-root`, pre-full-SOMA quarters are bridged with a WAMEST/H.15 Fed coupon-intensity backcast
+- `support__fed_tier1_component_extension_proxy.csv` — staged nondefault Fed Tier 1 component-extension proxy exported from `support__fed_treasury_interest_components.csv`; it sums exact SOMA bill-discount and FRN interest and feeds only Fed-extension component-anchored rows
 - `support__bank_tsy_coupon_interest_proxy.csv` — quarterly bank-sector Treasury coupon-interest proxy for the default bank-only Tier 0 perimeter, built from `wamest` sector coupon-intensity weights
 - `support__row_tsy_coupon_interest_proxy.csv` — quarterly rest-of-world Treasury coupon-interest proxy for ROW-inclusive Tier 2 variants, built from the same raw quarter-end sector coupon-intensity method
+- `support__credit_union_tsy_coupon_interest_proxy.csv` — quarterly credit-union Treasury coupon-interest proxy for depository-institution Tier 2 candidates, built from the `wamest` `credit_unions_marketable_proxy` sector
+- `support__bank_tsy_bill_discount_interest_proxy.csv`, `support__row_tsy_bill_discount_interest_proxy.csv`, and `support__credit_union_tsy_bill_discount_interest_proxy.csv` — optional WAMEST-backed bill-discount interest robustness proxies, built from sector bill shares, sector levels, Treasury bill WAM support, and the Treasury curve
+- `support__bank_tier2_component_interest_proxy.csv`, `support__row_tier2_component_interest_proxy.csv`, and `support__credit_union_tier2_component_interest_proxy.csv` — component-anchored Tier 2 support series exported from `tier2_interest_component_candidate.csv`; they allocate official Treasury coupon-accrual, bill-discount, and FRN interest pools using source-constrained sector weights and feed the promoted canonical Tier 2 rows when present. Legacy WAMEST/H.15 coupon-intensity rows remain available under explicit `tdc_tier2_h15_*` sensitivity names.
+- `support__gse_on_rrp.csv` — optional NY Fed GSE ON RRP support series, stored as daily levels in millions with `value` equal to GSE accepted amount; the quarterly pipeline uses quarter-end levels for the diagnostic `min(max(0, GSE Treasury acquisition), max(0, -Delta GSE ON RRP))`
+
+The command `tdc bill-discount-validation --download-treasury-interest` downloads FiscalData `interest_expense`, extracts `Treasury Bills` / `AMORTIZED DISCOUNT`, sums monthly dollar amounts to calendar quarters in millions, and compares that aggregate benchmark with the bank, ROW, and credit-union sector bill-discount proxies. The benchmark starts with FiscalData's available interest-expense history, while the sector proxies are still governed by WAMEST support coverage.
 
 The sector-coupon builder now prefers the full `wamest` holder panel and normalizes `wamest` full-history sector panel levels to estimator-scale millions when the source panel is using the standard billions-style level convention. The repo also writes a processed unit-and-frequency audit that compares the live ROW coupon proxy against the BEA/FRED ROW federal-interest benchmark after SAAR-to-quarterly conversion. That benchmark is a sanity check, not a claim of exact concept identity.
 
 If you pass `--wamest-root` to the Tier 2 builder, `tdcest` resolves these inputs from the conventional `wamest` locations:
 
-- `data/external/normalized/soma_holdings_fed.csv` for the Fed coupon proxy builder
+- `data/external/normalized/soma_holdings_fed.csv` for the Fed coupon proxy builder; the same command also uses the WAMEST maturity, panel, and curve artifacts below to backcast Fed coupon support before the first full SOMA quarter
 - `outputs/full_coverage_release/canonical_sector_maturity.csv`
-- `data/interim/z1_sector_panel_full.csv`
+- `data/external/normalized/z1_series_fred.csv`, with computed `wamest` sectors reconstructed from the full-coverage inventory when needed
 - `data/external/normalized/h15_curves_auto_nominal_treasury_constant_maturity.csv`
+- `data/processed/treasury_bill_wam_support.csv` when `--include-bill-discount` is used
 
 ## Download philosophy
 

@@ -27,6 +27,20 @@ from .interest_source_constraints import write_interest_source_constraints
 from .interest_source_window_validation import write_interest_source_window_validation
 from .ncua_interest_constraints import write_ncua_interest_constraints_from_cache
 from .pipeline import run_estimation_pipeline
+from .ratewall_du_ru_methodology import write_ratewall_du_ru_methodology_panel
+from .monetary_route_bridge import write_monetary_route_bridge
+from .mmf_route_split_context import write_mmf_route_split_context
+from .route_admissibility_registry import write_route_admissibility_registry
+from .tdcsim_private_route_allocation_sensitivity import (
+    write_tdcsim_private_route_allocation_sensitivity,
+)
+from .tdcsim_private_route_support_contract import (
+    write_tdcsim_private_route_support_contract,
+)
+from .tdc_empirical_anchor import write_tdc_empirical_anchor
+from .z1_domestic_nonbank_sector_context import (
+    write_z1_domestic_nonbank_sector_context,
+)
 from .mmf_rrp import download_sec_nmfp_zips, write_ofr_mmf_aggregate_support, write_sec_nmfp_fund_month_support
 from .mts_previous_issues import (
     write_stitched_previous_targets_with_fiscaldata,
@@ -131,7 +145,7 @@ def cmd_estimate(args: argparse.Namespace) -> int:
 def cmd_plot(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
-    result = run_estimation_pipeline(raw_dir=paths.raw, processed_dir=paths.processed, figures_dir=paths.figures)
+    run_estimation_pipeline(raw_dir=paths.raw, processed_dir=paths.processed, figures_dir=paths.figures)
     print(f"Wrote figures to {paths.figures}")
     return 0
 
@@ -139,7 +153,7 @@ def cmd_plot(args: argparse.Namespace) -> int:
 def cmd_site_export(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
-    result = run_estimation_pipeline(raw_dir=paths.raw, processed_dir=paths.processed, site_dir=paths.site)
+    run_estimation_pipeline(raw_dir=paths.raw, processed_dir=paths.processed, site_dir=paths.site)
     print(f"Wrote site bundle to {paths.site}")
     return 0
 
@@ -171,7 +185,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             raw_json_path=paths.raw / "ofr__mmf_dataset.json",
         )
 
-    result = run_estimation_pipeline(
+    run_estimation_pipeline(
         raw_dir=paths.raw,
         processed_dir=paths.processed,
         figures_dir=paths.figures,
@@ -362,6 +376,88 @@ def cmd_tier2_coupon_proxies(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ratewall_du_ru_methodology(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    z1_path = _existing_path(
+        args.z1_holder_absorption_file,
+        paths.root
+        / "../tdcmix/data/processed/z1_exact_holder_absorption_panel.csv",
+        paths.root
+        / "../tdcmix/data/processed/holder_absorption_panel_exact_primary.csv",
+    )
+    if z1_path is None:
+        raise ValueError(
+            "RateWall DU/RU methodology export requires a Z.1 holder absorption "
+            "panel. Pass --z1-holder-absorption-file or build tdcmix first."
+        )
+    csv_path = Path(args.out) if args.out else (
+        paths.processed / "ratewall_du_ru_methodology_panel.csv"
+    )
+    markdown_path = Path(args.markdown_out) if args.markdown_out else (
+        paths.processed / "ratewall_du_ru_methodology_panel.md"
+    )
+    written_csv, written_md, frame = write_ratewall_du_ru_methodology_panel(
+        du_fiscal_flow_path=args.du_fiscal_flow_file
+        or (paths.processed / "tdc_du_fiscal_flow_research.csv"),
+        interest_method_path=args.interest_method_file
+        or (paths.processed / "tier2_regression_interest_backcast_wide.csv"),
+        z1_holder_absorption_path=z1_path,
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+    )
+    print(f"Wrote RateWall DU/RU methodology panel to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote RateWall DU/RU methodology summary to {written_md}")
+    print(f"Generated {len(frame)} methodology rows")
+    return 0
+
+
+def cmd_monetary_route_bridge(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    quarterly_path = (
+        Path(args.quarterly_file)
+        if args.quarterly_file
+        else paths.processed / "quarterly_inputs.csv"
+    )
+    methodology_path = (
+        Path(args.ratewall_du_ru_methodology_file)
+        if args.ratewall_du_ru_methodology_file
+        else paths.processed / "ratewall_du_ru_methodology_panel.csv"
+    )
+    if not quarterly_path.exists():
+        raise ValueError(
+            "Monetary route bridge requires quarterly inputs. Run `tdc estimate` "
+            "or pass --quarterly-file."
+        )
+    quarterly = pd.read_csv(quarterly_path)
+    methodology = (
+        pd.read_csv(methodology_path) if methodology_path.exists() else pd.DataFrame()
+    )
+    csv_path = (
+        Path(args.out)
+        if args.out
+        else paths.processed / "tdc_domestic_nonbank_monetary_route_bridge.csv"
+    )
+    markdown_path = (
+        Path(args.markdown_out)
+        if args.markdown_out
+        else paths.processed / "tdc_domestic_nonbank_monetary_route_bridge.md"
+    )
+    written_csv, written_md, frame = write_monetary_route_bridge(
+        quarterly=quarterly,
+        ratewall_du_ru_methodology=methodology,
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+    )
+    print(f"Wrote monetary route bridge to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote monetary route bridge summary to {written_md}")
+    print(f"Generated {len(frame)} route rows")
+    return 0
+
+
 def cmd_tier3_support_files(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
@@ -431,6 +527,198 @@ def cmd_sec_nmfp_mmf_support(args: argparse.Namespace) -> int:
         end=args.end if args.download else None,
     )
     print(f"Wrote SEC N-MFP fund-month MMF/RRP support file to {written}")
+    return 0
+
+
+def _nmfp_zip_paths(args: argparse.Namespace, default_cache_dir: Path) -> list[Path]:
+    zip_paths = [Path(path) for path in getattr(args, "zip", [])]
+    cache_dir = Path(args.cache_dir) if args.cache_dir else default_cache_dir
+    if getattr(args, "download", False):
+        zip_paths.extend(
+            download_sec_nmfp_zips(
+                start=args.start,
+                end=args.end,
+                cache_dir=cache_dir,
+            )
+        )
+    if not zip_paths:
+        zip_paths = sorted(cache_dir.glob("*_nmfp.zip"))
+    if not zip_paths:
+        raise SystemExit(
+            "No SEC N-MFP ZIP files supplied or found. Pass --zip, use "
+            "--download, or populate data/raw/sec_nmfp_cache."
+        )
+    return sorted(set(zip_paths))
+
+
+def cmd_mmf_route_split_context(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    zip_paths = _nmfp_zip_paths(args, paths.raw / "sec_nmfp_cache")
+    csv_path = (
+        Path(args.out)
+        if args.out
+        else paths.processed / "tdc_mmf_route_split_context.csv"
+    )
+    markdown_path = (
+        Path(args.markdown_out)
+        if args.markdown_out
+        else paths.processed / "tdc_mmf_route_split_context.md"
+    )
+    written_csv, written_md, frame = write_mmf_route_split_context(
+        zip_paths=zip_paths,
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+    )
+    print(f"Wrote MMF route split context to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote MMF route split context summary to {written_md}")
+    print(f"Generated {len(frame)} context rows from {len(zip_paths)} SEC N-MFP ZIPs")
+    return 0
+
+
+def cmd_route_admissibility_registry(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    monetary_path = (
+        Path(args.monetary_route_bridge_file)
+        if args.monetary_route_bridge_file
+        else paths.processed / "tdc_domestic_nonbank_monetary_route_bridge.csv"
+    )
+    mmf_path = (
+        Path(args.mmf_route_split_context_file)
+        if args.mmf_route_split_context_file
+        else paths.processed / "tdc_mmf_route_split_context.csv"
+    )
+    missing = [str(path) for path in (monetary_path, mmf_path) if not path.exists()]
+    if missing:
+        raise ValueError(
+            "Route admissibility registry requires existing route bridge/context "
+            "inputs. Missing: " + ", ".join(missing)
+        )
+    csv_path = (
+        Path(args.out)
+        if args.out
+        else paths.processed / "tdc_route_admissibility_registry.csv"
+    )
+    markdown_path = (
+        Path(args.markdown_out)
+        if args.markdown_out
+        else paths.processed / "tdc_route_admissibility_registry.md"
+    )
+    written_csv, written_md, frame = write_route_admissibility_registry(
+        monetary_route_bridge_path=monetary_path,
+        mmf_route_split_context_path=mmf_path,
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+    )
+    print(f"Wrote route admissibility registry to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote route admissibility registry summary to {written_md}")
+    print(f"Generated {len(frame)} route rules")
+    return 0
+
+
+def cmd_z1_domestic_nonbank_sector_context(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    z1_path = _existing_path(
+        args.z1_holder_absorption_file,
+        paths.root
+        / "../tdcmix/data/processed/z1_exact_holder_absorption_panel.csv",
+        paths.root
+        / "../tdcmix/data/processed/holder_absorption_panel_exact_primary.csv",
+    )
+    if z1_path is None:
+        raise ValueError(
+            "Z.1 domestic nonbank sector context requires a holder absorption "
+            "panel. Pass --z1-holder-absorption-file or build tdcmix first."
+        )
+    csv_path = (
+        Path(args.out)
+        if args.out
+        else paths.processed / "tdc_z1_domestic_nonbank_sector_context.csv"
+    )
+    markdown_path = (
+        Path(args.markdown_out)
+        if args.markdown_out
+        else paths.processed / "tdc_z1_domestic_nonbank_sector_context.md"
+    )
+    written_csv, written_md, frame = write_z1_domestic_nonbank_sector_context(
+        z1_holder_absorption_path=z1_path,
+        csv_path=csv_path,
+        markdown_path=markdown_path,
+    )
+    print(f"Wrote Z.1 domestic nonbank sector context to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote Z.1 domestic nonbank sector context summary to {written_md}")
+    print(f"Generated {len(frame)} sector context rows")
+    return 0
+
+
+def cmd_tdcsim_private_route_allocation_sensitivity(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    z1_flow_path = _existing_path(
+        args.z1_flow_file,
+        paths.root / "../tdcmix/data/processed/z1_exact_holder_absorption_panel.csv",
+        paths.root / "../tdcmix/data/processed/holder_absorption_panel_exact_primary.csv",
+    )
+    z1_stock_path = _existing_path(
+        args.z1_stock_file,
+        paths.root / "../tsyparty/data/interim/z1_holdings_long.csv",
+        paths.root / "../wamest/data/interim/z1_series_panel_full.csv",
+    )
+    mmf_path = _existing_path(
+        args.mmf_route_split_context_file,
+        paths.processed / "tdc_mmf_route_split_context.csv",
+    )
+    missing: list[str] = []
+    if z1_flow_path is None:
+        missing.append("Z.1 F.210 holder absorption flow panel")
+    if z1_stock_path is None:
+        missing.append("Z.1 L.210 holder stock panel")
+    if mmf_path is None:
+        missing.append("SEC N-MFP MMF route split context")
+    if missing:
+        raise ValueError(
+            "TDCSim Private route allocation sensitivity requires existing "
+            "source panels. Missing: " + ", ".join(missing)
+        )
+    csv_path = (
+        Path(args.out)
+        if args.out
+        else paths.processed / "tdc_tdcsim_private_route_allocation_sensitivity.csv"
+    )
+    markdown_path = (
+        Path(args.markdown_out)
+        if args.markdown_out
+        else paths.processed / "tdc_tdcsim_private_route_allocation_sensitivity.md"
+    )
+    written_csv, written_md, frame = (
+        write_tdcsim_private_route_allocation_sensitivity(
+            z1_flow_path=z1_flow_path,
+            z1_stock_path=z1_stock_path,
+            mmf_route_split_context_path=mmf_path,
+            csv_path=csv_path,
+            markdown_path=markdown_path,
+        )
+    )
+    support_contract_path = (
+        Path(args.support_contract_out)
+        if args.support_contract_out
+        else paths.processed / "tdc_tdcsim_private_route_support_contract.csv"
+    )
+    written_support_csv, support_frame = write_tdcsim_private_route_support_contract(
+        sensitivity_path=written_csv,
+        csv_path=support_contract_path,
+    )
+    print(f"Wrote TDCSim Private route allocation sensitivity to {written_csv}")
+    if written_md is not None:
+        print(f"Wrote TDCSim Private route allocation summary to {written_md}")
+    print(f"Wrote TDCSim Private route support contract to {written_support_csv}")
+    print(f"Generated {len(frame)} bounded noncanonical sensitivity rows")
+    print(f"Generated {len(support_frame)} bounded support contract rows")
     return 0
 
 
@@ -1130,6 +1418,21 @@ def cmd_tier2_live_delta_acceptance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tdc_empirical_anchor(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    out, manifest, _, _ = write_tdc_empirical_anchor(
+        processed_dir=paths.processed,
+        estimates_file=args.estimates_file,
+        components_file=args.components_file,
+        method_meta_file=args.method_meta_file,
+        out=args.out,
+        manifest_out=args.manifest_out,
+    )
+    print(f"Wrote TDC empirical anchor to {out} and {manifest}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tdc",
@@ -1420,6 +1723,137 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output CSV path. Defaults to data/raw/support__mmf_fund_month.csv under --root.",
     )
     p_sec_nmfp.set_defaults(func=cmd_sec_nmfp_mmf_support)
+
+    p_mmf_route_split = sub.add_parser(
+        "mmf-route-split-context",
+        parents=[root_parent],
+        help="Export SEC N-MFP retail/institutional MMF Treasury and ON-RRP route context.",
+    )
+    p_mmf_route_split.add_argument(
+        "--zip",
+        action="append",
+        default=[],
+        help="SEC N-MFP ZIP file to include. May be passed more than once.",
+    )
+    p_mmf_route_split.add_argument(
+        "--download",
+        action="store_true",
+        help="Download SEC N-MFP ZIPs for --start/--end into the cache directory before building context.",
+    )
+    p_mmf_route_split.add_argument(
+        "--start",
+        default="2013-09-30",
+        help="First SEC N-MFP report month to download.",
+    )
+    p_mmf_route_split.add_argument(
+        "--end",
+        default="2025-12-31",
+        help="Last SEC N-MFP report month to download.",
+    )
+    p_mmf_route_split.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directory for SEC N-MFP ZIPs. Defaults to data/raw/sec_nmfp_cache under --root.",
+    )
+    p_mmf_route_split.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_mmf_route_split_context.csv.",
+    )
+    p_mmf_route_split.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/tdc_mmf_route_split_context.md.",
+    )
+    p_mmf_route_split.set_defaults(func=cmd_mmf_route_split_context)
+
+    p_route_admissibility = sub.add_parser(
+        "route-admissibility-registry",
+        parents=[root_parent],
+        help="Export quarterless route admissibility guardrails for TDC/RateWall route use.",
+    )
+    p_route_admissibility.add_argument(
+        "--monetary-route-bridge-file",
+        default=None,
+        help="Monetary route bridge CSV. Defaults to data/processed/tdc_domestic_nonbank_monetary_route_bridge.csv.",
+    )
+    p_route_admissibility.add_argument(
+        "--mmf-route-split-context-file",
+        default=None,
+        help="MMF route split context CSV. Defaults to data/processed/tdc_mmf_route_split_context.csv.",
+    )
+    p_route_admissibility.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_route_admissibility_registry.csv.",
+    )
+    p_route_admissibility.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/tdc_route_admissibility_registry.md.",
+    )
+    p_route_admissibility.set_defaults(func=cmd_route_admissibility_registry)
+
+    p_z1_nonbank_sector = sub.add_parser(
+        "z1-domestic-nonbank-sector-context",
+        parents=[root_parent],
+        help="Export Z.1 domestic nonbank sector Treasury holder context.",
+    )
+    p_z1_nonbank_sector.add_argument(
+        "--z1-holder-absorption-file",
+        default=None,
+        help="Z.1 exact holder absorption CSV. Defaults to sibling tdcmix processed outputs.",
+    )
+    p_z1_nonbank_sector.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_z1_domestic_nonbank_sector_context.csv.",
+    )
+    p_z1_nonbank_sector.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/tdc_z1_domestic_nonbank_sector_context.md.",
+    )
+    p_z1_nonbank_sector.set_defaults(func=cmd_z1_domestic_nonbank_sector_context)
+
+    p_tdcsim_private_route = sub.add_parser(
+        "tdcsim-private-route-allocation-sensitivity",
+        parents=[root_parent],
+        help="Export bounded noncanonical TDCSim Private route sensitivity rows.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--z1-flow-file",
+        default=None,
+        help="Z.1 F.210 holder absorption CSV. Defaults to sibling tdcmix processed outputs.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--z1-stock-file",
+        default=None,
+        help="Z.1 L.210 holder stock CSV. Defaults to sibling tsyparty/wamest outputs.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--mmf-route-split-context-file",
+        default=None,
+        help="MMF route split context CSV. Defaults to data/processed/tdc_mmf_route_split_context.csv.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_tdcsim_private_route_allocation_sensitivity.csv.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/tdc_tdcsim_private_route_allocation_sensitivity.md.",
+    )
+    p_tdcsim_private_route.add_argument(
+        "--support-contract-out",
+        default=None,
+        help="Output support-contract CSV path. Defaults to data/processed/tdc_tdcsim_private_route_support_contract.csv.",
+    )
+    p_tdcsim_private_route.set_defaults(
+        func=cmd_tdcsim_private_route_allocation_sensitivity
+    )
 
     p_fed_remit_mts = sub.add_parser(
         "fed-remit-mts-support",
@@ -2224,6 +2658,97 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output live-delta acceptance Markdown path. Defaults to data/processed/tier2_live_delta_acceptance.md.",
     )
     p_live_delta.set_defaults(func=cmd_tier2_live_delta_acceptance)
+
+    p_tdc_empirical_anchor = sub.add_parser(
+        "tdc-empirical-anchor",
+        parents=[root_parent],
+        help="Export the tdcsfc-facing empirical TDC anchor CSV and manifest.",
+    )
+    p_tdc_empirical_anchor.add_argument(
+        "--estimates-file",
+        default=None,
+        help="TDC estimates CSV. Defaults to data/processed/tdc_estimates.csv.",
+    )
+    p_tdc_empirical_anchor.add_argument(
+        "--components-file",
+        default=None,
+        help="TDC components CSV. Defaults to data/processed/tdc_components.csv.",
+    )
+    p_tdc_empirical_anchor.add_argument(
+        "--method-meta-file",
+        default=None,
+        help="Method metadata JSON. Defaults to data/processed/method_meta.json.",
+    )
+    p_tdc_empirical_anchor.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_empirical_anchor.csv.",
+    )
+    p_tdc_empirical_anchor.add_argument(
+        "--manifest-out",
+        default=None,
+        help="Output manifest JSON path. Defaults to data/processed/tdc_empirical_anchor_manifest.json.",
+    )
+    p_tdc_empirical_anchor.set_defaults(func=cmd_tdc_empirical_anchor)
+
+    p_ratewall_du_ru = sub.add_parser(
+        "ratewall-du-ru-methodology",
+        parents=[root_parent],
+        help="Export the TDC-EST/Z.1 DU/RU methodology panel for RateWall.",
+    )
+    p_ratewall_du_ru.add_argument(
+        "--du-fiscal-flow-file",
+        default=None,
+        help="TDC-EST DU fiscal-flow research CSV. Defaults to data/processed/tdc_du_fiscal_flow_research.csv.",
+    )
+    p_ratewall_du_ru.add_argument(
+        "--interest-method-file",
+        default=None,
+        help="TDC-EST interest-method tier CSV. Defaults to data/processed/tier2_regression_interest_backcast_wide.csv.",
+    )
+    p_ratewall_du_ru.add_argument(
+        "--z1-holder-absorption-file",
+        default=None,
+        help="Z.1 holder absorption CSV. Defaults to the sibling tdcmix exact holder panel.",
+    )
+    p_ratewall_du_ru.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/ratewall_du_ru_methodology_panel.csv.",
+    )
+    p_ratewall_du_ru.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/ratewall_du_ru_methodology_panel.md.",
+    )
+    p_ratewall_du_ru.set_defaults(func=cmd_ratewall_du_ru_methodology)
+
+    p_monetary_route = sub.add_parser(
+        "monetary-route-bridge",
+        parents=[root_parent],
+        help="Export M1/M2/deposit-pass-through route labels for domestic nonbank and MMF routes.",
+    )
+    p_monetary_route.add_argument(
+        "--quarterly-file",
+        default=None,
+        help="Quarterly inputs CSV. Defaults to data/processed/quarterly_inputs.csv.",
+    )
+    p_monetary_route.add_argument(
+        "--ratewall-du-ru-methodology-file",
+        default=None,
+        help="RateWall DU/RU methodology CSV. Defaults to data/processed/ratewall_du_ru_methodology_panel.csv.",
+    )
+    p_monetary_route.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/tdc_domestic_nonbank_monetary_route_bridge.csv.",
+    )
+    p_monetary_route.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/tdc_domestic_nonbank_monetary_route_bridge.md.",
+    )
+    p_monetary_route.set_defaults(func=cmd_monetary_route_bridge)
 
     return parser
 

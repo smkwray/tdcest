@@ -27,6 +27,8 @@ def test_build_parser_exposes_expected_commands():
         "tier3-support-files",
         "tier3-source-input",
         "mmf-rrp-support",
+        "mmf-route-split-context",
+        "monetary-route-bridge",
         "sec-nmfp-mmf-support",
         "fed-remit-mts-support",
         "mts-previous-issues-manifest",
@@ -58,6 +60,11 @@ def test_build_parser_exposes_expected_commands():
         "tier2-live-delta-acceptance",
         "tier2-regression-backcast",
         "tier2-regression-series",
+        "tdc-empirical-anchor",
+        "ratewall-du-ru-methodology",
+        "route-admissibility-registry",
+        "tdcsim-private-route-allocation-sensitivity",
+        "z1-domestic-nonbank-sector-context",
     }
 
 

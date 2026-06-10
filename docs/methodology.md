@@ -220,6 +220,43 @@ Remit^{+}_{Fed,t} = \sum_{w \in t} \max(0, H41_w)
 
 The canonical Tier 2 policy target is `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow`: the depository-institution row with coupon corrections, holder-specific bill-discount corrections, and the preferred proportional MMF/RRP source-of-funds adjustment. The GSE/RRP diagnostic checks the same Fed-liability-to-Treasury-security boundary for government-sponsored enterprises, but it is not a canonical estimator input. It is reported separately as `tdc_gse_rrp_boundary_check.csv` / `.md` because GSE Treasury absorption cannot be treated as a bank-deposit-scope correction without a stronger funding-source claim.
 
+`tdc_domestic_nonbank_monetary_route_bridge.csv` is the downstream scope
+contract for domestic nonbank and MMF routes. It labels retail MMFs as inside
+M2 but outside bank-deposit pass-through, MMF/ON-RRP runoff as non-M2 plumbing,
+aggregate Z.1 domestic nonbank absorption as mixed/unknown scope, and dealer,
+other-financial, and institutional-MMF routes as non-M2 or context-only. This
+bridge does not change canonical TDC math; it prevents downstream users from
+treating non-M2 Treasury absorption as deposit-pass-through or current-demand
+evidence.
+
+`tdc_mmf_route_split_context.csv` is the SEC N-MFP companion context split. It
+uses the fund retail flag and portfolio holdings to separate retail MMF and
+institutional/nonretail MMF Treasury and Fed ON-RRP positions at quarter-end.
+This is still context-only: fund type and portfolio holdings do not identify
+final investor current-demand conversion, deposit pass-through, incidence,
+pricing, or welfare effects.
+
+`tdc_route_admissibility_registry.csv` is the quarterless source-owned route
+guardrail built from the monetary route bridge and SEC N-MFP route split. It
+deduplicates route rules by `route_id`, records the observed holder, funding,
+and payment-route facts, and assigns fail-closed current-demand gates. It is
+not an amount table and does not change canonical TDC math. Downstream users
+should use it to prevent accidental promotion of retail MMFs,
+institutional/nonretail MMFs, broad Z.1 domestic nonbanks, dealer/repo routes,
+or MMF/ON-RRP plumbing into current-demand or canonical runtime math. The
+ON-RRP boundary columns distinguish NY Fed/Fed-liability counterparty-type
+context from SEC N-MFP fund-scope portfolio context; neither clears the final
+investor or deposit-recipient route gate.
+
+`tdc_z1_domestic_nonbank_sector_context.csv` is the Z.1 sector companion for
+the broad domestic-nonbank route blocker. It decomposes domestic nonbank
+Treasury-security transactions into MMFs, dealers, GSEs, mutual funds,
+insurance/pension funds, households/nonprofits residual, nonfinancial business,
+state/local government, structured-finance, holding-company, and clearing
+counterparty sector rows. This is still sector/instrument context only: it does
+not identify debited claims, settlement accounts, payment routes, final
+investors, or current-demand conversion.
+
 ## Monetary cross-check stance
 
 The repo now treats the monetary side as a diagnostic system with a preferred cross-check target.

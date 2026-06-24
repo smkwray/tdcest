@@ -32,4 +32,5 @@ def test_normalize_ffiec_interest_constraints_from_extracted_root(tmp_path: Path
     assert len(out) == 2
     assert out["date"].iloc[0] == pd.Timestamp("2025-12-31")
     assert out["total_treasuries_amortized_cost"].sum() == 1000
-    assert out["treasury_bucket_3m_or_less"].sum() == 30
+    assert out["mixed_debt_bucket_3m_or_less"].sum() == 30
+    assert "treasury_bucket_3m_or_less" not in out.columns

@@ -99,6 +99,48 @@ def test_build_tier2_interest_component_candidate_subtracts_fed_bill_component()
     assert bank_bill["component_anchored_interest_mil"] == 1500.0
 
 
+def test_build_tier2_interest_component_candidate_excludes_fed_from_bill_denominator_when_exact_fed_bill_present():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-03-31"] * 2,
+            "sector_key": ["fed", "bank_us_chartered"],
+            "coupon_share": [1.0, 1.0],
+            "bill_share": [1.0, 1.0],
+            "coupon_only_maturity_years": [1.0, 1.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-03-31"] * 2,
+            "sector_key": ["fed", "bank_us_chartered"],
+            "level": [1.0, 1.0],
+        }
+    )
+    curves = pd.DataFrame({"date": ["2025-03-31"], "1y": [4.0]})
+    fed_components = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "fed_tsy_coupon_interest_proxy": [0.0],
+            "fed_tsy_bill_discount_interest_proxy": [500.0],
+        }
+    )
+
+    out = build_tier2_interest_component_candidate(
+        component_pools=_component_pools(),
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=curves,
+        fed_components=fed_components,
+    )
+
+    bank_bill = out[
+        out["sector_group"].eq("bank") & out["component_key"].eq("bill_amortized_discount")
+    ].iloc[0]
+    assert bank_bill["allocation_pool_mil"] == 1500.0
+    assert bank_bill["denominator_raw_weight_mil"] == bank_bill["selected_raw_weight_mil"]
+    assert bank_bill["component_anchored_interest_mil"] == 1500.0
+
+
 def test_build_tier2_interest_component_candidate_prefers_contract_weights():
     sector_maturity = pd.DataFrame(
         {

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tdc_estimator.interest_source_constraints import build_interest_source_constraints, write_interest_source_constraints
 
@@ -13,9 +14,9 @@ def test_build_interest_source_constraints_extracts_regulatory_mmf_and_tic_rows(
             "date": ["2025-12-31", "2025-12-31"],
             "total_treasuries_amortized_cost": [100_000.0, 200_000.0],
             "total_treasuries_fair_value": [90_000.0, 180_000.0],
-            "treasury_ladder_total": [100_000.0, 200_000.0],
-            "treasury_bucket_3m_or_less": [10_000.0, 20_000.0],
-            "treasury_bucket_3_12m": [5_000.0, 10_000.0],
+            "mixed_debt_ladder_total": [100_000.0, 200_000.0],
+            "mixed_debt_bucket_3m_or_less": [10_000.0, 20_000.0],
+            "mixed_debt_bucket_3_12m": [5_000.0, 10_000.0],
         }
     )
     cu = pd.DataFrame(
@@ -71,7 +72,14 @@ def test_build_interest_source_constraints_extracts_regulatory_mmf_and_tic_rows(
         row_tic_path=tic_path,
     )
     rows = out.set_index("sector_key")
-    assert rows.loc["bank_broad_private_depositories_marketable_proxy", "bill_weight_proxy"] == 0.1
+    assert pd.isna(rows.loc["bank_broad_private_depositories_marketable_proxy", "bill_weight_proxy"])
+    assert rows.loc["bank_broad_private_depositories_marketable_proxy", "mixed_debt_bill_weight_diagnostic"] == 0.1
+    assert rows.loc["bank_broad_private_depositories_marketable_proxy", "constraint_status"] == "usable_level_constraint_wamest_split_fallback"
+    assert (
+        rows.loc["bank_broad_private_depositories_marketable_proxy", "constraint_basis"]
+        == "ffiec_treasury_level_only_wamest_interest_contract_split_fallback_mixed_debt_ladder_diagnostic"
+    )
+    assert bool(rows.loc["bank_broad_private_depositories_marketable_proxy", "fallback_split_accepted"])
     assert rows.loc["credit_unions_marketable_proxy", "short_weight_proxy_le_1y"] == 0.2
     assert rows.loc["money_market_funds", "bill_weight_proxy"] == 0.5
     assert rows.loc["foreigners_total", "constraint_status"] == "diagnostic_flow_only_not_default_weight"
@@ -125,9 +133,103 @@ def test_build_interest_source_constraints_uses_tic_slt_positions(tmp_path: Path
     )
 
     row = out.set_index("sector_key").loc["foreigners_total"]
-    assert row["constraint_status"] == "usable_constraint"
-    assert row["bill_weight_proxy"] == 0.25
-    assert row["coupon_weight_proxy"] == 0.75
+    assert row["source_family"] == "TIC_SLT_BL2_TABLE3"
+    assert row["constraint_status"] == "usable_level_constraint_wamest_split_fallback"
+    assert pd.isna(row["bill_weight_proxy"])
+    assert pd.isna(row["coupon_weight_proxy"])
+    assert row["tic_slt_short_share_diagnostic"] == 0.25
+    assert row["tic_slt_long_share_diagnostic"] == 0.75
+    assert bool(row["fallback_split_accepted"])
+    assert row["source_url"].endswith("/slt_table3.txt")
+    assert len(row["source_sha256"]) == 64
+
+
+def test_tic_slt_table3_fails_closed_on_malformed_txt(tmp_path: Path):
+    tic_path = tmp_path / "slt_table3.txt"
+    tic_path.write_text(
+        "\n".join(
+            [
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "country\tcountry_code\tdate\tfor_treas_pos",
+                "Grand Total\t99996\t2025-12\t1000",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        build_interest_source_constraints(
+            bank_ffiec_path=None,
+            credit_union_ncua_path=None,
+            mmf_path=None,
+            row_tic_path=tic_path,
+        )
+
+
+def test_tic_slt_table3_fails_closed_on_duplicate_aggregate_month(tmp_path: Path):
+    tic_path = tmp_path / "slt_table3.txt"
+    tic_path.write_text(
+        "\n".join(
+            [
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "country\tcountry_code\tdate\tfor_treas_pos\tfor_treas_net\tfor_lt_treas_pos\tfor_lt_treas_net\tfor_lt_treas_valchg\tfor_st_treas_pos\tfor_st_treas_net",
+                "Grand Total\t99996\t2025-12\t1000\t0\t750\t0\t0\t250\t0",
+                "Grand Total\t99996\t2025-12\t1000\t0\t700\t0\t0\t300\t0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not unique by month"):
+        build_interest_source_constraints(
+            bank_ffiec_path=None,
+            credit_union_ncua_path=None,
+            mmf_path=None,
+            row_tic_path=tic_path,
+        )
+
+
+def test_tic_slt_table3_fails_closed_when_total_does_not_reconcile(tmp_path: Path):
+    tic_path = tmp_path / "slt_table3.txt"
+    tic_path.write_text(
+        "\n".join(
+            [
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "header",
+                "country\tcountry_code\tdate\tfor_treas_pos\tfor_treas_net\tfor_lt_treas_pos\tfor_lt_treas_net\tfor_lt_treas_valchg\tfor_st_treas_pos\tfor_st_treas_net",
+                "Grand Total\t99996\t2025-12\t1000\t0\t700\t0\t0\t250\t0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not reconcile"):
+        build_interest_source_constraints(
+            bank_ffiec_path=None,
+            credit_union_ncua_path=None,
+            mmf_path=None,
+            row_tic_path=tic_path,
+        )
 
 
 def test_build_interest_source_constraints_marks_ncua_level_only_fallback(tmp_path: Path):
@@ -151,3 +253,31 @@ def test_build_interest_source_constraints_marks_ncua_level_only_fallback(tmp_pa
     assert row["constraint_status"] == "usable_level_constraint_wamest_split_fallback"
     assert bool(row["fallback_split_accepted"])
     assert row["constraint_basis"] == "ncua_treasury_level_only_wamest_interest_contract_split_fallback"
+
+
+def test_build_interest_source_constraints_keeps_legacy_ffiec_treasury_buckets_diagnostic(tmp_path: Path):
+    bank = pd.DataFrame(
+        {
+            "date": ["2025-12-31"],
+            "total_treasuries_amortized_cost": [100_000.0],
+            "treasury_ladder_total": [100_000.0],
+            "treasury_bucket_3m_or_less": [25_000.0],
+            "treasury_bucket_3_12m": [10_000.0],
+        }
+    )
+    bank_path = tmp_path / "legacy_bank.csv"
+    bank.to_csv(bank_path, index=False)
+
+    out = build_interest_source_constraints(
+        bank_ffiec_path=bank_path,
+        credit_union_ncua_path=None,
+        mmf_path=None,
+        row_tic_path=None,
+    )
+
+    row = out.set_index("sector_key").loc["bank_broad_private_depositories_marketable_proxy"]
+    assert row["constraint_status"] == "usable_level_constraint_wamest_split_fallback"
+    assert pd.isna(row["bill_weight_proxy"])
+    assert pd.isna(row["coupon_weight_proxy"])
+    assert bool(row["fallback_split_accepted"])
+    assert row["constraint_basis"] == "ffiec_treasury_level_only_wamest_interest_contract_split_fallback"

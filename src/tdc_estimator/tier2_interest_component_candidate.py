@@ -5,6 +5,8 @@ from typing import Iterable
 
 import pandas as pd
 
+from .interest_source_window_validation import ALLOWED_USABLE_CONSTRAINT_STATUSES
+
 from .sector_coupon import (
     DEFAULT_BANK_SECTOR_KEYS,
     DEFAULT_CREDIT_UNION_SECTOR_KEYS,
@@ -339,6 +341,8 @@ def build_tier2_interest_component_candidate(
             fed_exact = _value_at(fed_bill, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
             denominator_keys = set(frame["sector_key"].astype(str).str.strip())
+            if fed_exact is not None:
+                denominator_keys = denominator_keys - fed_keys
             rows.extend(
                 _sector_rows(
                     date=pd.Timestamp(date).normalize(),
@@ -538,7 +542,7 @@ def _apply_source_constraints_to_weights(
     constraints["date"] = pd.to_datetime(constraints["date"], errors="coerce").dt.normalize()
     for _, row in constraints.dropna(subset=["date", "sector_key"]).iterrows():
         status = str(row.get("constraint_status", ""))
-        if not status.startswith("usable"):
+        if status not in ALLOWED_USABLE_CONSTRAINT_STATUSES:
             continue
         level = pd.to_numeric(pd.Series([row.get("level_mil")]), errors="coerce").iloc[0]
         bill_share = pd.to_numeric(pd.Series([row.get("bill_weight_proxy")]), errors="coerce").iloc[0]

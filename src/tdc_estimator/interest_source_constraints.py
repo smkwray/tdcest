@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
@@ -9,6 +11,10 @@ BANK_SECTOR_KEY = "bank_broad_private_depositories_marketable_proxy"
 CU_SECTOR_KEY = "credit_unions_marketable_proxy"
 MMF_SECTOR_KEY = "money_market_funds"
 ROW_SECTOR_KEY = "foreigners_total"
+TIC_SLT_TABLE3_URL = "https://ticdata.treasury.gov/resource-center/data-chart-center/tic/Documents/slt_table3.txt"
+TIC_TABLE3_COLUMNS = {"country_code", "date", "for_treas_pos", "for_lt_treas_pos", "for_st_treas_pos"}
+TIC_TABLE3_TOTAL_COUNTRY_CODE = "99996"
+TIC_TABLE3_AGGREGATE_TOLERANCE_MIL = 1.0
 
 
 def _safe_read(path: Path | str | None) -> pd.DataFrame:
@@ -18,6 +24,37 @@ def _safe_read(path: Path | str | None) -> pd.DataFrame:
     if not table_path.exists():
         return pd.DataFrame()
     return pd.read_csv(table_path)
+
+
+def _source_path_label(path: Path | str | None) -> str:
+    if path is None or str(path) == "":
+        return ""
+    table_path = Path(path)
+    try:
+        return str(table_path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(table_path)
+
+
+def _source_sha256(path: Path | str | None) -> str:
+    table_path = _resolve_pointer_path(path)
+    if table_path is None or not table_path.exists() or not table_path.is_file():
+        return ""
+    return hashlib.sha256(table_path.read_bytes()).hexdigest()
+
+
+def ensure_tic_slt_table3_file(path: Path | str, *, url: str = TIC_SLT_TABLE3_URL) -> Path:
+    """Ensure the project-local official TIC SLT Table 3 cache exists."""
+    out = Path(path)
+    if out.exists():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f".{out.name}.tmp")
+    request = Request(url, headers={"User-Agent": "tdc-estimator"})
+    with urlopen(request, timeout=60) as response:
+        tmp.write_bytes(response.read())
+    tmp.replace(out)
+    return out
 
 
 def _resolve_pointer_path(path: Path | str | None) -> Path | None:
@@ -41,11 +78,19 @@ def _read_tic_frame(path: Path | str | None) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         raw = pd.read_csv(table_path, sep="\t", skiprows=8, dtype=str, low_memory=False)
-        if {"country_code", "date", "for_treas_pos", "for_lt_treas_pos", "for_st_treas_pos"}.issubset(raw.columns):
+        if TIC_TABLE3_COLUMNS.issubset(raw.columns):
             return raw
-    except Exception:
-        pass
+    except Exception as exc:
+        if _looks_like_tic_table3_path(table_path):
+            raise ValueError(f"Could not parse TIC Table 3 file: {table_path}") from exc
+    if _looks_like_tic_table3_path(table_path):
+        raise ValueError(f"TIC Table 3 file is missing required columns: {table_path}")
     return pd.read_csv(table_path)
+
+
+def _looks_like_tic_table3_path(path: Path) -> bool:
+    lower_name = path.name.lower()
+    return lower_name.endswith(".txt") or "slt_table3" in lower_name
 
 
 def _date(series: pd.Series) -> pd.Series:
@@ -92,6 +137,13 @@ def _regulatory_constraint_rows(frame: pd.DataFrame, *, sector_key: str, source_
             "treasury_bucket_3_5y",
             "treasury_bucket_5_15y",
             "treasury_bucket_over_15y",
+            "mixed_debt_ladder_total",
+            "mixed_debt_bucket_3m_or_less",
+            "mixed_debt_bucket_3_12m",
+            "mixed_debt_bucket_1_3y",
+            "mixed_debt_bucket_3_5y",
+            "mixed_debt_bucket_5_15y",
+            "mixed_debt_bucket_over_15y",
         ],
     )
     if grouped.empty:
@@ -100,7 +152,7 @@ def _regulatory_constraint_rows(frame: pd.DataFrame, *, sector_key: str, source_
             "source_family": source_family,
             "component_key": "coupon_accrual,bill_amortized_discount",
             "constraint_status": "missing_source",
-            "source_path": str(source_path),
+            "source_path": _source_path_label(source_path),
         }]
     rows: list[dict[str, object]] = []
     for _, latest in grouped.iterrows():
@@ -110,11 +162,30 @@ def _regulatory_constraint_rows(frame: pd.DataFrame, *, sector_key: str, source_
         # FFIEC Call Report money fields are in thousands of dollars in this
         # normalized artifact. The NCUA extract stores dollar amounts.
         mil_divisor = 1_000_000.0 if source_family == "NCUA_CALL_REPORT" else 1000.0
-        ladder = float(latest.get("treasury_ladder_total", 0.0))
-        bill_proxy = float(latest.get("treasury_bucket_3m_or_less", 0.0))
-        short_proxy = bill_proxy + float(latest.get("treasury_bucket_3_12m", 0.0))
+        has_mixed_debt_proxy = float(latest.get("mixed_debt_ladder_total", 0.0)) > 0.0
+        ladder = (
+            float(latest.get("mixed_debt_ladder_total", 0.0))
+            if has_mixed_debt_proxy
+            else float(latest.get("treasury_ladder_total", 0.0))
+        )
+        bill_proxy = (
+            float(latest.get("mixed_debt_bucket_3m_or_less", 0.0))
+            if has_mixed_debt_proxy
+            else float(latest.get("treasury_bucket_3m_or_less", 0.0))
+        )
+        short_proxy = bill_proxy + (
+            float(latest.get("mixed_debt_bucket_3_12m", 0.0))
+            if has_mixed_debt_proxy
+            else float(latest.get("treasury_bucket_3_12m", 0.0))
+        )
         bill_share = _ratio(bill_proxy, ladder)
-        fallback_split = source_family == "NCUA_CALL_REPORT" and pd.isna(bill_share)
+        has_treasury_split = (
+            source_family != "FFIEC_CALL_REPORT" and not has_mixed_debt_proxy and not pd.isna(bill_share)
+        )
+        fallback_split = (source_family == "NCUA_CALL_REPORT" and pd.isna(bill_share)) or (
+            source_family == "FFIEC_CALL_REPORT"
+        )
+        applied_bill_share = bill_share if has_treasury_split else pd.NA
         rows.append(
             {
                 "date": latest["date"],
@@ -128,16 +199,21 @@ def _regulatory_constraint_rows(frame: pd.DataFrame, *, sector_key: str, source_
                 ),
                 "level_mil": level / mil_divisor,
                 "fair_value_mil": float(latest.get("total_treasuries_fair_value", 0.0)) / mil_divisor,
-                "bill_weight_proxy": bill_share,
+                "bill_weight_proxy": applied_bill_share,
                 "short_weight_proxy_le_1y": _ratio(short_proxy, ladder),
-                "coupon_weight_proxy": pd.NA if pd.isna(bill_share) else 1.0 - float(bill_share),
+                "mixed_debt_bill_weight_diagnostic": bill_share if has_mixed_debt_proxy else pd.NA,
+                "coupon_weight_proxy": pd.NA if pd.isna(applied_bill_share) else 1.0 - float(applied_bill_share),
                 "fallback_split_accepted": fallback_split,
                 "constraint_basis": (
                     "ncua_treasury_level_only_wamest_interest_contract_split_fallback"
-                    if fallback_split
+                    if source_family == "NCUA_CALL_REPORT" and fallback_split
+                    else "ffiec_treasury_level_only_wamest_interest_contract_split_fallback_mixed_debt_ladder_diagnostic"
+                    if source_family == "FFIEC_CALL_REPORT" and has_mixed_debt_proxy
+                    else "ffiec_treasury_level_only_wamest_interest_contract_split_fallback"
+                    if source_family == "FFIEC_CALL_REPORT"
                     else "aggregate_call_report_treasury_level_plus_maturity_bucket_proxy"
                 ),
-                "source_path": str(source_path),
+                "source_path": _source_path_label(source_path),
             }
         )
     return rows
@@ -155,7 +231,7 @@ def _mmf_constraint_rows(frame: pd.DataFrame, *, source_path: Path | str) -> lis
             "source_family": "SEC_NMFP_OR_OFR_MMF",
             "component_key": "coupon_accrual,bill_amortized_discount",
             "constraint_status": "missing_source",
-            "source_path": str(source_path),
+            "source_path": _source_path_label(source_path),
         }]
     rows: list[dict[str, object]] = []
     for _, latest in grouped.iterrows():
@@ -173,42 +249,62 @@ def _mmf_constraint_rows(frame: pd.DataFrame, *, source_path: Path | str) -> lis
                 "bill_weight_proxy": bill_share,
                 "coupon_weight_proxy": pd.NA if pd.isna(bill_share) else 1.0 - float(bill_share),
                 "constraint_basis": "fund_month_treasury_total_and_treasury_bill_holdings",
-                "source_path": str(source_path),
+                "source_path": _source_path_label(source_path),
             }
         )
     return rows
 
 
 def _row_tic_constraint_rows(frame: pd.DataFrame, *, source_path: Path | str) -> list[dict[str, object]]:
-    if {"country_code", "date", "for_treas_pos", "for_lt_treas_pos", "for_st_treas_pos"}.issubset(frame.columns):
-        tic = frame.loc[frame["country_code"].astype(str).str.strip().eq("99996")].copy()
+    if TIC_TABLE3_COLUMNS.issubset(frame.columns):
+        tic = frame.loc[frame["country_code"].astype(str).str.strip().eq(TIC_TABLE3_TOTAL_COUNTRY_CODE)].copy()
+        if tic.empty:
+            raise ValueError(f"TIC Table 3 file has no aggregate country_code={TIC_TABLE3_TOTAL_COUNTRY_CODE} rows")
         tic["date"] = pd.to_datetime(tic["date"].astype(str) + "-01", errors="coerce").dt.to_period("M").dt.to_timestamp("M")
         for column in ["for_treas_pos", "for_lt_treas_pos", "for_st_treas_pos"]:
             tic[column] = pd.to_numeric(tic[column].astype(str).str.replace(",", "", regex=False), errors="coerce")
-        tic = tic.dropna(subset=["date", "for_treas_pos"]).sort_values("date")
-        if not tic.empty:
-            rows: list[dict[str, object]] = []
-            for _, latest in tic.iterrows():
-                total_pos = float(latest["for_treas_pos"])
-                long_pos = float(latest.get("for_lt_treas_pos", 0.0))
-                short_pos = float(latest.get("for_st_treas_pos", 0.0))
-                rows.append(
-                    {
-                        "date": latest["date"],
-                        "sector_key": ROW_SECTOR_KEY,
-                        "source_family": "TIC_SLT",
-                        "component_key": "coupon_accrual,bill_amortized_discount",
-                        "constraint_status": "usable_constraint",
-                        "level_mil": total_pos,
-                        "long_position_mil": long_pos,
-                        "short_position_mil": short_pos,
-                        "bill_weight_proxy": _ratio(short_pos, total_pos),
-                        "coupon_weight_proxy": _ratio(long_pos, total_pos),
-                        "constraint_basis": "tic_slt_table3_foreign_holder_position_long_short_split",
-                        "source_path": str(source_path),
-                    }
-                )
-            return rows
+        invalid = tic[["date", "for_treas_pos", "for_lt_treas_pos", "for_st_treas_pos"]].isna().any(axis=1)
+        if invalid.any():
+            raise ValueError("TIC Table 3 aggregate rows contain missing or non-numeric required values")
+        if tic["date"].duplicated().any():
+            duplicate_dates = sorted(pd.Timestamp(date).strftime("%Y-%m") for date in tic.loc[tic["date"].duplicated(), "date"])
+            raise ValueError(f"TIC Table 3 aggregate rows are not unique by month: {', '.join(duplicate_dates)}")
+        nonpositive_total = tic["for_treas_pos"].le(0)
+        negative_component = tic["for_lt_treas_pos"].lt(0) | tic["for_st_treas_pos"].lt(0)
+        if nonpositive_total.any() or negative_component.any():
+            raise ValueError("TIC Table 3 aggregate position levels must be positive totals and non-negative components")
+        gap = (tic["for_treas_pos"] - tic["for_lt_treas_pos"] - tic["for_st_treas_pos"]).abs()
+        tolerance = tic["for_treas_pos"].abs().mul(1e-6).clip(lower=TIC_TABLE3_AGGREGATE_TOLERANCE_MIL)
+        if gap.gt(tolerance).any():
+            raise ValueError("TIC Table 3 aggregate total does not reconcile to long plus short Treasury positions")
+        tic = tic.sort_values("date")
+        rows: list[dict[str, object]] = []
+        for _, latest in tic.iterrows():
+            total_pos = float(latest["for_treas_pos"])
+            long_pos = float(latest.get("for_lt_treas_pos", 0.0))
+            short_pos = float(latest.get("for_st_treas_pos", 0.0))
+            rows.append(
+                {
+                    "date": latest["date"],
+                    "sector_key": ROW_SECTOR_KEY,
+                    "source_family": "TIC_SLT_BL2_TABLE3",
+                    "component_key": "coupon_accrual,bill_amortized_discount",
+                    "constraint_status": "usable_level_constraint_wamest_split_fallback",
+                    "level_mil": total_pos,
+                    "long_position_mil": long_pos,
+                    "short_position_mil": short_pos,
+                    "tic_slt_short_share_diagnostic": _ratio(short_pos, total_pos),
+                    "tic_slt_long_share_diagnostic": _ratio(long_pos, total_pos),
+                    "bill_weight_proxy": pd.NA,
+                    "coupon_weight_proxy": pd.NA,
+                    "fallback_split_accepted": True,
+                    "constraint_basis": "tic_slt_bl2_table3_foreign_holder_position_level_wamest_interest_contract_split_fallback",
+                    "source_path": _source_path_label(source_path),
+                    "source_url": TIC_SLT_TABLE3_URL,
+                    "source_sha256": _source_sha256(source_path),
+                }
+            )
+        return rows
 
     grouped = _quarterly_sums(
         frame,
@@ -227,7 +323,7 @@ def _row_tic_constraint_rows(frame: pd.DataFrame, *, source_path: Path | str) ->
             "source_family": "TIC",
             "component_key": "coupon_accrual,bill_amortized_discount",
             "constraint_status": "missing_source",
-            "source_path": str(source_path),
+            "source_path": _source_path_label(source_path),
         }]
     rows: list[dict[str, object]] = []
     for _, latest in grouped.iterrows():
@@ -251,7 +347,7 @@ def _row_tic_constraint_rows(frame: pd.DataFrame, *, source_path: Path | str) ->
                 "bill_weight_proxy": _ratio(abs(short_flow), gross_abs),
                 "coupon_weight_proxy": _ratio(abs(long_flow), gross_abs),
                 "constraint_basis": "monthly_tic_net_flow_long_short_split_not_holder_position",
-                "source_path": str(source_path),
+                "source_path": _source_path_label(source_path),
             }
         )
     return rows
@@ -346,10 +442,10 @@ def _markdown_summary(frame: pd.DataFrame) -> str:
         row = frame.loc[frame["sector_key"].astype(str).eq(ROW_SECTOR_KEY)]
         if not row.empty:
             row_status = str(row.iloc[0].get("constraint_status", ""))
-    if row_status == "usable_constraint":
+    if row_status.startswith("usable"):
         note = (
-            "Promotion note: FFIEC, MMF, and TIC SLT rows can constrain allocation weights. "
-            "The credit-union row constrains the official NCUA Treasury level and uses a documented WAMEST split fallback."
+            "Promotion note: FFIEC, NCUA, MMF, and TIC SLT rows can constrain source levels. "
+            "FFIEC mixed-debt and TIC SLT long/short shares are retained as diagnostics only where they do not identify a Treasury bill/coupon split; those rows use the documented WAMEST interest-contract split fallback."
         )
     else:
         note = (

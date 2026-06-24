@@ -23,7 +23,7 @@ from .fed_interest_components import write_fed_interest_components_from_soma_csv
 from .fed_component_extension_export import write_fed_component_extension_support
 from .gse_rrp_boundary import write_gse_on_rrp_support
 from .ffiec_interest_constraints import write_ffiec_interest_constraints_from_extracted_root
-from .interest_source_constraints import write_interest_source_constraints
+from .interest_source_constraints import TIC_SLT_TABLE3_URL, ensure_tic_slt_table3_file, write_interest_source_constraints
 from .interest_source_window_validation import write_interest_source_window_validation
 from .ncua_interest_constraints import write_ncua_interest_constraints_from_cache
 from .pipeline import run_estimation_pipeline
@@ -1144,10 +1144,9 @@ def cmd_interest_source_constraints(args: argparse.Namespace) -> int:
         if wamest_root is not None
         else None,
     )
-    row_tic_path = args.row_tic_file or _existing_path(
-        os.getenv("TDCEST_ROW_TIC_FILE"),
-        paths.root.parent / "tgarefill" / "data" / "raw" / "treasury_home" / "tic" / "slt_table3.txt",
-    )
+    row_tic_path = args.row_tic_file or _existing_path(os.getenv("TDCEST_ROW_TIC_FILE"))
+    if row_tic_path is None:
+        row_tic_path = ensure_tic_slt_table3_file(paths.raw / "tic" / "slt_table3.txt")
     written_csv, written_md, _ = write_interest_source_constraints(
         out_path=out_csv,
         markdown_out_path=out_md,
@@ -1265,6 +1264,8 @@ def cmd_tier2_component_support_export(args: argparse.Namespace) -> int:
         out_dir=args.out_dir or paths.raw,
         markdown_path=args.markdown_out
         or (paths.processed / "tier2_component_anchored_support_exports.md"),
+        source_constraints_path=args.source_constraints_file or (paths.processed / "tier2_interest_source_constraints.csv"),
+        require_source_window_ready=True,
     )
     for sector, path in written_paths.items():
         print(f"Wrote Tier 2 component support export for {sector} to {path}")
@@ -2277,7 +2278,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_interest_constraints.add_argument(
         "--row-tic-file",
         default=None,
-        help="ROW TIC SLT Table 3 holder-position file or pointer. Defaults to TDCEST_ROW_TIC_FILE or a sibling tgarefill checkout when available.",
+        help=(
+            "ROW TIC SLT Table 3 holder-position file or pointer. Defaults to TDCEST_ROW_TIC_FILE, "
+            f"else data/raw/tic/slt_table3.txt downloaded from {TIC_SLT_TABLE3_URL} when missing."
+        ),
     )
     p_interest_constraints.add_argument(
         "--out",
@@ -2430,6 +2434,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--markdown-out",
         default=None,
         help="Output Markdown summary path. Defaults to data/processed/tier2_component_anchored_support_exports.md.",
+    )
+    p_component_support.add_argument(
+        "--source-constraints-file",
+        default=None,
+        help="Tier 2 source constraints CSV. Defaults to data/processed/tier2_interest_source_constraints.csv and is required for fail-closed export.",
     )
     p_component_support.set_defaults(func=cmd_tier2_component_support_export)
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from .catalog import FredSeries, LocalSeries, all_local_support_series
+from .tier2_interest_release_manifest import COMPONENT_SUPPORT_KEYS, validate_tier2_component_release_manifest
 from .utils import parse_date_column, parse_value_column, quarterly_resample, to_float_series
 
 
@@ -47,8 +48,15 @@ def _load_local_support_series(
     frame: pd.DataFrame,
     meta: dict[str, dict],
 ) -> tuple[pd.DataFrame, dict]:
+    raw_path = Path(raw_dir)
+    component_support_present = any(
+        support_raw_path(raw_path, spec.key).exists() for spec in specs if spec.key in COMPONENT_SUPPORT_KEYS
+    )
+    component_manifest: dict[str, object] | None = None
+    if component_support_present:
+        component_manifest = validate_tier2_component_release_manifest(raw_dir=raw_path)
     for spec in specs:
-        path = support_raw_path(raw_dir, spec.key)
+        path = support_raw_path(raw_path, spec.key)
         if not path.exists():
             continue
         series = load_quarterly_fred_series(path, agg=spec.agg)
@@ -64,6 +72,9 @@ def _load_local_support_series(
             "raw_filename": path.name,
             "raw_relative_path": str(Path("data/raw") / path.name),
         }
+        if component_manifest is not None and spec.key in COMPONENT_SUPPORT_KEYS:
+            meta[spec.key]["release_manifest"] = component_manifest.get("release_id")
+            meta[spec.key]["release_schema_version"] = component_manifest.get("schema_version")
     return frame, meta
 
 

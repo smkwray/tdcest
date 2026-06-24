@@ -11,12 +11,12 @@ RCB_FIELD_MAP = {
     "treasury_htm_fair_value": ["RCFD0213", "RCON0213"],
     "treasury_afs_amortized_cost": ["RCFD1286", "RCON1286"],
     "treasury_afs_fair_value": ["RCFD1287", "RCON1287"],
-    "treasury_bucket_3m_or_less": ["RCFDA549", "RCONA549"],
-    "treasury_bucket_3_12m": ["RCFDA550", "RCONA550"],
-    "treasury_bucket_1_3y": ["RCFDA551", "RCONA551"],
-    "treasury_bucket_3_5y": ["RCFDA552", "RCONA552"],
-    "treasury_bucket_5_15y": ["RCFDA553", "RCONA553"],
-    "treasury_bucket_over_15y": ["RCFDA554", "RCONA554"],
+    "mixed_debt_bucket_3m_or_less": ["RCFDA549", "RCONA549"],
+    "mixed_debt_bucket_3_12m": ["RCFDA550", "RCONA550"],
+    "mixed_debt_bucket_1_3y": ["RCFDA551", "RCONA551"],
+    "mixed_debt_bucket_3_5y": ["RCFDA552", "RCONA552"],
+    "mixed_debt_bucket_5_15y": ["RCFDA553", "RCONA553"],
+    "mixed_debt_bucket_over_15y": ["RCFDA554", "RCONA554"],
 }
 DATE_TOKEN = re.compile(r"(\d{8})")
 
@@ -89,20 +89,21 @@ def normalize_ffiec_interest_constraints_from_extracted_root(root: Path | str) -
         ].sum(axis=1)
         out["total_treasuries_fair_value"] = out[["treasury_htm_fair_value", "treasury_afs_fair_value"]].sum(axis=1)
         bucket_cols = [
-            "treasury_bucket_3m_or_less",
-            "treasury_bucket_3_12m",
-            "treasury_bucket_1_3y",
-            "treasury_bucket_3_5y",
-            "treasury_bucket_5_15y",
-            "treasury_bucket_over_15y",
+            "mixed_debt_bucket_3m_or_less",
+            "mixed_debt_bucket_3_12m",
+            "mixed_debt_bucket_1_3y",
+            "mixed_debt_bucket_3_5y",
+            "mixed_debt_bucket_5_15y",
+            "mixed_debt_bucket_over_15y",
         ]
-        out["treasury_ladder_total"] = out[bucket_cols].sum(axis=1)
-        out["treasury_short_share_le_1y"] = (
-            out[["treasury_bucket_3m_or_less", "treasury_bucket_3_12m"]].sum(axis=1) / out["treasury_ladder_total"]
-        ).where(out["treasury_ladder_total"].ne(0))
-        out["treasury_bill_share_proxy_3m_or_less"] = (
-            out["treasury_bucket_3m_or_less"] / out["treasury_ladder_total"]
-        ).where(out["treasury_ladder_total"].ne(0))
+        out["mixed_debt_ladder_total"] = out[bucket_cols].sum(axis=1)
+        out["mixed_debt_short_share_le_1y"] = (
+            out[["mixed_debt_bucket_3m_or_less", "mixed_debt_bucket_3_12m"]].sum(axis=1)
+            / out["mixed_debt_ladder_total"]
+        ).where(out["mixed_debt_ladder_total"].ne(0))
+        out["mixed_debt_bill_share_proxy_3m_or_less"] = (
+            out["mixed_debt_bucket_3m_or_less"] / out["mixed_debt_ladder_total"]
+        ).where(out["mixed_debt_ladder_total"].ne(0))
         rows.append(out)
     if not rows:
         return pd.DataFrame()

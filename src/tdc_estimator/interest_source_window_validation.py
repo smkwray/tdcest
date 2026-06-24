@@ -5,6 +5,13 @@ from pathlib import Path
 import pandas as pd
 
 
+ALLOWED_USABLE_CONSTRAINT_STATUSES = {
+    "usable_constraint",
+    "usable_denominator_constraint",
+    "usable_level_constraint_wamest_split_fallback",
+}
+
+
 def _read(path: Path | str) -> pd.DataFrame:
     table = pd.read_csv(path)
     if "date" in table.columns:
@@ -28,7 +35,9 @@ def _quarter_flags(source: pd.DataFrame, dates: pd.Series, *, require_bill_split
                 "has_documented_fallback_split": False,
             }
         )
-    usable = source.loc[source["constraint_status"].astype(str).str.startswith("usable", na=False)].copy()
+    usable = source.loc[
+        source["constraint_status"].astype(str).isin(ALLOWED_USABLE_CONSTRAINT_STATUSES)
+    ].copy()
     usable["date"] = pd.to_datetime(usable["date"], errors="coerce").dt.normalize()
     usable = usable.dropna(subset=["date"])
     usable["has_constraint"] = True

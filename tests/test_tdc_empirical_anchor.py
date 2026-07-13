@@ -32,7 +32,6 @@ def _sample_components() -> pd.DataFrame:
                 "date": "2022-03-31",
                 "du_noninterest_outlay_proxy": 80.0,
                 "du_receipt_proxy": 20.0,
-                "du_coupon_proxy_selected_narrow": 5.0,
                 "minus_treasury_operating_cash_tx": 3.0,
                 "fed_remit_positive": 2.0,
             },
@@ -40,9 +39,30 @@ def _sample_components() -> pd.DataFrame:
                 "date": "2022-06-30",
                 "du_noninterest_outlay_proxy": 40.0,
                 "du_receipt_proxy": 70.0,
-                "du_coupon_proxy_selected_narrow": 4.0,
                 "minus_treasury_operating_cash_tx": -8.0,
                 "fed_remit_positive": 1.0,
+            },
+        ]
+    )
+
+
+def _sample_dst_du_expense() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "date": "2022-03-31",
+                "component_key": "total_core",
+                "dst_du_expense_complement_mil": 5.0,
+            },
+            {
+                "date": "2022-03-31",
+                "component_key": "coupon_accrual",
+                "dst_du_expense_complement_mil": 5.0,
+            },
+            {
+                "date": "2022-06-30",
+                "component_key": "total_core",
+                "dst_du_expense_complement_mil": 4.0,
             },
         ]
     )
@@ -52,6 +72,7 @@ def test_build_tdc_empirical_anchor_closes_identity_and_declares_boundaries() ->
     anchor, manifest = build_tdc_empirical_anchor(
         estimates=_sample_estimates(),
         components=_sample_components(),
+        dst_du_expense=_sample_dst_du_expense(),
         method_meta={"canonical_tier2_method": CANONICAL, "preferred_method": "tdc_base_bank_only_ru_flow"},
         source_hashes_by_file={"tdc_estimates.csv": "abc123"},
         generated_at_utc="2026-06-06T00:00:00+00:00",
@@ -89,6 +110,7 @@ def test_write_tdc_empirical_anchor_outputs_csv_and_manifest(tmp_path: Path) -> 
     processed.mkdir()
     _sample_estimates().to_csv(processed / "tdc_estimates.csv", index=False)
     _sample_components().to_csv(processed / "tdc_components.csv", index=False)
+    _sample_dst_du_expense().to_csv(processed / "dst_du_expense_panel.csv", index=False)
     (processed / "method_meta.json").write_text(
         json.dumps({"canonical_tier2_method": CANONICAL}),
         encoding="utf-8",
@@ -108,4 +130,5 @@ def test_write_tdc_empirical_anchor_outputs_csv_and_manifest(tmp_path: Path) -> 
         "tdc_estimates.csv",
         "tdc_components.csv",
         "method_meta.json",
+        "dst_du_expense_panel.csv",
     }

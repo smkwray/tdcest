@@ -101,6 +101,7 @@ def build_tdc_empirical_anchor(
     *,
     estimates: pd.DataFrame,
     components: pd.DataFrame,
+    dst_du_expense: pd.DataFrame,
     method_meta: dict[str, Any] | None = None,
     source_hashes_by_file: dict[str, str] | None = None,
     generated_at_utc: str | None = None,
@@ -124,9 +125,27 @@ def build_tdc_empirical_anchor(
     if merged.empty:
         raise ValueError(f"No non-null rows are available for canonical method {canonical_method}.")
 
+    expense = dst_du_expense.copy()
+    if "date" not in expense.columns:
+        raise ValueError("dst_du_expense frame must include a date column.")
+    expense["date"] = pd.to_datetime(expense["date"], errors="coerce").dt.normalize()
+    complement = expense.loc[
+        expense["component_key"] == "total_core",
+        ["date", "dst_du_expense_complement_mil"],
+    ].rename(columns={"dst_du_expense_complement_mil": "dst_du_expense_total_core_mil"})
+    merged = merged.merge(complement, on="date", how="left")
+    if merged["dst_du_expense_total_core_mil"].isna().any():
+        missing_dates = merged.loc[
+            merged["dst_du_expense_total_core_mil"].isna(), "date"
+        ].dt.date.tolist()
+        raise ValueError(
+            "DS^T_DU expense complement is missing for anchor quarters "
+            f"{missing_dates}; rebuild with `tdc dst-du-expense` first."
+        )
+
     tdc_change = pd.to_numeric(merged[canonical_method], errors="coerce")
     fiscal_flow = _numeric(merged, "du_noninterest_outlay_proxy") - _numeric(merged, "du_receipt_proxy")
-    debt_service = _numeric(merged, "du_coupon_proxy_selected_narrow")
+    debt_service = _numeric(merged, "dst_du_expense_total_core_mil")
     auction_primary_proxy = pd.Series(0.0, index=merged.index, dtype="float64")
     other_named = _numeric(merged, "minus_treasury_operating_cash_tx") + _numeric(
         merged, "fed_remit_positive"
@@ -143,7 +162,10 @@ def build_tdc_empirical_anchor(
     known_boundaries = (
         "Rows are limited to non-null canonical Tier 2 modern-method observations. "
         "Opening and closing TDC levels are cumulative accounting-index levels, not source-observed stock levels. "
-        "Fiscal flow is a tdcest aggregate outlay-minus-receipt proxy; debt service is an allocated coupon proxy. "
+        "Fiscal flow is a tdcest aggregate outlay-minus-receipt proxy; debt service is the DS^T_DU expense-layer "
+        "complement (official marketable component pools minus Fed exact and certified RU allocations) — "
+        "expense-equivalent holder incidence on a modified-accrual basis, not cash received, and it embeds the "
+        "not-yet-separated unallocated term U. "
         "Primary auction allocation is not populated from investor-class auction data in this export and is held at zero. "
         "Secondary trades are not measured directly; the residual closes the reconciliation identity. "
         "Other is limited to named Treasury/Fed cash effects from the processed component table."
@@ -215,6 +237,7 @@ def write_tdc_empirical_anchor(
     estimates_file: Path | str | None = None,
     components_file: Path | str | None = None,
     method_meta_file: Path | str | None = None,
+    dst_du_expense_file: Path | str | None = None,
     out: Path | str | None = None,
     manifest_out: Path | str | None = None,
     generated_at_utc: str | None = None,
@@ -223,16 +246,23 @@ def write_tdc_empirical_anchor(
     estimates_path = Path(estimates_file) if estimates_file else processed / "tdc_estimates.csv"
     components_path = Path(components_file) if components_file else processed / "tdc_components.csv"
     method_meta_path = Path(method_meta_file) if method_meta_file else processed / "method_meta.json"
+    dst_du_expense_path = (
+        Path(dst_du_expense_file) if dst_du_expense_file else processed / "dst_du_expense_panel.csv"
+    )
     out_path = Path(out) if out else processed / "tdc_empirical_anchor.csv"
     manifest_path = Path(manifest_out) if manifest_out else processed / "tdc_empirical_anchor_manifest.json"
 
     estimates = _read_date_csv(estimates_path)
     components = _read_date_csv(components_path)
+    dst_du_expense = _read_date_csv(dst_du_expense_path)
     method_meta = json.loads(method_meta_path.read_text(encoding="utf-8")) if method_meta_path.exists() else {}
-    source_hashes = _source_hashes([estimates_path, components_path, method_meta_path])
+    source_hashes = _source_hashes(
+        [estimates_path, components_path, method_meta_path, dst_du_expense_path]
+    )
     anchor, manifest = build_tdc_empirical_anchor(
         estimates=estimates,
         components=components,
+        dst_du_expense=dst_du_expense,
         method_meta=method_meta,
         source_hashes_by_file=source_hashes,
         generated_at_utc=generated_at_utc,

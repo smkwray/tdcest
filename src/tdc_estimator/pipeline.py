@@ -351,7 +351,6 @@ def run_estimation_pipeline(
     for column in [
         "tdc_du_fiscal_flow_first_pass_narrow",
         "tdc_du_fiscal_flow_first_pass_broad",
-        "tdc_du_selected_domestic_nonfinancial_proxy",
         "tdc_du_residual_proxy_bank_only_ru",
         "tdc_du_residual_proxy_np_cu_ru",
         "tdc_du_residual_proxy_np_corp_cu_ru",
@@ -374,7 +373,6 @@ def run_estimation_pipeline(
         "du_coupon_proxy_direct_broad",
         "du_coupon_proxy_residual",
         "du_coupon_proxy_primary",
-        "du_coupon_proxy_selected_narrow",
     ]:
         if column in du_fiscal_flow_research.columns:
             components[column] = du_fiscal_flow_research[column]
@@ -387,9 +385,6 @@ def run_estimation_pipeline(
             ),
             "tdc_du_fiscal_flow_first_pass_broad": (
                 "Residual DU-facing fiscal-flow estimate using total Treasury cash totals, a residual DU Treasury-security purchase term, and residual DU coupon interest."
-            ),
-            "tdc_du_selected_domestic_nonfinancial_proxy": (
-                "Selected domestic nonfinancial DU-side diagnostic using the partial domestic-nonfinancial Treasury-security flow, DU noninterest outlays, DU receipts, and the direct narrow coupon diagnostic. Not a full DU residual object."
             ),
             "tdc_du_residual_proxy_bank_only_ru": (
                 "DU residual sensitivity where credit unions remain inside DU and only Fed, ROW, and banks are removed from all-sector Treasury-security transactions."
@@ -412,9 +407,6 @@ def run_estimation_pipeline(
             ),
             "tdc_du_fiscal_flow_first_pass_broad": (
                 "DU residual proxy = - residual DU Treasury-security purchases + DU noninterest outlay proxy - DU receipt proxy + DU residual coupon proxy. Residual DU Treasury-security purchases equal all-sector Treasury-security transactions minus Fed, ROW, bank, and credit-union Treasury-security transactions. DU residual coupon equals gross Treasury interest minus Fed, bank, and ROW coupon proxies."
-            ),
-            "tdc_du_selected_domestic_nonfinancial_proxy": (
-                "Selected DU proxy = selected domestic-nonfinancial security-flow proxy + DU noninterest outlay proxy - DU receipt proxy - direct narrow coupon diagnostic. This is a narrow selected-sector diagnostic, not a full residual DU estimate."
             ),
             "tdc_du_residual_proxy_bank_only_ru": (
                 "DU residual, bank-only RU perimeter = - (all-sector Treasury-security transactions - Fed - ROW - bank Treasury-security transactions) + DU noninterest outlay proxy - DU receipt proxy + DU residual coupon proxy."

@@ -94,7 +94,6 @@ def test_build_du_fiscal_flow_research_computes_first_pass_terms(tmp_path: Path)
     assert pd.isna(latest["du_coupon_proxy_direct_narrow"])
     assert pd.isna(latest["du_coupon_proxy_direct_broad"])
     assert latest["du_coupon_proxy_primary"] == latest["du_coupon_proxy_residual"]
-    assert latest["du_coupon_proxy_selected_narrow"] == latest["du_coupon_proxy_residual"]
     assert latest["tdc_du_fiscal_flow_first_pass_narrow"] == -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
     assert latest["tdc_du_fiscal_flow_first_pass_broad"] == (
         -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
@@ -103,9 +102,6 @@ def test_build_du_fiscal_flow_research_computes_first_pass_terms(tmp_path: Path)
         -(100.0 - 6.0 - 10.0 - 8.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0)
     )
     assert latest["tdc_du_residual_proxy_full_cu_ru"] == latest["tdc_du_fiscal_flow_first_pass_narrow"]
-    assert latest["tdc_du_selected_domestic_nonfinancial_proxy"] == (
-        20.0 + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) - (36.0 - 1.0 - 2.0 - 3.0)
-    )
 
 
 def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_sector_sums(tmp_path: Path):
@@ -394,7 +390,6 @@ def test_build_du_fiscal_flow_research_prefers_direct_wamest_du_coupon_proxies(t
     assert round(float(latest["du_coupon_proxy_direct_narrow"]), 6) == round(expected_narrow_coupon, 6)
     assert round(float(latest["du_coupon_proxy_direct_broad"]), 6) == round(expected_broad_coupon, 6)
     assert round(float(latest["du_coupon_proxy_primary"]), 6) == round(36.0 - 1.0 - 2.0 - 3.0, 6)
-    assert round(float(latest["du_coupon_proxy_selected_narrow"]), 6) == round(expected_narrow_coupon, 6)
     assert round(float(latest["tdc_du_fiscal_flow_first_pass_narrow"]), 6) == round(
         -(100.0 - 6.0 - 10.0 - 8.0 - 4.0) + (360.0 - 36.0 - 4.0 - 5.0) - (270.0 - 12.0 - 6.0 - 7.0) + (36.0 - 1.0 - 2.0 - 3.0),
         6,

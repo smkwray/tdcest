@@ -48,6 +48,15 @@ DEFAULT_WAMEST_COUPON_PANEL_SUPPLEMENT_CANDIDATES = [
     Path("data/interim/z1_sector_panel_full.csv"),
     Path("data/external/normalized/z1_series_fred.csv"),
 ]
+# Project-local Z.1 level series for DU sectors absent from the wamest panel
+# exports (added 2026-07-13 for the DS^T_DU direct allocator; values in $M).
+DU_LEVEL_SUPPLEMENT_SERIES = {
+    "life_insurers": "fred__du_life_insurers_tsy_level.csv",
+    "nonfinancial_noncorporate_business": "fred__du_noncorporate_tsy_level.csv",
+    "private_defined_benefit_pensions": "fred__du_private_db_pensions_tsy_level.csv",
+    "private_defined_contribution_pensions": "fred__du_private_dc_pensions_tsy_level.csv",
+    "property_casualty_insurers": "fred__du_pc_insurers_tsy_level.csv",
+}
 
 
 def _maybe(frame: pd.DataFrame, column: str, index: pd.DatetimeIndex) -> pd.Series:
@@ -149,12 +158,42 @@ def _sum_wamest_sector_transactions(
     return pd.to_numeric(series, errors="coerce").reindex(index)
 
 
+def _du_level_supplement_frame(level_supplement_dir: Path | str | None) -> pd.DataFrame:
+    if level_supplement_dir is None:
+        return pd.DataFrame()
+    from .io import load_quarterly_fred_series
+
+    directory = Path(level_supplement_dir)
+    rows: list[pd.DataFrame] = []
+    for sector_key, filename in DU_LEVEL_SUPPLEMENT_SERIES.items():
+        path = directory / filename
+        if not path.exists():
+            continue
+        series = load_quarterly_fred_series(path, agg="last")
+        frame = pd.DataFrame(
+            {
+                "date": series.index,
+                "sector_key": sector_key,
+                "level": pd.to_numeric(series.values, errors="coerce"),
+            }
+        )
+        frame["level_units"] = "millions"
+        rows.append(frame.dropna(subset=["level"]))
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat(rows, ignore_index=True)
+
+
 def _load_du_coupon_sector_panel(
     root: Path,
     default_panel_path: Path,
+    level_supplement_dir: Path | str | None = None,
 ) -> pd.DataFrame:
     base_panel = read_sector_panel_table(default_panel_path)
     panels = [base_panel]
+    project_supplement = _du_level_supplement_frame(level_supplement_dir)
+    if not project_supplement.empty:
+        panels.append(project_supplement)
     for candidate in DEFAULT_WAMEST_COUPON_PANEL_SUPPLEMENT_CANDIDATES:
         path = root / candidate
         if path.resolve() == default_panel_path.resolve():
@@ -180,6 +219,7 @@ def _load_direct_du_coupon_proxies_from_wamest(
     wamest_root: Path | str | None = None,
     narrow_sector_keys: tuple[str, ...] = DEFAULT_DU_NARROW_COUPON_SECTOR_KEYS,
     broad_sector_keys: tuple[str, ...] = DEFAULT_DU_BROAD_COUPON_SECTOR_KEYS,
+    level_supplement_dir: Path | str | None = None,
 ) -> tuple[pd.Series, pd.Series]:
     empty_narrow = pd.Series(index=index, dtype="float64", name="du_coupon_proxy_direct_narrow")
     empty_broad = pd.Series(index=index, dtype="float64", name="du_coupon_proxy_direct_broad")
@@ -195,7 +235,9 @@ def _load_direct_du_coupon_proxies_from_wamest(
 
     try:
         sector_maturity = read_sector_maturity_table(sector_maturity_path)
-        sector_panel = _load_du_coupon_sector_panel(root, sector_panel_path)
+        sector_panel = _load_du_coupon_sector_panel(
+            root, sector_panel_path, level_supplement_dir=level_supplement_dir
+        )
         curves = read_table(curve_path)
         narrow = estimate_quarterly_sector_coupon_interest_proxy(
             sector_maturity=sector_maturity,
@@ -379,11 +421,11 @@ def build_du_fiscal_flow_research(
     direct_narrow_coupon, direct_broad_coupon = _load_direct_du_coupon_proxies_from_wamest(
         index=index,
         wamest_root=wamest_root,
+        level_supplement_dir=Path(mts_outlays_path).parent,
     )
     out["du_coupon_proxy_direct_narrow"] = direct_narrow_coupon
     out["du_coupon_proxy_direct_broad"] = direct_broad_coupon
     out["du_coupon_proxy_primary"] = out["du_coupon_proxy_residual"]
-    out["du_coupon_proxy_selected_narrow"] = _blend(direct_narrow_coupon, out["du_coupon_proxy_residual"])
 
     out["tdc_du_fiscal_flow_first_pass_narrow"] = (
         out["du_residual_security_flow_proxy"]
@@ -397,12 +439,10 @@ def build_du_fiscal_flow_research(
         - out["du_receipt_proxy"]
         + out["du_coupon_proxy_primary"]
     )
-    out["tdc_du_selected_domestic_nonfinancial_proxy"] = (
-        out["du_domestic_nonfinancial_security_flow_proxy"]
-        + out["du_noninterest_outlay_proxy"]
-        - out["du_receipt_proxy"]
-        - out["du_coupon_proxy_selected_narrow"]
-    )
+    # tdc_du_selected_domestic_nonfinancial_proxy and du_coupon_proxy_selected_narrow
+    # were retired 2026-07-13: the row subtracted DU interest inside a DU-frame
+    # identity (wrong frame, never derived) and the blend spliced two incompatible
+    # constructions. Adjudication: DS^T_DU identity note (2026-07-13), section 5.
     for suffix, purchase_column in [
         ("bank_only_ru", "du_residual_tsy_purchase_bank_only_ru_proxy"),
         ("np_cu_ru", "du_residual_tsy_purchase_np_cu_ru_proxy"),

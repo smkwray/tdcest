@@ -33,6 +33,22 @@ REGRESSION_TDC_COLUMNS = [
     "tdc_tier2_regression_depository_institution_np_cu_ru_flow",
 ]
 
+MODERN_SPLICE_SUPPORT_FILES = {
+    "bank": (
+        "support__bank_tier2_component_interest_proxy.csv",
+        "bank_tier2_regression_interest_proxy",
+    ),
+    "credit_union": (
+        "support__credit_union_tier2_component_interest_proxy.csv",
+        "credit_union_tier2_regression_interest_proxy",
+    ),
+    "row": (
+        "support__row_tier2_component_interest_proxy.csv",
+        "row_tier2_regression_interest_proxy",
+    ),
+}
+MODERN_SPLICE_TOLERANCE_MILLIONS = 1e-6
+
 
 def _read_date_csv(path: Path | str) -> pd.DataFrame:
     df = pd.read_csv(path)
@@ -62,6 +78,58 @@ def _combine_tiers(frame: pd.DataFrame, columns: list[str]) -> pd.Series:
         return "mixed:" + "|".join(unique)
 
     return values.apply(combine, axis=1)
+
+
+def validate_regression_backcast_modern_splice(
+    regression_backcast_wide: pd.DataFrame,
+    component_support_dir: Path | str,
+    *,
+    tolerance: float = MODERN_SPLICE_TOLERANCE_MILLIONS,
+) -> None:
+    """Fail closed if the wide backcast's modern splice drifted from the certified
+    component supports.
+
+    A support file that is absent is skipped (support export is a separate stage);
+    a support file that is present must overlap the backcast and match exactly to
+    release rounding on every overlapping quarter.
+    """
+    support_dir = Path(component_support_dir)
+    backcast = regression_backcast_wide.copy()
+    backcast["date"] = pd.to_datetime(backcast["date"], errors="coerce").dt.normalize()
+    failures: list[str] = []
+    for sector, (filename, column) in MODERN_SPLICE_SUPPORT_FILES.items():
+        path = support_dir / filename
+        if not path.exists():
+            continue
+        if column not in backcast.columns:
+            failures.append(f"{sector}: backcast is missing column {column}")
+            continue
+        support = pd.read_csv(path)
+        support.columns = ["date", "support_value"]
+        support["date"] = pd.to_datetime(support["date"], errors="coerce").dt.normalize()
+        merged = backcast[["date", column]].merge(support, on="date", how="inner")
+        if merged.empty:
+            failures.append(
+                f"{sector}: certified support {filename} has no date overlap with the backcast"
+            )
+            continue
+        gaps = (
+            pd.to_numeric(merged[column], errors="coerce")
+            - pd.to_numeric(merged["support_value"], errors="coerce")
+        ).abs()
+        worst = gaps.max()
+        if pd.isna(worst) or worst > tolerance:
+            worst_date = merged.loc[gaps.idxmax(), "date"].date()
+            failures.append(
+                f"{sector}: stale modern splice — max |backcast - certified support| "
+                f"= {worst:.6f} million at {worst_date} (tolerance {tolerance})"
+            )
+    if failures:
+        raise ValueError(
+            "Regression backcast modern splice does not match the certified component "
+            "supports; regenerate tier2-regression-backcast before building the series. "
+            + " | ".join(failures)
+        )
 
 
 def build_tier2_regression_series(
@@ -209,11 +277,15 @@ def write_tier2_regression_series(
     regression_backcast_wide_path: Path | str,
     out_csv_path: Path | str,
     out_markdown_path: Path | str,
+    component_support_dir: Path | str | None = None,
 ) -> tuple[Path, Path, pd.DataFrame]:
+    backcast_wide = _read_date_csv(regression_backcast_wide_path)
+    if component_support_dir is not None:
+        validate_regression_backcast_modern_splice(backcast_wide, component_support_dir)
     series = build_tier2_regression_series(
         estimates=_read_date_csv(estimates_path),
         components=_read_date_csv(components_path),
-        regression_backcast_wide=_read_date_csv(regression_backcast_wide_path),
+        regression_backcast_wide=backcast_wide,
     )
     out_csv = Path(out_csv_path)
     out_csv.parent.mkdir(parents=True, exist_ok=True)

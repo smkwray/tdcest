@@ -126,7 +126,7 @@ def _sector_rows(
         if has_interval
         else denominator
     )
-    status = "candidate_not_default"
+    status = "component_allocated"
     if denominator <= 0.0:
         status = "missing_or_zero_denominator"
 
@@ -187,7 +187,7 @@ def _sector_rows(
                 "current_raw_proxy_mil": current_value,
                 "difference_from_current_raw_proxy_mil": difference,
                 "allocation_status": status,
-                "candidate_default_status": "diagnostic_only_live_default_unchanged",
+                "candidate_default_status": "feeds_live_default_via_certified_support_export",
             }
         )
     return rows

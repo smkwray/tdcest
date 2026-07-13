@@ -61,7 +61,11 @@ def test_build_tier2_interest_component_candidate_allocates_component_pools():
     assert coupon.loc["credit_union", "component_anchored_interest_mil"] == 1750.0
     assert bills.loc["bank", "component_anchored_interest_mil"] == 400.0
     assert bills.loc["row", "component_anchored_interest_mil"] == 800.0
-    assert "diagnostic_only" in coupon.loc["bank", "candidate_default_status"]
+    assert (
+        coupon.loc["bank", "candidate_default_status"]
+        == "feeds_live_default_via_certified_support_export"
+    )
+    assert coupon.loc["bank", "allocation_status"] == "component_allocated"
 
 
 def test_build_tier2_interest_component_candidate_subtracts_fed_bill_component():

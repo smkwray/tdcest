@@ -1,4 +1,6 @@
 do/
+CLAUDE.md
+AGENTS.md
 dist/
 output/
 .playwright-cli/

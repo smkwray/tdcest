@@ -76,6 +76,16 @@ from .tier2_component_support_export import write_tier2_component_support_export
 from .tier2_cu_split_sensitivity import write_tier2_cu_split_sensitivity
 from .tier2_interest_default_switch_review import write_tier2_interest_default_switch_review
 from .tier2_live_delta_acceptance import write_tier2_live_delta_acceptance
+from .dst_du_expense import write_dst_du_expense_panel
+from .dst_du_long_history import write_dst_du_long_history
+from .dst_du_release_manifest import (
+    build_dst_du_release_manifest,
+    validate_dst_du_release_manifest,
+)
+from .nonmarketable_sidecar import write_nonmarketable_sidecar
+from .tier3_du_share_diagnostic import write_tier3_du_share_diagnostic
+from .dst_du_reconciliation import write_dst_du_reconciliation
+from .dst_du_sector_allocation import write_dst_du_sector_allocation
 from .tier2_regression_backcast import write_tier2_regression_backcast
 from .tier2_regression_series import write_tier2_regression_series
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
@@ -1307,9 +1317,152 @@ def cmd_tier2_regression_series(args: argparse.Namespace) -> int:
         or (paths.processed / "tier2_regression_interest_backcast_wide.csv"),
         out_csv_path=args.out or (paths.processed / "tdc_tier2_regression_series.csv"),
         out_markdown_path=args.markdown_out or (paths.processed / "tdc_tier2_regression_series.md"),
+        component_support_dir=paths.raw,
     )
     print(f"Wrote Tier 2 regression-corrected TDC series to {csv_path}")
     print(f"Wrote Tier 2 regression-corrected TDC summary to {md_path}")
+    return 0
+
+
+def cmd_dst_du_expense(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    csv_path, md_path, panel = write_dst_du_expense_panel(
+        candidate_path=args.candidate_file
+        or (paths.processed / "tier2_interest_component_candidate.csv"),
+        manifest_path=args.manifest_file
+        or (paths.raw / "support__tier2_component_release_manifest.json"),
+        out_csv_path=args.out or (paths.processed / "dst_du_expense_panel.csv"),
+        out_markdown_path=args.markdown_out or (paths.processed / "dst_du_expense_panel.md"),
+    )
+    print(f"Wrote DS^T_DU expense complement panel to {csv_path}")
+    print(f"Wrote DS^T_DU expense complement summary to {md_path}")
+    print(f"Generated {len(panel)} panel rows")
+    return 0
+
+
+def cmd_dst_du_sector_allocation(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    from .du_fiscal_flow_research import _resolve_wamest_root
+    from .sector_coupon import resolve_wamest_artifact_paths
+
+    maturity_file = args.sector_maturity_file
+    if maturity_file is None:
+        root = _resolve_wamest_root(args.wamest_root)
+        if root is None:
+            raise SystemExit("Provide --sector-maturity-file or --wamest-root.")
+        maturity_file, _, _ = resolve_wamest_artifact_paths(root)
+    csv_path, md_path, panel = write_dst_du_sector_allocation(
+        expense_panel_path=args.expense_file
+        or (paths.processed / "dst_du_expense_panel.csv"),
+        raw_dir=paths.raw,
+        sector_maturity_path=maturity_file,
+        out_csv_path=args.out or (paths.processed / "dst_du_sector_allocation_panel.csv"),
+        out_markdown_path=args.markdown_out
+        or (paths.processed / "dst_du_sector_allocation_panel.md"),
+    )
+    print(f"Wrote DS^T_DU sector allocation panel to {csv_path}")
+    print(f"Wrote DS^T_DU sector allocation summary to {md_path}")
+    print(f"Generated {len(panel)} allocation rows")
+    return 0
+
+
+def cmd_dst_du_reconciliation(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    from .du_fiscal_flow_research import _resolve_wamest_root
+    from .sector_coupon import resolve_wamest_artifact_paths
+
+    maturity_file, curves_file = args.sector_maturity_file, args.curves_file
+    if maturity_file is None or curves_file is None:
+        root = _resolve_wamest_root(args.wamest_root)
+        if root is None:
+            raise SystemExit("Provide --sector-maturity-file/--curves-file or --wamest-root.")
+        resolved_maturity, _, resolved_curves = resolve_wamest_artifact_paths(root)
+        maturity_file = maturity_file or resolved_maturity
+        curves_file = curves_file or resolved_curves
+    csv_path, md_path, _, manifest = write_dst_du_reconciliation(
+        expense_panel_path=args.expense_file
+        or (paths.processed / "dst_du_expense_panel.csv"),
+        raw_dir=paths.raw,
+        sector_maturity_path=maturity_file,
+        curves_path=curves_file,
+        out_csv_path=args.out or (paths.processed / "dst_du_reconciliation.csv"),
+        out_markdown_path=args.markdown_out
+        or (paths.processed / "dst_du_reconciliation.md"),
+        out_manifest_path=args.manifest_out
+        or (paths.processed / "dst_du_reconciliation_manifest.json"),
+    )
+    print(f"Wrote DS^T_DU reconciliation to {csv_path} and {md_path}")
+    print(f"Outcome: {manifest['outcome']}")
+    return 0
+
+
+def cmd_dst_du_long_history(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    csv_path, md_path, frame, manifest = write_dst_du_long_history(
+        expense_panel_path=args.expense_file
+        or (paths.processed / "dst_du_expense_panel.csv"),
+        du_research_path=args.du_research_file
+        or (paths.processed / "tdc_du_fiscal_flow_research.csv"),
+        components_path=args.components_file or (paths.processed / "tdc_components.csv"),
+        ru_backcast_wide_path=args.backcast_wide_file
+        or (paths.processed / "tier2_regression_interest_backcast_wide.csv"),
+        out_csv_path=args.out or (paths.processed / "dst_du_long_history.csv"),
+        out_markdown_path=args.markdown_out
+        or (paths.processed / "dst_du_long_history.md"),
+        out_manifest_path=args.manifest_out
+        or (paths.processed / "dst_du_long_history_manifest.json"),
+    )
+    print(f"Wrote DS^T_DU long-history row to {csv_path} ({len(frame)} quarters)")
+    print(f"Backtest: {manifest['rolling_origin_backtest']}")
+    return 0
+
+
+def cmd_dst_du_release_manifest(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    manifest_path = args.out or (paths.processed / "dst_du_release_manifest.json")
+    manifest = build_dst_du_release_manifest(
+        processed_dir=paths.processed, raw_dir=paths.raw, manifest_path=manifest_path
+    )
+    validate_dst_du_release_manifest(
+        processed_dir=paths.processed, raw_dir=paths.raw, manifest_path=manifest_path
+    )
+    print(f"Wrote and validated DS^T_DU release manifest {manifest['build_id']} at {manifest_path}")
+    print(f"Automatic outcome: {manifest['gate_classification']['automatic_outcome']}")
+    return 0
+
+
+def cmd_dst_du_nonmarketable_sidecar(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    csv_path, md_path, panel = write_nonmarketable_sidecar(
+        interest_expense_path=args.interest_expense_file
+        or (paths.raw / "treasury__interest_expense.csv"),
+        out_csv_path=args.out or (paths.processed / "nonmarketable_sidecar.csv"),
+        out_markdown_path=args.markdown_out
+        or (paths.processed / "nonmarketable_sidecar.md"),
+    )
+    print(f"Wrote nonmarketable sidecars to {csv_path} ({len(panel)} quarters)")
+    return 0
+
+
+def cmd_tier3_du_share_diagnostic(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    ensure_project_dirs(paths)
+    csv_path, md_path, panel = write_tier3_du_share_diagnostic(
+        du_research_path=paths.processed / "tdc_du_fiscal_flow_research.csv",
+        bank_bridge_path=paths.processed / "tdc_bank_corp_tax_receipts_bridge_extended.csv",
+        bea_row_path=paths.processed / "tdc_bea_row_receipts_anchor_extended.csv",
+        mts_targets_path=paths.raw / "treasury__mts_outlays_stitched_targets.csv",
+        out_csv_path=args.out or (paths.processed / "tier3_du_share_diagnostic.csv"),
+        out_markdown_path=args.markdown_out
+        or (paths.processed / "tier3_du_share_diagnostic.md"),
+    )
+    print(f"Wrote Tier 3 DU-share diagnostic to {csv_path} ({len(panel)} quarters)")
     return 0
 
 
@@ -1427,6 +1580,7 @@ def cmd_tdc_empirical_anchor(args: argparse.Namespace) -> int:
         estimates_file=args.estimates_file,
         components_file=args.components_file,
         method_meta_file=args.method_meta_file,
+        dst_du_expense_file=args.dst_du_expense_file,
         out=args.out,
         manifest_out=args.manifest_out,
     )
@@ -2698,7 +2852,118 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output manifest JSON path. Defaults to data/processed/tdc_empirical_anchor_manifest.json.",
     )
+    p_tdc_empirical_anchor.add_argument(
+        "--dst-du-expense-file",
+        default=None,
+        help="DS^T_DU expense complement panel CSV. Defaults to data/processed/dst_du_expense_panel.csv.",
+    )
     p_tdc_empirical_anchor.set_defaults(func=cmd_tdc_empirical_anchor)
+
+    p_dst_du_expense = sub.add_parser(
+        "dst-du-expense",
+        parents=[root_parent],
+        help="Build the DS^T_DU expense/control complement panel (never additive to Tier 2).",
+    )
+    p_dst_du_expense.add_argument(
+        "--candidate-file",
+        default=None,
+        help="Tier 2 component candidate CSV. Defaults to data/processed/tier2_interest_component_candidate.csv.",
+    )
+    p_dst_du_expense.add_argument(
+        "--manifest-file",
+        default=None,
+        help="Component support release manifest JSON (certified dates). Defaults to data/raw/support__tier2_component_release_manifest.json.",
+    )
+    p_dst_du_expense.add_argument(
+        "--out",
+        default=None,
+        help="Output CSV path. Defaults to data/processed/dst_du_expense_panel.csv.",
+    )
+    p_dst_du_expense.add_argument(
+        "--markdown-out",
+        default=None,
+        help="Output Markdown path. Defaults to data/processed/dst_du_expense_panel.md.",
+    )
+    p_dst_du_expense.set_defaults(func=cmd_dst_du_expense)
+
+    p_dst_du_alloc = sub.add_parser(
+        "dst-du-sector-allocation",
+        parents=[root_parent],
+        help="Allocate the DS^T_DU expense complement across the DU holder universe by position shares.",
+    )
+    p_dst_du_alloc.add_argument(
+        "--expense-file",
+        default=None,
+        help="DS^T_DU expense panel CSV. Defaults to data/processed/dst_du_expense_panel.csv.",
+    )
+    p_dst_du_alloc.add_argument(
+        "--sector-maturity-file",
+        default=None,
+        help="wamest canonical sector maturity CSV (coupon shares). Resolved from --wamest-root when omitted.",
+    )
+    p_dst_du_alloc.add_argument(
+        "--wamest-root",
+        default=None,
+        help="Optional wamest repo root for resolving the sector maturity file.",
+    )
+    p_dst_du_alloc.add_argument("--out", default=None, help="Output CSV path.")
+    p_dst_du_alloc.add_argument("--markdown-out", default=None, help="Output Markdown path.")
+    p_dst_du_alloc.set_defaults(func=cmd_dst_du_sector_allocation)
+
+    p_dst_du_recon = sub.add_parser(
+        "dst-du-reconciliation",
+        parents=[root_parent],
+        help="Evaluate the DS^T_DU residual-vs-direct promotion gates and emit the automatic outcome.",
+    )
+    p_dst_du_recon.add_argument("--expense-file", default=None)
+    p_dst_du_recon.add_argument("--sector-maturity-file", default=None)
+    p_dst_du_recon.add_argument("--curves-file", default=None)
+    p_dst_du_recon.add_argument("--wamest-root", default=None)
+    p_dst_du_recon.add_argument("--out", default=None)
+    p_dst_du_recon.add_argument("--markdown-out", default=None)
+    p_dst_du_recon.add_argument("--manifest-out", default=None)
+    p_dst_du_recon.set_defaults(func=cmd_dst_du_reconciliation)
+
+    p_dst_du_long = sub.add_parser(
+        "dst-du-long-history",
+        parents=[root_parent],
+        help="Build the era-tiered long-history DS^T_DU expense-equivalent row with backtest.",
+    )
+    p_dst_du_long.add_argument("--expense-file", default=None)
+    p_dst_du_long.add_argument("--du-research-file", default=None)
+    p_dst_du_long.add_argument("--components-file", default=None)
+    p_dst_du_long.add_argument("--backcast-wide-file", default=None)
+    p_dst_du_long.add_argument("--out", default=None)
+    p_dst_du_long.add_argument("--markdown-out", default=None)
+    p_dst_du_long.add_argument("--manifest-out", default=None)
+    p_dst_du_long.set_defaults(func=cmd_dst_du_long_history)
+
+    p_tier3_du_share = sub.add_parser(
+        "tier3-du-share-diagnostic",
+        parents=[root_parent],
+        help="Build the two-series DU-facing share diagnostic (noninterest fiscal core, banded).",
+    )
+    p_tier3_du_share.add_argument("--out", default=None)
+    p_tier3_du_share.add_argument("--markdown-out", default=None)
+    p_tier3_du_share.set_defaults(func=cmd_tier3_du_share_diagnostic)
+
+    p_dst_du_sidecar = sub.add_parser(
+        "dst-du-nonmarketable-sidecar",
+        parents=[root_parent],
+        help="Build the savings-bond/SLGS/GAS nonmarketable expense sidecars with locked labels.",
+    )
+    p_dst_du_sidecar.add_argument("--interest-expense-file", default=None)
+    p_dst_du_sidecar.add_argument("--out", default=None)
+    p_dst_du_sidecar.add_argument("--markdown-out", default=None)
+    p_dst_du_sidecar.set_defaults(func=cmd_dst_du_nonmarketable_sidecar)
+
+    p_dst_du_manifest = sub.add_parser(
+        "dst-du-release-manifest",
+        parents=[root_parent],
+        help="Build and validate the transitive DS^T_DU release manifest (all input+output hashes).",
+    )
+    p_dst_du_manifest.add_argument("--out", default=None)
+    p_dst_du_manifest.set_defaults(func=cmd_dst_du_release_manifest)
 
     p_ratewall_du_ru = sub.add_parser(
         "ratewall-du-ru-methodology",

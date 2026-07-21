@@ -133,6 +133,39 @@ def test_component_support_export_blocks_truncated_candidate_window() -> None:
         assert_component_support_source_window_ready(candidate=truncated, constraints=_constraints())
 
 
+def test_component_support_export_ignores_candidate_dates_after_certified_window(tmp_path: Path) -> None:
+    candidate = pd.concat(
+        [
+            _candidate(),
+            pd.DataFrame(
+                [
+                    {
+                        "date": "2026-03-31",
+                        "sector_group": sector,
+                        "component_key": "coupon_accrual",
+                        "component_anchored_interest_mil": value,
+                    }
+                    for sector, value in [("bank", 130.0), ("row", 60.0), ("credit_union", 11.0)]
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    candidate_path = tmp_path / "candidate.csv"
+    constraints_path = tmp_path / "constraints.csv"
+    candidate.to_csv(candidate_path, index=False)
+    _constraints().to_csv(constraints_path, index=False)
+
+    _, _, exports = write_tier2_component_support_exports(
+        candidate_path=candidate_path,
+        out_dir=tmp_path / "raw",
+        markdown_path=tmp_path / "support_exports.md",
+        source_constraints_path=constraints_path,
+    )
+
+    assert exports["bank"]["date"].tolist() == default_component_release_dates()
+
+
 def test_component_support_export_blocks_bogus_usable_status() -> None:
     constraints = _constraints()
     constraints.loc[0, "constraint_status"] = "usable_nonsense_future_status"

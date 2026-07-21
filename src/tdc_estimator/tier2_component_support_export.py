@@ -51,6 +51,9 @@ def assert_component_support_source_window_ready(
     candidate_window["date"] = pd.to_datetime(candidate_window["date"], errors="coerce").dt.normalize()
     if min_date is not None:
         candidate_window = candidate_window.loc[candidate_window["date"].ge(pd.Timestamp(min_date).normalize())].copy()
+    candidate_window = candidate_window.loc[
+        candidate_window["date"].le(pd.Timestamp(expected[-1]).normalize())
+    ].copy()
     actual_dates = sorted(candidate_window["date"].dropna().dt.date.astype(str).unique().tolist())
     if actual_dates != expected:
         raise ValueError(
@@ -77,6 +80,7 @@ def assert_component_support_source_window_ready(
     work["date"] = pd.to_datetime(work["date"], errors="coerce").dt.normalize()
     if min_date is not None:
         work = work.loc[work["date"].ge(pd.Timestamp(min_date).normalize())].copy()
+    work = work.loc[work["date"].le(pd.Timestamp(expected[-1]).normalize())].copy()
     if work.empty:
         raise ValueError("Tier 2 component support export blocked: no source-window rows overlap the export window.")
     validation_dates = sorted(work["date"].dropna().dt.date.astype(str).unique().tolist())
@@ -181,7 +185,9 @@ def write_tier2_component_support_exports(
             )
         constraints = pd.read_csv(source_constraints_path)
         assert_component_support_source_window_ready(candidate=candidate, constraints=constraints, expected_dates=expected)
-    exports = build_tier2_component_support_exports(candidate)
+    candidate_dates = pd.to_datetime(candidate["date"], errors="coerce").dt.date.astype(str)
+    release_candidate = candidate.loc[candidate_dates.isin(expected)].copy()
+    exports = build_tier2_component_support_exports(release_candidate)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stage = out / f".tier2_component_support_stage_{uuid.uuid4().hex}"

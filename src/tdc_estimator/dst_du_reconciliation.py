@@ -4,8 +4,8 @@ Compares the expense-layer complement (residual form: pool minus RU legs) with
 an INDEPENDENT direct construction (DU-universe Treasury positions times curve
 yields, the same machinery used for the certified RU proxies) per component
 family over the certified window, then evaluates the canonical promotion gates
-verbatim from the project's 2026-07 promotion-gate specification
-(internal audit notes) and emits the automatic outcome:
+verbatim from the project's 2026-07 promotion-gate specification and emits the
+automatic outcome:
 
 - all gates pass                      -> promotable_modern_aggregate
 - aggregate passes, allocation fails  -> canonical_aggregate_research_sector_split

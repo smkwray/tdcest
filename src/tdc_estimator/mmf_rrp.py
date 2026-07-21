@@ -243,6 +243,7 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
                 "ACCESSION_NUMBER",
                 "NAMEOFISSUER",
                 "TITLEOFISSUER",
+                "CUSIP_NUMBER",
                 "INVESTMENTCATEGORY",
                 "INCLUDINGVALUEOFANYSPONSORSUPP",
                 "EXCLUDINGVALUEOFANYSPONSORSUPP",
@@ -286,7 +287,13 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
         sec["NAMEOFISSUER"].fillna("").astype(str) + " " + sec["TITLEOFISSUER"].fillna("").astype(str)
     )
     is_treasury = category.str.contains("U.S. Treasury Debt", case=False, regex=False)
-    is_bill = is_treasury & issuer_title.str.contains("Treasury Bill|T-Bill|\\bBill\\b", case=False, regex=True)
+    cusip = sec["CUSIP_NUMBER"].fillna("").astype(str).str.replace(
+        r"[^A-Za-z0-9]", "", regex=True
+    ).str.upper()
+    is_bill = is_treasury & (
+        cusip.str.startswith(("912796", "912797"))
+        | issuer_title.str.contains("Treasury Bill|T-Bill|\\bBill\\b", case=False, regex=True)
+    )
     is_repo = category.str.contains("Repurchase Agreement", case=False, regex=False)
     is_fed = issuer_title.str.contains("Federal Reserve|Federal Reserve Bank of New York|FRBNY", case=False, regex=True)
 

@@ -204,12 +204,12 @@ def _write_nmfp_zip(path: Path) -> None:
     )
     securities = "\n".join(
         [
-            "ACCESSION_NUMBER\tNAMEOFISSUER\tTITLEOFISSUER\tINVESTMENTCATEGORY\tINCLUDINGVALUEOFANYSPONSORSUPP\tEXCLUDINGVALUEOFANYSPONSORSUPP",
-            "old\tU.S. Treasury Bill\tU.S. Treasury Bill\tU.S. Treasury Debt\t100000000\t100000000",
-            "new\tU.S. Treasury Bill\tU.S. Treasury Bill\tU.S. Treasury Debt\t100000000\t100000000",
-            "new\tU.S. Treasury Note\tU.S. Treasury Note\tU.S. Treasury Debt\t50000000\t50000000",
-            "new\tFederal Reserve Bank of New York Tri Party Repo\tFederal Reserve Bank of New York Tri Party Repo\tU.S. Treasury Repurchase Agreement, if collateralized only by U.S. Treasuries (including Strips) and cash\t30000000\t30000000",
-            "fund2\tU.S. Treasury Bill\tU.S. Treasury Bill\tU.S. Treasury Debt\t50000000\t50000000",
+            "ACCESSION_NUMBER\tNAMEOFISSUER\tTITLEOFISSUER\tCUSIP_NUMBER\tINVESTMENTCATEGORY\tINCLUDINGVALUEOFANYSPONSORSUPP\tEXCLUDINGVALUEOFANYSPONSORSUPP",
+            "old\tU.S. Treasury Bill\tU.S. Treasury Bill\t912797AB1\tU.S. Treasury Debt\t100000000\t100000000",
+            "new\tUnited States Treasury\tUnited States Department of the Treasury\t912797AC9\tU.S. Treasury Debt\t100000000\t100000000",
+            "new\tU.S. Treasury Note\tU.S. Treasury Note\t91282CGD7\tU.S. Treasury Debt\t50000000\t50000000",
+            "new\tFederal Reserve Bank of New York Tri Party Repo\tFederal Reserve Bank of New York Tri Party Repo\t\tU.S. Treasury Repurchase Agreement, if collateralized only by U.S. Treasuries (including Strips) and cash\t30000000\t30000000",
+            "fund2\tU.S. Treasury Bill\tU.S. Treasury Bill\t912796XY1\tU.S. Treasury Debt\t50000000\t50000000",
         ]
     )
     with zipfile.ZipFile(path, "w") as zf:
@@ -239,8 +239,8 @@ def _write_single_nmfp_zip(
     )
     securities = "\n".join(
         [
-            "ACCESSION_NUMBER\tNAMEOFISSUER\tTITLEOFISSUER\tINVESTMENTCATEGORY\tINCLUDINGVALUEOFANYSPONSORSUPP\tEXCLUDINGVALUEOFANYSPONSORSUPP",
-            f"{accession}\tU.S. Treasury Bill\tU.S. Treasury Bill\tU.S. Treasury Debt\t{treasury_value}\t{treasury_value}",
+            "ACCESSION_NUMBER\tNAMEOFISSUER\tTITLEOFISSUER\tCUSIP_NUMBER\tINVESTMENTCATEGORY\tINCLUDINGVALUEOFANYSPONSORSUPP\tEXCLUDINGVALUEOFANYSPONSORSUPP",
+            f"{accession}\tU.S. Treasury Bill\tU.S. Treasury Bill\t912797AB1\tU.S. Treasury Debt\t{treasury_value}\t{treasury_value}",
         ]
     )
     with zipfile.ZipFile(path, "w") as zf:

@@ -37,6 +37,10 @@ CURRENT_PROXY_COLUMNS = {
     ("credit_union", "bill_amortized_discount"): "credit_union_tsy_bill_discount_interest_proxy",
 }
 
+# WAMEST normalizes Z.1 million-dollar levels to billions in its allocation
+# contract. Source constraints and candidate raw-weight outputs are millions.
+WAMEST_CONTRACT_WEIGHT_BIL_TO_MIL = 1_000.0
+
 
 def _rename_weight_column(weights: pd.DataFrame, source_column: str, target_column: str) -> pd.DataFrame:
     if weights.empty or source_column not in weights.columns:
@@ -413,19 +417,25 @@ def _contract_weight_frame(
     ].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
     frame["sector_key"] = frame["sector_key"].astype(str).str.strip()
-    frame[out_column] = pd.to_numeric(frame["central_weight"], errors="coerce")
+    frame[out_column] = (
+        pd.to_numeric(frame["central_weight"], errors="coerce") * WAMEST_CONTRACT_WEIGHT_BIL_TO_MIL
+    )
     if "low_weight" in interest_allocation_weights.columns:
         source_low = interest_allocation_weights.loc[
             interest_allocation_weights["component_key"].astype(str).eq(component_key),
             "low_weight",
         ]
-        frame[f"{out_column}_low"] = pd.to_numeric(source_low.to_numpy(), errors="coerce")
+        frame[f"{out_column}_low"] = (
+            pd.to_numeric(source_low.to_numpy(), errors="coerce") * WAMEST_CONTRACT_WEIGHT_BIL_TO_MIL
+        )
     if "high_weight" in interest_allocation_weights.columns:
         source_high = interest_allocation_weights.loc[
             interest_allocation_weights["component_key"].astype(str).eq(component_key),
             "high_weight",
         ]
-        frame[f"{out_column}_high"] = pd.to_numeric(source_high.to_numpy(), errors="coerce")
+        frame[f"{out_column}_high"] = (
+            pd.to_numeric(source_high.to_numpy(), errors="coerce") * WAMEST_CONTRACT_WEIGHT_BIL_TO_MIL
+        )
     columns = ["date", "sector_key", out_column]
     for interval_column in [f"{out_column}_low", f"{out_column}_high"]:
         if interval_column in frame.columns:
@@ -653,9 +663,9 @@ def summarize_tier2_interest_component_candidate(candidate: pd.DataFrame) -> str
             f"Coverage runs from {df['date'].min().date().isoformat()} through {latest.date().isoformat()}.",
             "",
             (
-                "This is a diagnostic candidate. It allocates official Treasury interest-expense component "
-                "pools with WAMEST interest-contract weights when available, otherwise current WAMEST/H.15 "
-                "weights. It does not replace live Tier 2 defaults."
+                "This component allocation feeds live Tier 2 defaults through certified support exports. "
+                "It allocates official Treasury interest-expense component pools with WAMEST interest-contract "
+                "weights when available, otherwise current WAMEST/H.15 weights."
             ),
             "",
             f"Latest-quarter read ({latest.date().isoformat()}):",

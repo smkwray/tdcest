@@ -21,7 +21,7 @@ EXPECTED_INPUT_RELEASE = {
     "totals_sha256": "633378a99b54c0202aecddd6efa898ad5f24a5fc69731c89d7ba304d6cc6777e",
     "component_certification_sha256": "6781996de9f74f801b1eade6d152a36bc74cd87a8c320aab5d5a62b8bcc474a7",
     "scope_certification_sha256": "5031f1cdb770cf2514691234c59eb6eef825cf7fcf76512c87e247e46ea62cd2",
-    "tdcest_candidate_sha256": "25ce05bc1d484e4927cfb4c84e564365ec063768f4f65c17e9b883549f936c53",
+    "tdcest_candidate_sha256": "235914d3eeeb92db8cd78d36b2352ffc7354080b40cee876a56163b89c3db506",
     "fed_support_sha256": "3cba29cde12f0cc9428aff5bb06bfbdea35b3f01330e358c716a28f24eb65d27",
     "allocation_rows": 3357,
     "totals_rows": 1000,

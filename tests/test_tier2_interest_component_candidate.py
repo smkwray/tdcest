@@ -252,7 +252,65 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
         & pd.to_datetime(out["date"]).eq(pd.Timestamp("2025-03-31"))
     ].iloc[0]
     assert bank_2011["selected_raw_weight_mil"] == 50.0
-    assert bank_2025["selected_raw_weight_mil"] == 25.0
+    assert bank_2025["selected_raw_weight_mil"] == 25_000.0
+
+
+def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_weights_in_millions():
+    sector_maturity = pd.DataFrame(
+        {
+            "date": ["2025-03-31"] * 2,
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "coupon_share": [1.0, 1.0],
+            "bill_share": [1.0, 1.0],
+            "coupon_only_maturity_years": [1.0, 1.0],
+        }
+    )
+    sector_panel = pd.DataFrame(
+        {
+            "date": ["2025-03-31"] * 2,
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "level": [1.0, 1.0],
+        }
+    )
+    contract = pd.DataFrame(
+        {
+            "date": ["2025-03-31", "2025-03-31"],
+            "sector_key": ["bank_us_chartered", "foreigners_total"],
+            "component_key": ["coupon_accrual", "coupon_accrual"],
+            # WAMEST contract weights are billions.
+            "central_weight": [1.0, 3.0],
+            "low_weight": [0.5, 2.5],
+            "high_weight": [1.5, 3.5],
+        }
+    )
+    constraints = pd.DataFrame(
+        {
+            "date": ["2025-03-31"],
+            "sector_key": ["bank_us_chartered"],
+            "constraint_status": ["usable_constraint"],
+            "level_mil": [1_000.0],
+            "bill_weight_proxy": [0.0],
+            "coupon_weight_proxy": [1.0],
+        }
+    )
+
+    out = build_tier2_interest_component_candidate(
+        component_pools=_component_pools(),
+        sector_maturity=sector_maturity,
+        sector_panel=sector_panel,
+        curves=pd.DataFrame({"date": ["2025-03-31"], "1y": [4.0]}),
+        interest_allocation_weights=contract,
+        source_constraints=constraints,
+    )
+
+    bank_coupon = out[
+        out["sector_group"].eq("bank") & out["component_key"].eq("coupon_accrual")
+    ].iloc[0]
+    assert bank_coupon["selected_raw_weight_mil"] == 1_000.0
+    assert bank_coupon["denominator_raw_weight_mil"] == 4_000.0
+    assert bank_coupon["component_anchored_interest_mil"] == 2_000.0
+    assert bank_coupon["component_anchored_interest_low_mil"] == 8_000.0 / 4.5
+    assert bank_coupon["component_anchored_interest_high_mil"] == 8_000.0 / 3.5
 
 
 def test_build_tier2_interest_component_candidate_applies_source_constraints():
@@ -399,5 +457,5 @@ def test_write_tier2_interest_component_candidate_and_summary(tmp_path: Path):
     out = pd.read_csv(csv_path)
     assert set(out["component_key"]) == {"coupon_accrual", "bill_amortized_discount"}
     summary = summarize_tier2_interest_component_candidate(out)
-    assert "diagnostic candidate" in summary
+    assert "feeds live Tier 2 defaults through certified support exports" in summary
     assert "Latest-quarter read" in md_path.read_text(encoding="utf-8")

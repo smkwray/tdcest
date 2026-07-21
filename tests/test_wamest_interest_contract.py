@@ -23,6 +23,7 @@ def test_read_wamest_interest_allocation_weights_validates_schema(tmp_path: Path
             "central_weight": [0.42],
             "low_weight": [0.35],
             "high_weight": [0.50],
+            "weight_unit": ["usd_millions"],
             "weight_basis": ["tic_anchor"],
             "source_family": ["TIC"],
             "observability_tier": ["B"],
@@ -53,6 +54,7 @@ def test_read_wamest_interest_allocation_weights_rejects_unknown_components(tmp_
             "central_weight": [0.42],
             "low_weight": [0.35],
             "high_weight": [0.50],
+            "weight_unit": ["usd_millions"],
             "weight_basis": ["tic_anchor"],
             "source_family": ["TIC"],
             "observability_tier": ["B"],
@@ -60,6 +62,27 @@ def test_read_wamest_interest_allocation_weights_rejects_unknown_components(tmp_
     ).to_csv(path, index=False)
 
     with pytest.raises(ValueError, match="unknown WAMEST interest component_key"):
+        read_wamest_interest_allocation_weights(path)
+
+
+def test_read_wamest_interest_allocation_weights_rejects_wrong_unit(tmp_path: Path):
+    path = tmp_path / "sector_interest_allocation_weights.csv"
+    pd.DataFrame(
+        {
+            "date": ["2025-12-31"],
+            "sector_key": ["foreigners_total"],
+            "component_key": ["bill_amortized_discount"],
+            "central_weight": [0.42],
+            "low_weight": [0.35],
+            "high_weight": [0.50],
+            "weight_unit": ["usd_billions"],
+            "weight_basis": ["tic_anchor"],
+            "source_family": ["TIC"],
+            "observability_tier": ["B"],
+        }
+    ).to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="weight_unit=usd_millions"):
         read_wamest_interest_allocation_weights(path)
 
 
@@ -75,6 +98,7 @@ def test_resolve_and_read_available_wamest_interest_contract(tmp_path: Path):
             "central_weight": [0.05],
             "low_weight": [0.03],
             "high_weight": [0.08],
+            "weight_unit": ["usd_millions"],
             "weight_basis": ["regulatory_constraint"],
             "source_family": ["FFIEC"],
             "observability_tier": ["C"],

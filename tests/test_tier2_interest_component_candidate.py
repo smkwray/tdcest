@@ -165,6 +165,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
             "central_weight": [1.0, 3.0],
             "low_weight": [0.5, 2.5],
             "high_weight": [1.5, 3.5],
+            "weight_unit": ["usd_millions", "usd_millions"],
         }
     )
 
@@ -183,6 +184,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
     assert bank_coupon["component_anchored_interest_low_mil"] == 800.0
     assert bank_coupon["component_anchored_interest_high_mil"] == 4000.0
     assert bank_coupon["allocator_basis"] == "wamest_interest_contract_central_weight"
+    assert bank_coupon["selected_raw_weight_mil"] == 1.0
 
 
 def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_contract_window():
@@ -219,6 +221,7 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
             "sector_key": ["bank_us_chartered"],
             "component_key": ["coupon_accrual"],
             "central_weight": [25.0],
+            "weight_unit": ["usd_millions"],
             "low_weight": [25.0],
             "high_weight": [25.0],
         }
@@ -229,6 +232,7 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
             "sector_key": ["bank_us_chartered"],
             "component_key": ["coupon_accrual"],
             "bucket_weight": [0.5],
+            "bucket_weight_unit": ["fraction"],
         }
     )
 
@@ -252,7 +256,7 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
         & pd.to_datetime(out["date"]).eq(pd.Timestamp("2025-03-31"))
     ].iloc[0]
     assert bank_2011["selected_raw_weight_mil"] == 50.0
-    assert bank_2025["selected_raw_weight_mil"] == 25_000.0
+    assert bank_2025["selected_raw_weight_mil"] == 25.0
 
 
 def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_weights_in_millions():
@@ -277,8 +281,9 @@ def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_
             "date": ["2025-03-31", "2025-03-31"],
             "sector_key": ["bank_us_chartered", "foreigners_total"],
             "component_key": ["coupon_accrual", "coupon_accrual"],
-            # WAMEST contract weights are billions.
+            # WAMEST contract weights are USD millions.
             "central_weight": [1.0, 3.0],
+            "weight_unit": ["usd_millions", "usd_millions"],
             "low_weight": [0.5, 2.5],
             "high_weight": [1.5, 3.5],
         }
@@ -307,10 +312,10 @@ def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_
         out["sector_group"].eq("bank") & out["component_key"].eq("coupon_accrual")
     ].iloc[0]
     assert bank_coupon["selected_raw_weight_mil"] == 1_000.0
-    assert bank_coupon["denominator_raw_weight_mil"] == 4_000.0
-    assert bank_coupon["component_anchored_interest_mil"] == 2_000.0
-    assert bank_coupon["component_anchored_interest_low_mil"] == 8_000.0 / 4.5
-    assert bank_coupon["component_anchored_interest_high_mil"] == 8_000.0 / 3.5
+    assert bank_coupon["denominator_raw_weight_mil"] == 1_003.0
+    assert bank_coupon["component_anchored_interest_mil"] == 8_000.0 * 1_000.0 / 1_003.0
+    assert bank_coupon["component_anchored_interest_low_mil"] == 8_000.0 * 1_000.0 / 1_003.5
+    assert bank_coupon["component_anchored_interest_high_mil"] == 8_000.0 * 1_000.0 / 1_002.5
 
 
 def test_build_tier2_interest_component_candidate_applies_source_constraints():

@@ -64,6 +64,19 @@ SEC_NMFP_REQUIRED_FILES = (
     "NMFP_SERIESLEVELINFO.tsv",
     "NMFP_SCHPORTFOLIOSECURITIES.tsv",
 )
+SEC_NMFP_SUPPORT_COLUMNS = (
+    "date",
+    "report_date",
+    "filing_date",
+    "accession_number",
+    "submission_type",
+    "fund_id",
+    "fed_rrp",
+    "treasury_total",
+    "treasury_bills",
+    "non_treasury_non_fed_rrp_assets",
+    "nav",
+)
 
 
 def _first_existing(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
@@ -179,14 +192,18 @@ def _latest_nmfp_accessions(submission: pd.DataFrame) -> pd.DataFrame:
     sub["fund_id"] = sub["SERIESID"].fillna("").replace("", pd.NA)
     sub["fund_id"] = sub["fund_id"].fillna(sub["ACCESSION_NUMBER"]).astype(str)
     sub = sub.sort_values(["fund_id", "REPORTDATE", "FILING_DATE", "ACCESSION_NUMBER"])
-    return sub.drop_duplicates(["fund_id", "REPORTDATE"], keep="last")
+    latest_filing = sub.groupby(["fund_id", "REPORTDATE"])["FILING_DATE"].transform("max")
+    return sub.loc[sub["FILING_DATE"].eq(latest_filing)].drop_duplicates(
+        ["fund_id", "REPORTDATE", "FILING_DATE", "ACCESSION_NUMBER"]
+    )
 
 
 def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
     """Normalize one SEC Form N-MFP ZIP into fund-month MMF/RRP support rows.
 
-    Values are reported in millions of dollars. For duplicate fund-month filings,
-    the latest filing/amendment in the ZIP is retained.
+    Values are reported in millions of dollars. Only filings tied for the latest
+    filing date within the ZIP are retained; the multi-ZIP builder resolves or
+    rejects those ties across the complete input set.
     """
 
     with zipfile.ZipFile(path) as zf:
@@ -204,7 +221,7 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
         )
         latest = _latest_nmfp_accessions(submission)
         if latest.empty:
-            return pd.DataFrame(columns=["date", "fund_id", "fed_rrp", "treasury_total", "treasury_bills", "non_treasury_non_fed_rrp_assets", "nav"])
+            return pd.DataFrame(columns=SEC_NMFP_SUPPORT_COLUMNS)
 
         series = _read_nmfp_tsv(
             zf,
@@ -233,7 +250,15 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
         )
 
     selected = latest[
-        ["ACCESSION_NUMBER", "REPORTDATE", "fund_id", "SERIESID", "SERIES_NAME", "FILING_DATE"]
+        [
+            "ACCESSION_NUMBER",
+            "REPORTDATE",
+            "fund_id",
+            "SERIESID",
+            "SERIES_NAME",
+            "FILING_DATE",
+            "SUBMISSIONTYPE",
+        ]
     ].copy()
     selected_accessions = set(selected["ACCESSION_NUMBER"].astype(str))
 
@@ -272,6 +297,10 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
     grouped = grouped.fillna(0.0).reset_index()
 
     out = info.merge(grouped, on="ACCESSION_NUMBER", how="left")
+    out["report_date"] = pd.to_datetime(out["REPORTDATE"], errors="coerce")
+    out["filing_date"] = pd.to_datetime(out["FILING_DATE"], errors="coerce")
+    out["accession_number"] = out["ACCESSION_NUMBER"].astype(str)
+    out["submission_type"] = out["SUBMISSIONTYPE"].astype(str)
     for col in ("treasury_total", "treasury_bills", "fed_rrp"):
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
     out["non_treasury_non_fed_rrp_assets"] = (
@@ -279,29 +308,32 @@ def normalize_sec_nmfp_zip(path: Path | str) -> pd.DataFrame:
         - out["treasury_total"]
         - out["fed_rrp"]
     )
-    return out[
-        [
-            "date",
-            "fund_id",
-            "fed_rrp",
-            "treasury_total",
-            "treasury_bills",
-            "non_treasury_non_fed_rrp_assets",
-            "nav",
-        ]
-    ].sort_values(["fund_id", "date"]).reset_index(drop=True)
+    return out[list(SEC_NMFP_SUPPORT_COLUMNS)].sort_values(["fund_id", "date"]).reset_index(drop=True)
 
 
 def build_sec_nmfp_fund_month_support(paths: list[Path | str]) -> pd.DataFrame:
     frames = [normalize_sec_nmfp_zip(path) for path in paths]
     frames = [frame for frame in frames if not frame.empty]
     if not frames:
-        return pd.DataFrame(columns=["date", "fund_id", "fed_rrp", "treasury_total", "treasury_bills", "non_treasury_non_fed_rrp_assets", "nav"])
+        return pd.DataFrame(columns=SEC_NMFP_SUPPORT_COLUMNS)
     out = pd.concat(frames, ignore_index=True)
     out["date"] = pd.to_datetime(out["date"], errors="coerce")
-    out = out.loc[out["date"].notna()].copy()
-    out = out.sort_values(["fund_id", "date"]).drop_duplicates(["fund_id", "date"], keep="last")
-    return out.reset_index(drop=True)
+    out["report_date"] = pd.to_datetime(out["report_date"], errors="coerce")
+    out["filing_date"] = pd.to_datetime(out["filing_date"], errors="coerce")
+    out = out.loc[out["date"].notna() & out["report_date"].notna() & out["filing_date"].notna()].copy()
+
+    filing_key = ["fund_id", "report_date", "accession_number"]
+    out = out.drop_duplicates()
+    if out.duplicated(filing_key, keep=False).any():
+        raise ValueError("Conflicting SEC N-MFP rows share one accession number")
+    latest_filing = out.groupby(["fund_id", "report_date"])["filing_date"].transform("max")
+    out = out.loc[out["filing_date"].eq(latest_filing)].copy()
+    ambiguous = out.groupby(["fund_id", "report_date"])["accession_number"].nunique().gt(1)
+    if ambiguous.any():
+        keys = [f"{fund_id}@{report_date.date()}" for fund_id, report_date in ambiguous[ambiguous].index]
+        raise ValueError(f"Ambiguous same-day SEC N-MFP amendments: {', '.join(keys)}")
+    out = out.sort_values(["fund_id", "report_date", "filing_date", "accession_number"])
+    return out.drop_duplicates(["fund_id", "report_date"], keep="last").reset_index(drop=True)
 
 
 def discover_sec_nmfp_dataset_links(html: str) -> pd.DataFrame:

@@ -4,6 +4,7 @@ import zipfile
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tdc_estimator.mmf_rrp import (
     aggregate_mmf_rrp_to_quarter,
@@ -217,6 +218,37 @@ def _write_nmfp_zip(path: Path) -> None:
         zf.writestr("NMFP_SCHPORTFOLIOSECURITIES.tsv", securities)
 
 
+def _write_single_nmfp_zip(
+    path: Path,
+    *,
+    accession: str,
+    filing_date: str,
+    treasury_value: int,
+) -> None:
+    submission = "\n".join(
+        [
+            "ACCESSION_NUMBER\tFILING_DATE\tSUBMISSIONTYPE\tREPORTDATE\tSERIESID\tSERIES_NAME",
+            f"{accession}\t{filing_date}\tN-MFP2/A\t31-MAR-2024\tS1\tFund One",
+        ]
+    )
+    series = "\n".join(
+        [
+            "ACCESSION_NUMBER\tFEEDERFUNDFLAG\tMASTERFUNDFLAG\tCASH\tTOTALVALUEPORTFOLIOSECURITIES\tTOTALVALUEOTHERASSETS\tNETASSETOFSERIES",
+            f"{accession}\tN\tN\t0\t{treasury_value}\t0\t{treasury_value}",
+        ]
+    )
+    securities = "\n".join(
+        [
+            "ACCESSION_NUMBER\tNAMEOFISSUER\tTITLEOFISSUER\tINVESTMENTCATEGORY\tINCLUDINGVALUEOFANYSPONSORSUPP\tEXCLUDINGVALUEOFANYSPONSORSUPP",
+            f"{accession}\tU.S. Treasury Bill\tU.S. Treasury Bill\tU.S. Treasury Debt\t{treasury_value}\t{treasury_value}",
+        ]
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("NMFP_SUBMISSION.tsv", submission)
+        zf.writestr("NMFP_SERIESLEVELINFO.tsv", series)
+        zf.writestr("NMFP_SCHPORTFOLIOSECURITIES.tsv", securities)
+
+
 def test_normalize_sec_nmfp_zip_builds_fund_month_support_and_prefers_amendment(tmp_path: Path):
     path = tmp_path / "nmfp.zip"
     _write_nmfp_zip(path)
@@ -241,6 +273,30 @@ def test_build_sec_nmfp_fund_month_support_deduplicates_fund_month(tmp_path: Pat
 
     assert len(support) == 2
     assert support[["fund_id", "date"]].duplicated().sum() == 0
+
+
+def test_build_sec_nmfp_fund_month_support_selects_amendments_globally(tmp_path: Path):
+    old = tmp_path / "old.zip"
+    new = tmp_path / "new.zip"
+    _write_single_nmfp_zip(old, accession="old", filing_date="05-APR-2024", treasury_value=100_000_000)
+    _write_single_nmfp_zip(new, accession="new", filing_date="08-APR-2024", treasury_value=150_000_000)
+
+    forward = build_sec_nmfp_fund_month_support([old, new])
+    reverse = build_sec_nmfp_fund_month_support([new, old])
+
+    pd.testing.assert_frame_equal(forward, reverse)
+    assert forward["accession_number"].tolist() == ["new"]
+    assert forward["treasury_total"].tolist() == [150.0]
+
+
+def test_build_sec_nmfp_fund_month_support_rejects_same_day_ambiguity(tmp_path: Path):
+    first = tmp_path / "first.zip"
+    second = tmp_path / "second.zip"
+    _write_single_nmfp_zip(first, accession="first", filing_date="08-APR-2024", treasury_value=100_000_000)
+    _write_single_nmfp_zip(second, accession="second", filing_date="08-APR-2024", treasury_value=150_000_000)
+
+    with pytest.raises(ValueError, match="Ambiguous same-day SEC N-MFP amendments"):
+        build_sec_nmfp_fund_month_support([first, second])
 
 
 def test_discover_sec_nmfp_dataset_links_extracts_monthly_and_quarterly_dates():

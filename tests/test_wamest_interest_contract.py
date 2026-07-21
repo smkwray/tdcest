@@ -23,6 +23,11 @@ def test_read_wamest_interest_allocation_weights_validates_schema(tmp_path: Path
             "central_weight": [0.42],
             "low_weight": [0.35],
             "high_weight": [0.50],
+            "gross_interest_weight": [0.42],
+            "gross_interest_low_weight": [0.35],
+            "gross_interest_high_weight": [0.50],
+            "weight_class": ["gross_long_holder_amount"],
+            "eligible_for_gross_interest": [True],
             "weight_unit": ["usd_millions"],
             "weight_basis": ["tic_anchor"],
             "source_family": ["TIC"],
@@ -44,6 +49,32 @@ def test_read_wamest_interest_allocation_weights_rejects_missing_columns(tmp_pat
         read_wamest_interest_allocation_weights(path)
 
 
+def test_read_wamest_interest_allocation_weights_rejects_negative_gross_weight(tmp_path: Path):
+    path = tmp_path / "sector_interest_allocation_weights.csv"
+    pd.DataFrame(
+        {
+            "date": ["2025-12-31"],
+            "sector_key": ["security_brokers_and_dealers"],
+            "component_key": ["bill_amortized_discount"],
+            "central_weight": [-0.42],
+            "low_weight": [-0.50],
+            "high_weight": [-0.35],
+            "gross_interest_weight": [-0.42],
+            "gross_interest_low_weight": [-0.50],
+            "gross_interest_high_weight": [-0.35],
+            "weight_class": ["signed_net_exposure"],
+            "eligible_for_gross_interest": [True],
+            "weight_unit": ["usd_millions"],
+            "weight_basis": ["z1_signed_exposure"],
+            "source_family": ["Z1_WAMEST"],
+            "observability_tier": ["D"],
+        }
+    ).to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="negative gross_interest_weight"):
+        read_wamest_interest_allocation_weights(path)
+
+
 def test_read_wamest_interest_allocation_weights_rejects_unknown_components(tmp_path: Path):
     path = tmp_path / "sector_interest_allocation_weights.csv"
     pd.DataFrame(
@@ -54,6 +85,11 @@ def test_read_wamest_interest_allocation_weights_rejects_unknown_components(tmp_
             "central_weight": [0.42],
             "low_weight": [0.35],
             "high_weight": [0.50],
+            "gross_interest_weight": [0.42],
+            "gross_interest_low_weight": [0.35],
+            "gross_interest_high_weight": [0.50],
+            "weight_class": ["gross_long_holder_amount"],
+            "eligible_for_gross_interest": [True],
             "weight_unit": ["usd_millions"],
             "weight_basis": ["tic_anchor"],
             "source_family": ["TIC"],
@@ -75,6 +111,11 @@ def test_read_wamest_interest_allocation_weights_rejects_wrong_unit(tmp_path: Pa
             "central_weight": [0.42],
             "low_weight": [0.35],
             "high_weight": [0.50],
+            "gross_interest_weight": [0.42],
+            "gross_interest_low_weight": [0.35],
+            "gross_interest_high_weight": [0.50],
+            "weight_class": ["gross_long_holder_amount"],
+            "eligible_for_gross_interest": [True],
             "weight_unit": ["usd_billions"],
             "weight_basis": ["tic_anchor"],
             "source_family": ["TIC"],
@@ -98,6 +139,11 @@ def test_resolve_and_read_available_wamest_interest_contract(tmp_path: Path):
             "central_weight": [0.05],
             "low_weight": [0.03],
             "high_weight": [0.08],
+            "gross_interest_weight": [0.05],
+            "gross_interest_low_weight": [0.03],
+            "gross_interest_high_weight": [0.08],
+            "weight_class": ["gross_long_holder_amount"],
+            "eligible_for_gross_interest": [True],
             "weight_unit": ["usd_millions"],
             "weight_basis": ["regulatory_constraint"],
             "source_family": ["FFIEC"],

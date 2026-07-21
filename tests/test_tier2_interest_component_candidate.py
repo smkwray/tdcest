@@ -163,6 +163,9 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
             "sector_key": ["bank_us_chartered", "foreigners_total"],
             "component_key": ["coupon_accrual", "coupon_accrual"],
             "central_weight": [1.0, 3.0],
+            "gross_interest_weight": [1.0, 3.0],
+            "gross_interest_low_weight": [0.5, 2.5],
+            "gross_interest_high_weight": [1.5, 3.5],
             "low_weight": [0.5, 2.5],
             "high_weight": [1.5, 3.5],
             "weight_unit": ["usd_millions", "usd_millions"],
@@ -183,7 +186,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
     assert bank_coupon["component_anchored_interest_mil"] == 2000.0
     assert bank_coupon["component_anchored_interest_low_mil"] == 800.0
     assert bank_coupon["component_anchored_interest_high_mil"] == 4000.0
-    assert bank_coupon["allocator_basis"] == "wamest_interest_contract_central_weight"
+    assert bank_coupon["allocator_basis"] == "wamest_interest_contract_gross_interest_weight"
     assert bank_coupon["selected_raw_weight_mil"] == 1.0
 
 
@@ -221,6 +224,9 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
             "sector_key": ["bank_us_chartered"],
             "component_key": ["coupon_accrual"],
             "central_weight": [25.0],
+            "gross_interest_weight": [25.0],
+            "gross_interest_low_weight": [25.0],
+            "gross_interest_high_weight": [25.0],
             "weight_unit": ["usd_millions"],
             "low_weight": [25.0],
             "high_weight": [25.0],
@@ -283,6 +289,9 @@ def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_
             "component_key": ["coupon_accrual", "coupon_accrual"],
             # WAMEST contract weights are USD millions.
             "central_weight": [1.0, 3.0],
+            "gross_interest_weight": [1.0, 3.0],
+            "gross_interest_low_weight": [0.5, 2.5],
+            "gross_interest_high_weight": [1.5, 3.5],
             "weight_unit": ["usd_millions", "usd_millions"],
             "low_weight": [0.5, 2.5],
             "high_weight": [1.5, 3.5],

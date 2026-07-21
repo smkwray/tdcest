@@ -1,7 +1,7 @@
 # WAMEST Interest Output Contract
 
-This contract defines the future `wamest` files that `tdcest` can use when
-moving Tier 2 interest corrections from raw WAMEST/H.15 intensity proxies toward
+This contract defines the `wamest` files that `tdcest` uses to move Tier 2
+interest corrections from raw WAMEST/H.15 intensity proxies toward
 component-anchored holder allocations.
 
 The contract is intentionally owned here first because `tdcest` is the estimator
@@ -15,7 +15,6 @@ keys and validation gates are stable.
 - `outputs/full_coverage_release/sector_interest_allocation_weights.csv`
 - `outputs/full_coverage_release/sector_component_bucket_weights.csv`
 - `outputs/full_coverage_release/sector_interest_observability_tier.csv`
-- `outputs/full_coverage_release/soma_interest_proxy_backtest.csv`
 
 It also accepts the same filenames under `data/processed/` for local research
 builds.
@@ -30,6 +29,12 @@ Required columns:
 - `central_weight`
 - `low_weight`
 - `high_weight`
+- `gross_interest_weight`
+- `gross_interest_low_weight`
+- `gross_interest_high_weight`
+- `weight_class`
+- `eligible_for_gross_interest`
+- `weight_unit` (`usd_millions`)
 - `weight_basis`
 - `source_family`
 - `observability_tier`
@@ -43,8 +48,10 @@ Recommended columns:
 - `method_note`
 
 Purpose: allocate official Treasury interest component pools to holder sectors.
-Weights are not coupon cashflows by themselves. They are allocation weights for
-component pools.
+`tdcest` consumes the nonnegative `gross_interest_*` fields. The central/low/high
+fields retain signed Z.1 allocations for audit; dealer net exposure and the
+household statistical residual are explicitly ineligible for gross-interest
+allocation. Weights are not coupon cashflows by themselves.
 
 Active `tdcest` candidate component keys:
 

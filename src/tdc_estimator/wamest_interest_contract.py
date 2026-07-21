@@ -27,6 +27,11 @@ INTEREST_ALLOCATION_REQUIRED_COLUMNS = {
     "central_weight",
     "low_weight",
     "high_weight",
+    "gross_interest_weight",
+    "gross_interest_low_weight",
+    "gross_interest_high_weight",
+    "weight_class",
+    "eligible_for_gross_interest",
     "weight_unit",
     "weight_basis",
     "source_family",
@@ -126,7 +131,14 @@ def _read_contract_table(path: Path | str, required_columns: set[str]) -> pd.Dat
 
 
 def read_wamest_interest_allocation_weights(path: Path | str) -> pd.DataFrame:
-    return _read_contract_table(path, INTEREST_ALLOCATION_REQUIRED_COLUMNS)
+    frame = _read_contract_table(path, INTEREST_ALLOCATION_REQUIRED_COLUMNS)
+    gross = pd.to_numeric(frame["gross_interest_weight"], errors="coerce")
+    if gross.dropna().lt(0.0).any():
+        raise ValueError(f"{path} has negative gross_interest_weight values")
+    eligible = frame["eligible_for_gross_interest"].astype(str).str.lower().isin({"true", "1"})
+    if gross[~eligible].notna().any():
+        raise ValueError(f"{path} assigns gross-interest weights to ineligible rows")
+    return frame
 
 
 def read_wamest_component_bucket_weights(path: Path | str) -> pd.DataFrame:

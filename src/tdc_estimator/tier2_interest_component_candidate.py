@@ -220,8 +220,8 @@ def build_tier2_interest_component_candidate(
         "raw_bill_discount_weight",
     )
     frn_weights = _contract_weight_frame(interest_allocation_weights, "frn_accrued_interest", "raw_frn_weight")
-    coupon_allocator_basis = "wamest_interest_contract_central_weight"
-    bill_allocator_basis = "wamest_interest_contract_central_weight"
+    coupon_allocator_basis = "wamest_interest_contract_gross_interest_weight"
+    bill_allocator_basis = "wamest_interest_contract_gross_interest_weight"
     frn_allocator_basis = "wamest_interest_contract_frn_weight"
     if component_bucket_weights is not None and not component_bucket_weights.empty:
         bucket_coupon = _bucket_weight_frame(
@@ -403,7 +403,13 @@ def _contract_weight_frame(
 ) -> pd.DataFrame:
     if interest_allocation_weights is None or interest_allocation_weights.empty:
         return pd.DataFrame(columns=["date", "sector_key", out_column])
-    required = {"date", "sector_key", "component_key", "central_weight", "weight_unit"}
+    required = {
+        "date",
+        "sector_key",
+        "component_key",
+        "gross_interest_weight",
+        "weight_unit",
+    }
     if not required.issubset(interest_allocation_weights.columns):
         return pd.DataFrame(columns=["date", "sector_key", out_column])
     units = set(interest_allocation_weights["weight_unit"].dropna().astype(str))
@@ -414,21 +420,21 @@ def _contract_weight_frame(
         )
     frame = interest_allocation_weights.loc[
         interest_allocation_weights["component_key"].astype(str).eq(component_key),
-        ["date", "sector_key", "central_weight"],
+        ["date", "sector_key", "gross_interest_weight"],
     ].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
     frame["sector_key"] = frame["sector_key"].astype(str).str.strip()
-    frame[out_column] = pd.to_numeric(frame["central_weight"], errors="coerce")
-    if "low_weight" in interest_allocation_weights.columns:
+    frame[out_column] = pd.to_numeric(frame["gross_interest_weight"], errors="coerce")
+    if "gross_interest_low_weight" in interest_allocation_weights.columns:
         source_low = interest_allocation_weights.loc[
             interest_allocation_weights["component_key"].astype(str).eq(component_key),
-            "low_weight",
+            "gross_interest_low_weight",
         ]
         frame[f"{out_column}_low"] = pd.to_numeric(source_low.to_numpy(), errors="coerce")
-    if "high_weight" in interest_allocation_weights.columns:
+    if "gross_interest_high_weight" in interest_allocation_weights.columns:
         source_high = interest_allocation_weights.loc[
             interest_allocation_weights["component_key"].astype(str).eq(component_key),
-            "high_weight",
+            "gross_interest_high_weight",
         ]
         frame[f"{out_column}_high"] = pd.to_numeric(source_high.to_numpy(), errors="coerce")
     columns = ["date", "sector_key", out_column]

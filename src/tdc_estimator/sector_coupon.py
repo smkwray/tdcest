@@ -41,7 +41,7 @@ MIN_CASH_ANCHORED_SECTOR_COUNT = 20
 
 
 def read_table(path: Path | str) -> pd.DataFrame:
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, low_memory=False)
     return df.rename(columns={column: normalize_col(column) for column in df.columns})
 
 

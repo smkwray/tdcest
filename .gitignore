@@ -1,6 +1,7 @@
 do/
 CLAUDE.md
 AGENTS.md
+.worktrees/
 dist/
 output/
 .playwright-cli/
@@ -39,3 +40,8 @@ data/figures/*
 
 data/site/*
 !data/site/.gitkeep
+
+# Plans
+*.plan.md
+plan.md
+plans/

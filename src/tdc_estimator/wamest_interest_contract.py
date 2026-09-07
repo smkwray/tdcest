@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
@@ -106,8 +107,9 @@ def resolve_wamest_interest_contract_paths(wamest_root: Path | str) -> dict[str,
     }
 
 
-def _read_contract_table(path: Path | str, required_columns: set[str]) -> pd.DataFrame:
-    df = pd.read_csv(path)
+def _validate_contract_table(df: pd.DataFrame, required_columns: set[str], label: str) -> pd.DataFrame:
+    df = df.copy()
+    path = label
     missing = required_columns - set(df.columns)
     if missing:
         raise ValueError(f"{path} missing required WAMEST interest-contract columns: {', '.join(sorted(missing))}")
@@ -127,22 +129,50 @@ def _read_contract_table(path: Path | str, required_columns: set[str]) -> pd.Dat
                 raise ValueError(
                     f"{path} requires {column}={expected}; observed {', '.join(sorted(observed)) or 'missing'}"
                 )
+    keys = ["date", "sector_key", "component_key"]
+    if "bucket_key" in required_columns:
+        keys.append("bucket_key")
+    if df[keys].isna().any().any() or df.duplicated(keys).any():
+        raise ValueError(f"{path} requires unique, complete date/sector/component keys")
     return df
 
 
+def _read_contract_table(path: Path | str, required_columns: set[str]) -> pd.DataFrame:
+    return _validate_contract_table(pd.read_csv(path), required_columns, str(path))
+
+
 def read_wamest_interest_allocation_weights(path: Path | str) -> pd.DataFrame:
-    frame = _read_contract_table(path, INTEREST_ALLOCATION_REQUIRED_COLUMNS)
-    gross = pd.to_numeric(frame["gross_interest_weight"], errors="coerce")
+    return validate_wamest_interest_allocation_weights(pd.read_csv(path), str(path))
+
+
+def validate_wamest_interest_allocation_weights(df: pd.DataFrame, label: str = "WAMEST weights") -> pd.DataFrame:
+    frame = _validate_contract_table(df, INTEREST_ALLOCATION_REQUIRED_COLUMNS, label)
+    path = label
+    gross = pd.to_numeric(frame["gross_interest_weight"], errors="raise")
+    if not np.isfinite(gross.dropna()).all():
+        raise ValueError(f"{path} has nonfinite gross_interest_weight values")
     if gross.dropna().lt(0.0).any():
         raise ValueError(f"{path} has negative gross_interest_weight values")
-    eligible = frame["eligible_for_gross_interest"].astype(str).str.lower().isin({"true", "1"})
+    flags = frame["eligible_for_gross_interest"].astype(str).str.lower()
+    if not flags.isin({"true", "false", "1", "0"}).all():
+        raise ValueError(f"{path} requires explicit gross-interest eligibility booleans")
+    eligible = flags.isin({"true", "1"})
+    frame["eligible_for_gross_interest"] = eligible
     if gross[~eligible].notna().any():
         raise ValueError(f"{path} assigns gross-interest weights to ineligible rows")
     return frame
 
 
 def read_wamest_component_bucket_weights(path: Path | str) -> pd.DataFrame:
-    return _read_contract_table(path, COMPONENT_BUCKET_REQUIRED_COLUMNS)
+    return validate_wamest_component_bucket_weights(pd.read_csv(path), str(path))
+
+
+def validate_wamest_component_bucket_weights(df: pd.DataFrame, label: str = "WAMEST buckets") -> pd.DataFrame:
+    frame = _validate_contract_table(df, COMPONENT_BUCKET_REQUIRED_COLUMNS, label)
+    weights = pd.to_numeric(frame["bucket_weight"], errors="raise")
+    if not np.isfinite(weights).all() or not weights.between(0.0, 1.0).all():
+        raise ValueError(f"{label} requires finite bucket fractions between zero and one")
+    return frame
 
 
 def read_wamest_interest_observability_tier(path: Path | str) -> pd.DataFrame:

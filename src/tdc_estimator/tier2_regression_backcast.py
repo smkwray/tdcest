@@ -96,13 +96,29 @@ def build_tier2_regression_backcast(
         frame["method_tier"] = "pre_component_h15_scaled_backcast"
         frame.loc[has_component, "method_tier"] = "component_pool_wamest_bucket_backcast"
         frame.loc[has_component & frame["date"].ge(constrained_start_ts), "method_tier"] = "constrained_component"
-        frame["evidence_grade"] = frame["method_tier"].map(
+        frame["method_grade"] = frame["method_tier"].map(
             {
                 "constrained_component": "medium_high",
                 "component_pool_wamest_bucket_backcast": "medium",
                 "pre_component_h15_scaled_backcast": "low_medium",
             }
         )
+        # Source evidence is independent of date/method labels and never inferred
+        # from a newer component window for the earlier H15-only backcast.
+        sector_rows = candidate.loc[candidate["sector_group"].eq(sector)].copy()
+        if not sector_rows.empty:
+            sector_rows["date"] = pd.to_datetime(sector_rows["date"]).dt.normalize()
+        for field in ("source_observability_tiers", "source_families", "denominator_observability_tiers"):
+            if field in sector_rows:
+                evidence = sector_rows.groupby("date")[field].agg(
+                    lambda values: "|".join(sorted({
+                        label for value in values.fillna("unreported")
+                        for label in str(value).split("|")
+                    }))
+                )
+                frame[field] = frame.date.map(evidence).fillna("unreported")
+            else:
+                frame[field] = "unreported"
         frame["backcast_flag"] = frame["method_tier"].ne("constrained_component")
         rows.append(frame)
     if not rows:
@@ -115,7 +131,10 @@ def build_tier2_regression_backcast(
                 "backcast_scale_ratio",
                 "tier2_regression_interest_proxy",
                 "method_tier",
-                "evidence_grade",
+                "method_grade",
+                "source_observability_tiers",
+                "source_families",
+                "denominator_observability_tiers",
                 "backcast_flag",
             ]
         )
@@ -133,7 +152,7 @@ def render_tier2_regression_backcast_summary(backcast: pd.DataFrame) -> str:
     lines = [
         "# Tier 2 Regression Backcast",
         "",
-        "Regression-grade Tier 2 interest support with explicit method tiers.",
+        "Tier 2 interest support with method tiers and separately reported source evidence.",
         "",
     ]
     if backcast.empty:
@@ -162,7 +181,7 @@ def render_tier2_regression_backcast_summary(backcast: pd.DataFrame) -> str:
     lines.extend(
         [
             "",
-            "Use this for regression windows that need pre-2022 history. Do not describe all tiers as equally identified: 2022+ is constrained component, 2010-2021 is component-pool/WAMEST-bucket backcast, and pre-2010 is scaled H15 backcast.",
+            "Method grades describe the construction method, not source observability or independent validation. Use this for regression windows that need pre-2022 history. Do not describe all tiers as equally identified: 2022+ is constrained component, 2010-2021 is component-pool/WAMEST-bucket backcast, and pre-2010 is scaled H15 backcast.",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -214,10 +233,12 @@ def write_tier2_regression_backcast(
         wide["di_tier2_regression_interest_proxy"] = (
             wide["bank_row_tier2_regression_interest_proxy"] + wide["credit_union_tier2_regression_interest_proxy"]
         )
-        tiers = backcast.pivot_table(index="date", columns="sector_group", values="method_tier", aggfunc="first")
-        for sector in ["bank", "row", "credit_union"]:
-            if sector in tiers.columns:
-                wide[f"{sector}_method_tier"] = tiers[sector].reindex(pd.to_datetime(wide["date"]).dt.normalize()).to_numpy()
+        for field in ("method_tier", "method_grade", "source_observability_tiers", "source_families",
+                      "denominator_observability_tiers"):
+            metadata = backcast.pivot_table(index="date", columns="sector_group", values=field, aggfunc="first")
+            for sector in ["bank", "row", "credit_union"]:
+                if sector in metadata.columns:
+                    wide[f"{sector}_{field}"] = metadata[sector].reindex(pd.to_datetime(wide["date"]).dt.normalize()).to_numpy()
         wide["date"] = pd.to_datetime(wide["date"], errors="coerce").dt.date.astype(str)
         out_wide = Path(out_wide_csv_path)
         out_wide.parent.mkdir(parents=True, exist_ok=True)

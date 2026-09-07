@@ -20,6 +20,12 @@ from .sector_coupon import (
 )
 from .treasury_interest_components import build_treasury_interest_component_pools_from_file
 from .utils import ensure_dir
+from .wamest_interest_contract import (
+    read_wamest_component_bucket_weights,
+    read_wamest_interest_allocation_weights,
+    validate_wamest_component_bucket_weights,
+    validate_wamest_interest_allocation_weights,
+)
 
 
 SECTOR_GROUPS = {
@@ -178,6 +184,9 @@ def _sector_rows(
                 "fed_exact_component_mil": fed_exact_component_mil,
                 "allocation_pool_mil": allocation_pool,
                 "allocator_basis": allocator_basis,
+                "source_observability_tiers": _evidence_labels(weights.loc[weights.sector_key.isin(selected_keys)], "observability_tier"),
+                "source_families": _evidence_labels(weights.loc[weights.sector_key.isin(selected_keys)], "source_family"),
+                "denominator_observability_tiers": _evidence_labels(weights.loc[weights.sector_key.isin(denominator_sector_keys)], "observability_tier"),
                 "selected_raw_weight_mil": selected_weight,
                 "denominator_raw_weight_mil": denominator,
                 "component_anchored_interest_mil": allocated,
@@ -207,6 +216,12 @@ def build_tier2_interest_component_candidate(
     fed_sector_keys: Iterable[str] = DEFAULT_FED_SECTOR_KEYS,
     current_proxy_paths: dict[tuple[str, str], Path | str | None] | None = None,
 ) -> pd.DataFrame:
+    if interest_allocation_weights is not None:
+        interest_allocation_weights = validate_wamest_interest_allocation_weights(interest_allocation_weights)
+    if component_bucket_weights is not None:
+        component_bucket_weights = validate_wamest_component_bucket_weights(component_bucket_weights)
+        if interest_allocation_weights is None:
+            raise ValueError("WAMEST bucket fallback requires gross-interest eligibility records")
     groups = sector_groups if sector_groups is not None else SECTOR_GROUPS
     current_proxies = _current_proxy_map(current_proxy_paths)
 
@@ -287,6 +302,7 @@ def build_tier2_interest_component_candidate(
             official_pool = _value_at(coupon_pool, date)
             if official_pool is None:
                 continue
+            frame = _eligible_weight_frame(frame, interest_allocation_weights, "coupon_accrual")
             fed_exact = _value_at(fed_coupon, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
             denominator_keys = set(frame["sector_key"].astype(str).str.strip()) - fed_keys
@@ -312,6 +328,7 @@ def build_tier2_interest_component_candidate(
             official_pool = _value_at(frn_pool, date)
             if official_pool is None:
                 continue
+            frame = _eligible_weight_frame(frame, interest_allocation_weights, "frn_accrued_interest")
             fed_exact = _value_at(fed_frn, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
             denominator_keys = set(frame["sector_key"].astype(str).str.strip()) - fed_keys
@@ -337,6 +354,7 @@ def build_tier2_interest_component_candidate(
             official_pool = _value_at(bill_pool, date)
             if official_pool is None:
                 continue
+            frame = _eligible_weight_frame(frame, interest_allocation_weights, "bill_amortized_discount")
             fed_exact = _value_at(fed_bill, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
             denominator_keys = set(frame["sector_key"].astype(str).str.strip())
@@ -394,6 +412,34 @@ def _series_from_frame(df: pd.DataFrame, column: str) -> pd.Series:
         name=column,
     )
     return out.dropna().sort_index().astype("float64")
+
+
+def _eligible_weight_frame(
+    weights: pd.DataFrame, contract: pd.DataFrame | None, component: str,
+) -> pd.DataFrame:
+    """A fallback supplies amounts, never eligibility or a stronger evidence tier."""
+    if contract is None:
+        return weights.assign(observability_tier="unreported", source_family="legacy_maturity_proxy")
+    keys = ["date", "sector_key"]
+    authority = contract.loc[
+        contract.component_key.eq(component),
+        keys + ["eligible_for_gross_interest", "observability_tier", "source_family"],
+    ]
+    out = weights.merge(authority, on=keys, how="left", validate="one_to_one")
+    if out.eligible_for_gross_interest.isna().any():
+        raise ValueError(f"Missing WAMEST gross-interest eligibility for {component}")
+    out = out.loc[out.eligible_for_gross_interest].copy()
+    for column in (name for name in out if name.startswith("raw_")):
+        values = pd.to_numeric(out[column], errors="raise")
+        if values.isna().any() or values.isin([float("inf"), -float("inf")]).any() or values.lt(0).any():
+            raise ValueError(f"Invalid gross allocation amount for {component}")
+    return out
+
+
+def _evidence_labels(frame: pd.DataFrame, column: str) -> str:
+    if frame.empty or column not in frame:
+        return "unreported"
+    return "|".join(sorted(set(frame[column].fillna("unreported").astype(str))))
 
 
 def _contract_weight_frame(
@@ -727,13 +773,13 @@ def build_tier2_interest_component_candidate_from_files(
         else None
     )
     interest_allocation_weights = (
-        pd.read_csv(interest_allocation_weights_path)
-        if interest_allocation_weights_path is not None and Path(interest_allocation_weights_path).exists()
+        read_wamest_interest_allocation_weights(interest_allocation_weights_path)
+        if interest_allocation_weights_path is not None
         else None
     )
     component_bucket_weights = (
-        pd.read_csv(component_bucket_weights_path)
-        if component_bucket_weights_path is not None and Path(component_bucket_weights_path).exists()
+        read_wamest_component_bucket_weights(component_bucket_weights_path)
+        if component_bucket_weights_path is not None
         else None
     )
     source_constraints = (

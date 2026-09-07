@@ -50,6 +50,17 @@ The repo also keeps several related surfaces visible:
 - **Monetary cross-check**
   A diagnostic surface used for interpretation and stress testing, not as the main estimate.
 
+Interest allocation consumes WAMEST composition estimates; it does not re-estimate
+sector maturity. Bucket fallback requires matching date, sector and component
+eligibility, and cannot restore an excluded gross holder. Source observability
+and denominator evidence travel separately from the backcast's method grades:
+a newer method or date does not improve weak source evidence. Legacy yield-based
+coupon allocation requires an explicit coupon-maturity proxy; duration and
+zero-coupon-equivalent maturity are not accepted as substitutes. These inferred
+weights allocate aggregate interest pools, rather than observing interest received
+by individual banks. Retained estimates remain frozen until a separately approved
+refresh.
+
 ## Theory and measurement
 
 The project distinguishes between:

@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tdc_estimator.sector_coupon import (
+    prepare_sector_maturity,
     estimate_quarterly_bank_bill_discount_interest_proxy,
     estimate_quarterly_bank_coupon_interest_proxy,
     estimate_quarterly_credit_union_coupon_interest_proxy,
@@ -285,7 +287,7 @@ def test_write_quarterly_tier2_coupon_interest_proxies_writes_default_date_value
             "date": ["2025-03-31", "2025-03-31"],
             "sector_key": ["bank_us_chartered", "foreigners_total"],
             "bill_share": [0.10, 0.15],
-            "effective_duration_years": [5.0, 10.0],
+            "coupon_only_maturity_years": [5.0, 10.0],
         }
     ).to_csv(sector_maturity_path, index=False)
     pd.DataFrame(
@@ -691,3 +693,11 @@ def test_estimate_quarterly_sector_coupon_proxy_uses_latest_nonempty_curve_row()
     bank = estimate_quarterly_bank_coupon_interest_proxy(sector_maturity, sector_panel, curves)
 
     assert round(float(bank.loc[pd.Timestamp("2002-03-31")]), 6) == round(100.0 * 0.80 * 0.0491 / 4.0, 6)
+
+
+@pytest.mark.parametrize("measure", ["effective_duration_years", "zero_coupon_equivalent_years"])
+def test_coupon_weights_reject_duration_or_zce_as_maturity(measure):
+    maturity = pd.DataFrame({"date": ["2025-03-31"], "sector_key": ["bank_us_chartered"],
+                             "bill_share": [.2], measure: [6.]})
+    with pytest.raises(ValueError, match="duration and ZCE are not substitutes"):
+        prepare_sector_maturity(maturity)

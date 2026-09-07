@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tdc_estimator.tier2_interest_component_candidate import (
     build_tier2_interest_component_candidate,
@@ -10,6 +11,18 @@ from tdc_estimator.tier2_interest_component_candidate import (
     write_tier2_interest_component_candidate,
 )
 from tdc_estimator.treasury_interest_components import build_treasury_interest_component_pools
+
+
+def _contract(frame):
+    frame = frame.copy()
+    for field, value in {"eligible_for_gross_interest": True, "weight_class": "gross_long_holder_amount",
+                         "weight_basis": "synthetic", "source_family": "Z1_WAMEST",
+                         "observability_tier": "D"}.items():
+        if field not in frame:
+            frame[field] = value
+    if set(frame.component_key) == {"coupon_accrual"}:
+        frame = pd.concat([frame, frame.assign(component_key="bill_amortized_discount")], ignore_index=True)
+    return frame
 
 
 def _component_pools() -> pd.DataFrame:
@@ -177,7 +190,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
         curves=curves,
-        interest_allocation_weights=contract,
+        interest_allocation_weights=_contract(contract),
     )
 
     bank_coupon = out[
@@ -190,7 +203,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
     assert bank_coupon["selected_raw_weight_mil"] == 1.0
 
 
-def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_contract_window():
+def test_bucket_backcast_requires_same_date_eligibility():
     sector_maturity = pd.DataFrame(
         {
             "date": ["2011-03-31", "2025-03-31"],
@@ -239,30 +252,20 @@ def test_build_tier2_interest_component_candidate_uses_bucket_backcast_before_co
             "component_key": ["coupon_accrual"],
             "bucket_weight": [0.5],
             "bucket_weight_unit": ["fraction"],
+            "bucket_key": ["coupon_share"], "bucket_basis": ["synthetic"],
+            "source_family": ["Z1_WAMEST"], "observability_tier": ["D"],
         }
     )
 
-    out = build_tier2_interest_component_candidate(
-        component_pools=component_pools,
-        sector_maturity=sector_maturity,
-        sector_panel=sector_panel,
-        curves=pd.DataFrame({"date": ["2011-03-31", "2025-03-31"], "1y": [4.0, 4.0]}),
-        interest_allocation_weights=contract,
-        component_bucket_weights=buckets,
-    )
-
-    bank_2011 = out[
-        out["sector_group"].eq("bank")
-        & out["component_key"].eq("coupon_accrual")
-        & pd.to_datetime(out["date"]).eq(pd.Timestamp("2011-03-31"))
-    ].iloc[0]
-    bank_2025 = out[
-        out["sector_group"].eq("bank")
-        & out["component_key"].eq("coupon_accrual")
-        & pd.to_datetime(out["date"]).eq(pd.Timestamp("2025-03-31"))
-    ].iloc[0]
-    assert bank_2011["selected_raw_weight_mil"] == 50.0
-    assert bank_2025["selected_raw_weight_mil"] == 25.0
+    with pytest.raises(ValueError, match="Missing WAMEST gross-interest eligibility"):
+        _ = build_tier2_interest_component_candidate(
+            component_pools=component_pools,
+            sector_maturity=sector_maturity,
+            sector_panel=sector_panel,
+            curves=pd.DataFrame({"date": ["2011-03-31", "2025-03-31"], "1y": [4.0, 4.0]}),
+            interest_allocation_weights=_contract(contract),
+            component_bucket_weights=buckets,
+        )
 
 
 def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_weights_in_millions():
@@ -313,7 +316,7 @@ def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
         curves=pd.DataFrame({"date": ["2025-03-31"], "1y": [4.0]}),
-        interest_allocation_weights=contract,
+        interest_allocation_weights=_contract(contract),
         source_constraints=constraints,
     )
 
@@ -473,3 +476,66 @@ def test_write_tier2_interest_component_candidate_and_summary(tmp_path: Path):
     summary = summarize_tier2_interest_component_candidate(out)
     assert "feeds live Tier 2 defaults through certified support exports" in summary
     assert "Latest-quarter read" in md_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("fault", [None, "ineligible_weight", "malformed_flag", "missing_flag", "missing_holder"])
+def test_cli_preserves_gross_exclusions_and_source_evidence(tmp_path, fault):
+    from tdc_estimator.cli import main
+
+    release = tmp_path / "wamest" / "outputs" / "full_coverage_release"
+    release.mkdir(parents=True)
+    keys = ["bank_us_chartered", "foreigners_total", "household_and_nonprofit_residual", "security_brokers_and_dealers"]
+    contract = _contract(pd.DataFrame({
+        "date": ["2025-03-31"] * 4, "sector_key": keys, "component_key": ["coupon_accrual"] * 4,
+        "central_weight": [100., 100., 1000., 500.], "low_weight": [100., 100., 1000., 500.],
+        "high_weight": [100., 100., 1000., 500.], "gross_interest_weight": [None, 100., None, None],
+        "gross_interest_low_weight": [None, 100., None, None],
+        "gross_interest_high_weight": [None, 100., None, None],
+        "eligible_for_gross_interest": [True, True, False, False], "weight_unit": ["usd_millions"] * 4,
+    }))
+    if fault == "ineligible_weight":
+        contract.loc[2, "gross_interest_weight"] = 1000.
+    elif fault == "malformed_flag":
+        contract["eligible_for_gross_interest"] = contract.eligible_for_gross_interest.astype(object)
+        contract.loc[2, "eligible_for_gross_interest"] = "maybe"
+    elif fault == "missing_holder":
+        contract = contract.loc[~contract.sector_key.eq(keys[2])]
+    elif fault == "missing_flag":
+        contract = contract.drop(columns="eligible_for_gross_interest")
+    contract.to_csv(release / "sector_interest_allocation_weights.csv", index=False)
+    buckets = pd.DataFrame({"date": ["2025-03-31"] * 4, "sector_key": keys,
+                            "component_key": ["coupon_accrual"] * 4, "bucket_key": ["coupon_share"] * 4,
+                            "bucket_weight": [1.] * 4, "bucket_weight_unit": ["fraction"] * 4,
+                            "bucket_basis": ["synthetic"] * 4, "source_family": ["Z1_WAMEST"] * 4,
+                            "observability_tier": ["D"] * 4})
+    buckets.to_csv(release / "sector_component_bucket_weights.csv", index=False)
+    maturity = tmp_path / "maturity.csv"
+    # No maturity proxy needed: component contracts are the source of allocation weights.
+    pd.DataFrame({"date": ["2025-03-31"] * 4, "sector_key": keys}).to_csv(maturity, index=False)
+    panel = tmp_path / "panel.csv"
+    pd.DataFrame({"date": ["2025-03-31"] * 4, "sector_key": keys,
+                  "level": [100., 100., 1000., 500.]}).to_csv(panel, index=False)
+    curve = tmp_path / "curve.csv"
+    pd.DataFrame({"date": ["2025-03-31"], "1y": [4.]}).to_csv(curve, index=False)
+    treasury = tmp_path / "treasury.csv"
+    pd.DataFrame({"record_date": ["2025-03-31"], "expense_catg_desc": ["INTEREST EXPENSE ON PUBLIC ISSUES"],
+                  "expense_group_desc": ["ACCRUED INTEREST EXPENSE"], "expense_type_desc": ["Treasury Notes"],
+                  "month_expense_amt": ["1000000000"]}).to_csv(treasury, index=False)
+    output = tmp_path / "candidate.csv"
+    args = ["tier2-interest-component-candidate", "--root", str(tmp_path / "consumer"),
+            "--wamest-root", str(tmp_path / "wamest"), "--sector-maturity-file", str(maturity),
+            "--sector-panel-file", str(panel), "--curve-file", str(curve), "--treasury-interest-file", str(treasury),
+            "--out", str(output), "--markdown-out", str(tmp_path / "candidate.md")]
+    if fault:
+        with pytest.raises(ValueError):
+            main(args)
+        assert not output.exists()
+        return
+    assert main(args) == 0
+    result = pd.read_csv(output)
+    bank = result.loc[result.sector_group.eq("bank")].iloc[0]
+    assert bank.denominator_raw_weight_mil == 200.
+    assert bank.component_anchored_interest_mil == 500.
+    assert bank.source_observability_tiers == "D"
+    assert bank.denominator_observability_tiers == "D"
+    assert bank.source_families == "Z1_WAMEST"

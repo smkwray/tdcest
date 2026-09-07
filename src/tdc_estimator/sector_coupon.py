@@ -374,13 +374,11 @@ def prepare_sector_maturity(df: pd.DataFrame) -> pd.DataFrame:
         [
             "coupon_only_maturity_years_bill_wam_adjusted",
             "coupon_only_maturity_years",
-            "effective_duration_years",
-            "zero_coupon_equivalent_years",
         ],
     )
     if maturity_col is None:
         raise ValueError(
-            "Sector maturity file needs coupon_only_maturity_years, effective_duration_years, or zero_coupon_equivalent_years."
+            "Sector maturity file needs an explicit coupon_only_maturity_years measure; duration and ZCE are not substitutes."
         )
     out["coupon_only_maturity_years"] = pd.to_numeric(df[maturity_col], errors="coerce")
     return out.dropna(subset=["date", "sector_key"]).reset_index(drop=True)

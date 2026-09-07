@@ -67,6 +67,7 @@ def test_build_parser_exposes_expected_commands():
         "tier2-live-delta-acceptance",
         "tier2-regression-backcast",
         "tier2-regression-series",
+        "regression-leg-export",
         "tdc-empirical-anchor",
         "ratewall-du-ru-methodology",
         "route-admissibility-registry",

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import io
+import json
+import subprocess
 
+import numpy as np
 import pandas as pd
+
+from .catalog import BANK_DEPOSITORY_TX_KEYS
 
 
 BASE_COLUMNS = [
@@ -48,6 +55,153 @@ MODERN_SPLICE_SUPPORT_FILES = {
     ),
 }
 MODERN_SPLICE_TOLERANCE_MILLIONS = 1e-6
+
+LEG_CANONICAL_COLUMN = "tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow"
+LEG_QUARTERLY_COLUMNS = [
+    "fed_tsy_tx", *BANK_DEPOSITORY_TX_KEYS, "row_tsy_tx",
+    "treasury_operating_cash_tx", "fed_remit_or_deferred",
+]
+LEG_REGRESSION_COLUMNS = [
+    LEG_CANONICAL_COLUMN, "tdc_tier2_regression_bank_only_ru_flow",
+    "tdc_tier2_regression_domestic_bank_only_ru_flow",
+    "row_tier2_regression_interest_proxy", "bank_tier2_regression_interest_proxy",
+    "fed_tsy_coupon_interest_proxy", "mmf_rrp_adjustment_prop",
+]
+LEG_TIER_COLUMNS = ["row_method_tier", "tier2_regression_bank_row_method_tier"]
+
+
+def build_regression_leg_table(
+    quarterly: pd.DataFrame, regression: pd.DataFrame,
+) -> pd.DataFrame:
+    """Decompose the fixed 2002Q1–2025Q4 proxy without changing its inputs."""
+    expected = pd.period_range("2002Q1", "2025Q4", freq="Q")
+    frames = []
+    for label, source, columns in [
+        ("quarterly", quarterly, LEG_QUARTERLY_COLUMNS),
+        ("regression", regression, [*LEG_REGRESSION_COLUMNS, *LEG_TIER_COLUMNS]),
+    ]:
+        missing = set(["date", *columns]) - set(source.columns)
+        if missing:
+            raise ValueError(f"{label}: missing columns {sorted(missing)}")
+        frame = source[["date", *columns]].copy()
+        dates = pd.to_datetime(frame.pop("date"), errors="raise")
+        if dates.isna().any() or not dates.eq(dates.dt.to_period("Q").dt.end_time.dt.normalize()).all():
+            raise ValueError(f"{label}: invalid quarter-end dates")
+        frame.index = pd.PeriodIndex(dates, freq="Q")
+        if frame.index.has_duplicates:
+            raise ValueError(f"{label}: duplicate quarters")
+        frame = frame.loc[(frame.index >= expected[0]) & (frame.index <= expected[-1])].sort_index()
+        if not frame.index.equals(expected):
+            raise ValueError(f"{label}: expected exactly 96 complete quarters")
+        for column in columns:
+            if column in LEG_TIER_COLUMNS:
+                if frame[column].isna().any() or frame[column].astype(str).str.strip().eq("").any():
+                    raise ValueError(f"{label}: missing method tier {column}")
+            else:
+                frame[column] = pd.to_numeric(frame[column], errors="raise")
+                structural_absence = (
+                    frame[column].isna() & (frame.index < ON_RRP_FULL_MECHANISM_START.to_period("Q"))
+                    if column == "mmf_rrp_adjustment_prop" else False
+                )
+                if not (np.isfinite(frame[column]) | structural_absence).all():
+                    raise ValueError(f"{label}: nonfinite required values in {column}")
+        frames.append(frame)
+    out = frames[0].join(frames[1], validate="one_to_one")
+    out["quarter"] = out.index.astype(str)
+    out["C"] = out[LEG_CANONICAL_COLUMN]
+    out["R"] = out["row_tsy_tx"] - out["row_tier2_regression_interest_proxy"]
+    out["O"] = -out["treasury_operating_cash_tx"]
+    out["J"] = out["C"] - out["R"] - out["O"]
+    out["fed_remit_positive"] = out["fed_remit_or_deferred"]
+    out["effective_mmf_rrp_adjustment_prop"] = out["mmf_rrp_adjustment_prop"].where(
+        out.index >= ON_RRP_FULL_MECHANISM_START.to_period("Q"), 0.0,
+    )
+    out["J_expanded"] = (
+        out[["fed_tsy_tx", *BANK_DEPOSITORY_TX_KEYS]].sum(axis=1)
+        + out["fed_remit_positive"] - out["fed_tsy_coupon_interest_proxy"]
+        - out["bank_tier2_regression_interest_proxy"]
+        + out["effective_mmf_rrp_adjustment_prop"]
+    )
+    out["R_reconstruction_gap"] = out["R"] - (
+        out["tdc_tier2_regression_bank_only_ru_flow"]
+        - out["tdc_tier2_regression_domestic_bank_only_ru_flow"]
+    )
+    out["J_reconstruction_gap"] = out["J"] - out["J_expanded"]
+    out["C_adding_up_gap"] = out["C"] - out[["R", "J", "O"]].sum(axis=1)
+    for column in ["R_reconstruction_gap", "J_reconstruction_gap", "C_adding_up_gap"]:
+        worst = float(out[column].abs().max())
+        if worst > MODERN_SPLICE_TOLERANCE_MILLIONS:
+            raise ValueError(f"{column}: {worst} exceeds {MODERN_SPLICE_TOLERANCE_MILLIONS} million")
+    out["quarterly_missing_count"] = 0
+    out["mmf_adjustment_raw_missing"] = out["mmf_rrp_adjustment_prop"].isna()
+    out["regression_missing_count"] = out["mmf_adjustment_raw_missing"].astype(int)
+    first = ["quarter", "C", "R", "J", "O"]
+    return out[first + [column for column in out if column not in first]].reset_index(drop=True)
+
+
+def write_regression_leg_table(
+    *, root: Path, quarterly_path: Path, regression_path: Path,
+    quarterly_sha256: str, regression_sha256: str,
+    out_path: Path, receipt_path: Path,
+) -> dict:
+    """Bind the additive diagnostic to committed code and explicit input hashes."""
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+    if git("status", "--porcelain", "--untracked-files=normal"):
+        raise ValueError("Export requires a clean committed producer checkout")
+    producer_commit = git("rev-parse", "HEAD")
+    inputs = {}
+    frames = []
+    for role, path, expected_hash in [
+        ("quarterly", quarterly_path, quarterly_sha256),
+        ("regression", regression_path, regression_sha256),
+    ]:
+        raw = path.read_bytes()
+        actual_hash = hashlib.sha256(raw).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(f"{role}: source hash mismatch")
+        inputs[role] = {"path": str(path.resolve().relative_to(root.resolve())), "sha256": actual_hash}
+        frames.append(pd.read_csv(io.BytesIO(raw)))
+    output_paths = [out_path.resolve(), receipt_path.resolve()]
+    if len(set(output_paths)) != 2 or set(output_paths) & {quarterly_path.resolve(), regression_path.resolve()}:
+        raise ValueError("Output paths must be distinct and cannot overwrite inputs")
+    frame = build_regression_leg_table(*frames)
+    for role, source in inputs.items():
+        frame[f"{role}_source_sha256"] = source["sha256"]
+    table_bytes = frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    receipt = {
+        "schema_version": "regression_legs_v1", "producer_commit": producer_commit,
+        "units": "USD million", "sample": {"start": "2002Q1", "end": "2025Q4", "n": len(frame)},
+        "inputs": inputs, "output": {"path": str(out_path.resolve().relative_to(root.resolve())),
+        "sha256": hashlib.sha256(table_bytes).hexdigest()},
+        "full_precision_reconciliation_tolerance": MODERN_SPLICE_TOLERANCE_MILLIONS,
+        "max_absolute_gaps": {column: float(frame[column].abs().max()) for column in
+            ["R_reconstruction_gap", "J_reconstruction_gap", "C_adding_up_gap"]},
+        "negative_R_quarters": int((frame.R < 0).sum()),
+        "negative_R_with_nonnegative_raw_purchases": int(((frame.R < 0) & (frame.row_tsy_tx >= 0)).sum()),
+        "method_tier_counts": frame.row_method_tier.value_counts().sort_index().to_dict(),
+        "structural_pre_mechanism_mmf_missing_quarters": int(frame.mmf_adjustment_raw_missing.sum()),
+        "labels": {"R": "ROW net Treasury purchases net of allocated debt service",
+                   "J": "remainder treatment leg", "O": "minus Treasury operating cash transactions"},
+        "source_resolution": {leg: {"delta_usd_million": None, "status": "unestablished",
+            "reason": "Derived CSV precision and arithmetic reconciliation do not establish source quantization bounds"}
+            for leg in ["R", "J", "O"]},
+        "boundaries": [
+            "Descriptive treatment decomposition; no treatment promotion or counterpart settlement attribution",
+            "Pre-component interest uses a scaled-H.15 backcast through 2010Q1",
+            "J includes Fed and US-chartered, foreign-office and affiliated-area-bank purchases; it is not domestic-bank purchases",
+            "Reference deposit outcome BOGZ1FL764100005Q covers US-chartered institutions and all holders; treatment-bank perimeter also includes foreign offices and affiliated-area banks",
+            "Reference factor controls were selected and scored on the full panel including 2020–21; quarterly lag001 features anchor at t-2",
+            "Both cached input objects are hash-pinned; no source-vintage refresh is performed",
+            "Missing raw MMF adjustments before 2013Q3 are flagged; the effective term is definitionally zero there, and active-period missingness fails",
+        ],
+    }
+    for path in [out_path, receipt_path]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(table_bytes)
+    receipt_path.write_text(json.dumps(receipt, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    return receipt
 
 
 def _read_date_csv(path: Path | str) -> pd.DataFrame:

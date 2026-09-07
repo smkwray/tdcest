@@ -120,6 +120,24 @@ If you want to use the FRED API instead of the public graph CSV endpoint, set `F
 $HOME/venvs/tdcest/bin/tdc site-export
 ```
 
+### 6. Export a fixed treatment-leg diagnostic
+
+From a clean committed checkout, `tdc regression-leg-export --quarterly-sha256 HASH --regression-sha256 HASH`
+reads the existing `data/processed/quarterly_inputs.csv` and
+`data/processed/tdc_tier2_regression_series.csv`. Supply the approved source-object
+SHA-256 hashes; the command rejects changed inputs and does not fetch or rebuild them.
+It writes ignored `tdc_regression_legs_v1.csv` and its `_receipt.json` beside those inputs.
+
+The fixed 2002Q1–2025Q4 table decomposes the regression proxy as C = R + J + O:
+ROW net Treasury purchases net of allocated debt service, the remainder treatment
+leg, and minus operating-cash transactions. It independently reconstructs J from
+Fed and treatment-bank purchases, remittances, interest proxies and the effective
+MMF/ON RRP adjustment. Missing inputs, unmatched quarters and reconciliation gaps
+above 1e-6 USD million stop the export. The receipt binds the code commit, input
+hashes, printed gaps, method tiers and negative-quarter counts. This is descriptive
+accounting; allocation-dependent legs do not identify settlement routes or causal
+responses. Unknown source-resolution bounds remain explicitly unknown.
+
 ## Static site
 
 The public site lives under `site/` and is published from that directory.

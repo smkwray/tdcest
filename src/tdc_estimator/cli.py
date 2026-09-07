@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 from pathlib import Path
@@ -87,7 +88,7 @@ from .tier3_du_share_diagnostic import write_tier3_du_share_diagnostic
 from .dst_du_reconciliation import write_dst_du_reconciliation
 from .dst_du_sector_allocation import write_dst_du_sector_allocation
 from .tier2_regression_backcast import write_tier2_regression_backcast
-from .tier2_regression_series import write_tier2_regression_series
+from .tier2_regression_series import write_tier2_regression_series, write_regression_leg_table
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
 from .treasury_interest_components import write_treasury_interest_component_pools
 from .utils import project_relative_path, write_json
@@ -1321,6 +1322,21 @@ def cmd_tier2_regression_series(args: argparse.Namespace) -> int:
     )
     print(f"Wrote Tier 2 regression-corrected TDC series to {csv_path}")
     print(f"Wrote Tier 2 regression-corrected TDC summary to {md_path}")
+    return 0
+
+
+def cmd_regression_leg_export(args: argparse.Namespace) -> int:
+    paths = project_paths(args.root)
+    receipt = write_regression_leg_table(
+        root=paths.root,
+        quarterly_path=paths.processed / "quarterly_inputs.csv",
+        regression_path=paths.processed / "tdc_tier2_regression_series.csv",
+        quarterly_sha256=args.quarterly_sha256,
+        regression_sha256=args.regression_sha256,
+        out_path=paths.processed / "tdc_regression_legs_v1.csv",
+        receipt_path=paths.processed / "tdc_regression_legs_v1_receipt.json",
+    )
+    print(json.dumps(receipt, indent=2))
     return 0
 
 
@@ -2654,6 +2670,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output Markdown path. Defaults to data/processed/tdc_tier2_regression_series.md.",
     )
     p_tier2_regression_series.set_defaults(func=cmd_tier2_regression_series)
+
+    p_legs = sub.add_parser(
+        "regression-leg-export", parents=[root_parent],
+        help="Export the fixed 2002Q1–2025Q4 treatment-leg diagnostic from hash-pinned cached inputs.",
+    )
+    p_legs.add_argument("--quarterly-sha256", required=True)
+    p_legs.add_argument("--regression-sha256", required=True)
+    p_legs.set_defaults(func=cmd_regression_leg_export)
 
     p_component_comparison = sub.add_parser(
         "tier2-component-anchor-comparison",

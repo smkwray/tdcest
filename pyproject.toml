@@ -40,5 +40,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not integration'"
+markers = ["integration: needs real local inputs; run explicitly with -m integration and fails when they are absent"]
 cache_dir = "~/venvs/tdcest/pytest-cache"

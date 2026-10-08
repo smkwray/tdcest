@@ -7,6 +7,7 @@ import re
 import urllib.request
 import zipfile
 
+import numpy as np
 import pandas as pd
 
 from .config import USER_AGENT
@@ -521,6 +522,51 @@ def aggregate_mmf_rrp_to_quarter(monthly: pd.DataFrame) -> pd.DataFrame:
         .sort_index()
     )
     out.index.name = "date"
+    return out
+
+
+MMF_ON_RRP_ROUTE_LIMITATION = (
+    "One-sided: covers MMF Treasury increases funded by observed fund-level ON RRP runoff; "
+    "Treasury paydowns subsequently placed into ON RRP are not identified."
+)
+
+
+def mmf_on_rrp_route_adjustment(quarterly: pd.DataFrame, *, tolerance: float = 1e-6) -> pd.DataFrame:
+    """Expose the quarterly MMF/ON RRP route adjustment with explicit status.
+
+    ``quarterly`` is indexed by quarterly periods and carries the raw
+    ``mmf_rrp_adjustment_{lb,prop,ub}`` aggregates. Before the ON RRP mechanism
+    the route is definitionally zero. In active quarters every value must be
+    finite and ordered, except that a missing lower bound is implied to be zero
+    when the upper bound is zero (``0 <= lb <= ub``); that case is flagged.
+    """
+    columns = {"lb": "mmf_rrp_adjustment_lb", "prop": "mmf_rrp_adjustment_prop", "ub": "mmf_rrp_adjustment_ub"}
+    missing = set(columns.values()) - set(quarterly.columns)
+    if missing:
+        raise ValueError(f"MMF route adjustment: missing columns {sorted(missing)}")
+    raw = quarterly[list(columns.values())].apply(pd.to_numeric, errors="raise")
+    raw.columns = list(columns)
+    active = pd.Series(quarterly.index >= ON_RRP_OPERATION_START.to_period("Q"), index=quarterly.index)
+    out = pd.DataFrame(index=quarterly.index)
+    out["mmf_route_raw_missing"] = raw.isna().any(axis=1)
+    out["mmf_route_status"] = "structural_zero_pre_on_rrp_mechanism"
+    for key in columns:
+        out[f"mmf_route_{key}"] = raw[key].where(active, 0.0)
+    implied = active & raw["lb"].isna() & raw["ub"].eq(0.0) & raw["prop"].eq(0.0)
+    out.loc[implied, "mmf_route_lb"] = 0.0
+    out.loc[active, "mmf_route_status"] = "observed_one_sided"
+    out.loc[implied, "mmf_route_status"] = "observed_one_sided_lb_implied_by_zero_ub"
+    values = out[["mmf_route_lb", "mmf_route_prop", "mmf_route_ub"]]
+    if not np.isfinite(values.to_numpy(dtype=float)).all():
+        bad = values.index[~np.isfinite(values.to_numpy(dtype=float)).all(axis=1)]
+        raise ValueError(f"MMF route adjustment: missing active-period values in {[str(q) for q in bad]}")
+    ordered = (
+        values["mmf_route_lb"].ge(-tolerance)
+        & values["mmf_route_lb"].le(values["mmf_route_prop"] + tolerance)
+        & values["mmf_route_prop"].le(values["mmf_route_ub"] + tolerance)
+    )
+    if not ordered.all():
+        raise ValueError(f"MMF route adjustment: bounds out of order in {[str(q) for q in values.index[~ordered]]}")
     return out
 
 

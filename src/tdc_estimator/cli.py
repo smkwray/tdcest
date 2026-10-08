@@ -90,6 +90,7 @@ from .dst_du_sector_allocation import write_dst_du_sector_allocation
 from .tier2_regression_backcast import write_tier2_regression_backcast
 from .tier2_regression_series import write_tier2_regression_series, write_regression_leg_table
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
+from .trc_export import write_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
 from .utils import project_relative_path, write_json
 from .wamest_interest_contract import resolve_wamest_interest_contract_paths
@@ -1335,6 +1336,17 @@ def cmd_regression_leg_export(args: argparse.Namespace) -> int:
         regression_sha256=args.regression_sha256,
         out_path=paths.processed / "tdc_regression_legs_v1.csv",
         receipt_path=paths.processed / "tdc_regression_legs_v1_receipt.json",
+    )
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_trc_export(args: argparse.Namespace) -> int:
+    receipt = write_trc_export(
+        root=args.root,
+        legs_sha256=args.legs_sha256,
+        quarterly_sha256=args.quarterly_sha256,
+        inputs_manifest_sha256=args.inputs_manifest_sha256,
     )
     print(json.dumps(receipt, indent=2))
     return 0
@@ -2678,6 +2690,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_legs.add_argument("--quarterly-sha256", required=True)
     p_legs.add_argument("--regression-sha256", required=True)
     p_legs.set_defaults(func=cmd_regression_leg_export)
+
+    p_trc = sub.add_parser(
+        "trc-export", parents=[root_parent],
+        help="Export the opt-in Treasury component of reserves from hash-pinned frozen legs and fiscus inputs.",
+    )
+    p_trc.add_argument("--legs-sha256", required=True)
+    p_trc.add_argument("--quarterly-sha256", required=True)
+    p_trc.add_argument("--inputs-manifest-sha256", required=True)
+    p_trc.set_defaults(func=cmd_trc_export)
 
     p_component_comparison = sub.add_parser(
         "tier2-component-anchor-comparison",

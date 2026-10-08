@@ -68,13 +68,33 @@ LEG_REGRESSION_COLUMNS = [
     "fed_tsy_coupon_interest_proxy", "mmf_rrp_adjustment_prop",
 ]
 LEG_TIER_COLUMNS = ["row_method_tier", "tier2_regression_bank_row_method_tier"]
+LEG_QUARTERS = pd.period_range("2002Q1", "2025Q4", freq="Q")
+
+
+def require_clean_commit(root: Path) -> str:
+    """Return HEAD of a clean committed checkout or refuse to export."""
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+    if git("status", "--porcelain", "--untracked-files=normal"):
+        raise ValueError("Export requires a clean committed producer checkout")
+    return git("rev-parse", "HEAD")
+
+
+def read_pinned_input(root: Path, path: Path, expected_hash: str, role: str) -> tuple[bytes, dict]:
+    """Read an input whose SHA-256 the caller pinned; return its bytes and receipt record."""
+    raw = path.read_bytes()
+    actual_hash = hashlib.sha256(raw).hexdigest()
+    if actual_hash != expected_hash:
+        raise ValueError(f"{role}: source hash mismatch")
+    return raw, {"path": str(path.resolve().relative_to(root.resolve())), "sha256": actual_hash}
 
 
 def build_regression_leg_table(
     quarterly: pd.DataFrame, regression: pd.DataFrame,
 ) -> pd.DataFrame:
     """Decompose the fixed 2002Q1–2025Q4 proxy without changing its inputs."""
-    expected = pd.period_range("2002Q1", "2025Q4", freq="Q")
+    expected = LEG_QUARTERS
     frames = []
     for label, source, columns in [
         ("quarterly", quarterly, LEG_QUARTERLY_COLUMNS),
@@ -145,23 +165,14 @@ def write_regression_leg_table(
     out_path: Path, receipt_path: Path,
 ) -> dict:
     """Bind the additive diagnostic to committed code and explicit input hashes."""
-    def git(*args: str) -> str:
-        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
-
-    if git("status", "--porcelain", "--untracked-files=normal"):
-        raise ValueError("Export requires a clean committed producer checkout")
-    producer_commit = git("rev-parse", "HEAD")
+    producer_commit = require_clean_commit(root)
     inputs = {}
     frames = []
     for role, path, expected_hash in [
         ("quarterly", quarterly_path, quarterly_sha256),
         ("regression", regression_path, regression_sha256),
     ]:
-        raw = path.read_bytes()
-        actual_hash = hashlib.sha256(raw).hexdigest()
-        if actual_hash != expected_hash:
-            raise ValueError(f"{role}: source hash mismatch")
-        inputs[role] = {"path": str(path.resolve().relative_to(root.resolve())), "sha256": actual_hash}
+        raw, inputs[role] = read_pinned_input(root, path, expected_hash, role)
         frames.append(pd.read_csv(io.BytesIO(raw)))
     output_paths = [out_path.resolve(), receipt_path.resolve()]
     if len(set(output_paths)) != 2 or set(output_paths) & {quarterly_path.resolve(), regression_path.resolve()}:

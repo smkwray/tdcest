@@ -31,6 +31,22 @@ class LocalSeries:
     notes: str | None = None
 
 
+@dataclass(frozen=True)
+class FiscusInput:
+    """One caller-owned input acquired through a fiscus command.
+
+    ``argv`` is the exact fiscus command after the executable name. Values are
+    multiplied by ``usd_million_per_unit`` to reach USD million.
+    """
+
+    key: str
+    dataset_id: str
+    argv: tuple[str, ...]
+    usd_million_per_unit: float
+    clock: str
+    description: str
+
+
 BASE_FRED_SERIES: list[FredSeries] = [
     FredSeries(
         key="fed_tsy_tx",
@@ -788,6 +804,69 @@ TREASURY_DATASETS: list[TreasuryDataset] = [
         description="Floating Rate Notes daily index and accrued interest per $100",
         params={"page[size]": "10000", "sort": "-record_date"},
     ),
+]
+
+TRC_WINDOW = ("2002-01-01", "2025-12-31")
+
+
+def _fred_input(key: str, series_id: str, scale: float, clock: str, description: str) -> FiscusInput:
+    return FiscusInput(
+        key=key,
+        dataset_id=f"fred.{series_id.lower()}",
+        argv=("get-series", f"fred.{series_id.lower()}", "--start", TRC_WINDOW[0], "--end", TRC_WINDOW[1]),
+        usd_million_per_unit=scale,
+        clock=clock,
+        description=description,
+    )
+
+
+def _z1_input(key: str, code: str, description: str) -> FiscusInput:
+    return FiscusInput(
+        key=key,
+        dataset_id=f"z1.{code.lower().replace('.', '_')}",
+        argv=("z1-series", code, code[:2], "--start", TRC_WINDOW[0], "--end", TRC_WINDOW[1]),
+        usd_million_per_unit=1.0,
+        clock="z1_calendar_quarter_transactions",
+        description=description,
+    )
+
+
+# Treasury component of reserves (TRC) inputs. The DTS key is deliberately
+# distinct from `dts_operating_cash_balance` above, which names the Table II
+# deposits-and-withdrawals endpoint and is left unchanged.
+TRC_FISCUS_INPUTS: list[FiscusInput] = [
+    FiscusInput(
+        key="dts_operating_cash_balance_table_i",
+        dataset_id="fiscaldata.dts_operating_cash_balance",
+        argv=(
+            "fiscaldata-query", "fiscaldata.dts_operating_cash_balance",
+            "--param", "filter=record_date:gte:2005-10-01,record_date:lte:2025-12-31",
+            "--param", "page[size]=10000", "--max-pages", "100",
+        ),
+        usd_million_per_unit=1.0,
+        clock="dts_business_day_close",
+        description="Daily Treasury Statement Table I operating cash balance by account type",
+    ),
+    _fred_input("h41_tga_wednesday", "WDTGAL", 1.0, "h41_wednesday_level",
+                "H.4.1 U.S. Treasury General Account, Wednesday level"),
+    _fred_input("h41_reserve_balances_wednesday", "WRBWFRBL", 1.0, "h41_wednesday_level",
+                "H.4.1 reserve balances with Federal Reserve Banks, Wednesday level"),
+    _fred_input("h41_rrp_others_wednesday", "WLRRAOL", 1.0, "h41_wednesday_level",
+                "H.4.1 reverse repurchase agreements with others, Wednesday level"),
+    _fred_input("h41_rrp_foreign_official_wednesday", "WLRRAFOIAL", 1.0, "h41_wednesday_level",
+                "H.4.1 reverse repurchase agreements with foreign official and international accounts, Wednesday level"),
+    _fred_input("h41_foreign_official_deposits_wednesday", "WDFOL", 1.0, "h41_wednesday_level",
+                "H.4.1 foreign official deposits with Federal Reserve Banks, Wednesday level"),
+    _fred_input("h41_custody_marketable_treasury_wednesday", "WMTSECL1", 1.0, "h41_wednesday_level",
+                "H.4.1 marketable Treasury securities held in custody for foreign official and international accounts, Wednesday level"),
+    _fred_input("h3_total_reserves_monthly", "TOTRESNS", 1000.0, "h3_monthly_average",
+                "H.3 total reserves of depository institutions, monthly average, billions"),
+    _z1_input("z1_reserves_transactions", "FU713113003.Q",
+              "Central bank; depository institution reserves, excluding FHLB deposits; liability, transactions"),
+    _z1_input("z1_sfp_transactions", "FU713123043.Q",
+              "Central bank; deposits in Treasury temporary supplementary financing account; liability, transactions"),
+    _z1_input("z1_us_chartered_reserves_transactions", "FU763013005.Q",
+              "U.S.-chartered depository institutions; depository institution reserves; asset, transactions"),
 ]
 
 BANK_DEPOSITORY_TX_KEYS = [

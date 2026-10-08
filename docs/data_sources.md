@@ -285,6 +285,31 @@ So the monetary artifact is a sign/magnitude cross-check around the ladder, not 
 
 The Tier 0 cash leg is sourced from the Z.1 Treasury operating cash concept. DTS operating-cash and `WDTGAL` TGA data are useful diagnostics, but neither should silently replace the broader operating-cash concept in historical periods where Treasury Tax and Loan balances were material.
 
+## Treasury component of reserves (TRC) inputs
+
+The opt-in `tdc trc-export` command reads two hash-pinned frozen inputs, `data/processed/tdc_regression_legs_v1.csv` and `data/processed/quarterly_inputs.csv`, plus the caller-owned files below. `scripts/acquire_trc_inputs.py` fetches each one through fiscus, exports it to `data/raw/fiscus/`, and writes `data/raw/fiscus/trc_inputs_manifest.json` with the fiscus dataset ID, request, cache key, payload SHA-256, byte count, retrieval time, and source vintage. The registry is `TRC_FISCUS_INPUTS` in `catalog.py`.
+
+| Repo key | fiscus dataset | Use | Status |
+|---|---|---|---|
+| `dts_operating_cash_balance_table_i` | `fiscaldata.dts_operating_cash_balance` (Table I, from 2005-10-03) | TGA from 2006Q1, SFP, TT&L | default |
+| `h41_tga_wednesday` | `fred.wdtgal` | TGA for 2003Q1–2005Q4 changes; all-H.4.1 diagnostic | default bridge |
+| `z1_reserves_transactions` | Z.1 `FU713113003.Q` | reserve outcome | default |
+| `z1_sfp_transactions` | Z.1 `FU713123043.Q` | SFP cross-check | receipt |
+| `h41_reserve_balances_wednesday` | `fred.wrbwfrbl` | H.4.1 clock diagnostic | nondefault |
+| `h41_rrp_others_wednesday` | `fred.wlrraol` | reserves plus ON RRP memo; ON RRP remainder cell | nondefault |
+| `h41_rrp_foreign_official_wednesday`, `h41_foreign_official_deposits_wednesday` | `fred.wlrrafoial`, `fred.wdfol` | foreign official Fed cash | nondefault |
+| `h41_custody_marketable_treasury_wednesday` | `fred.wmtsecl1` | foreign-official route bound | nondefault |
+| `h3_total_reserves_monthly` | `fred.totresns` (billions) | H.3 memo | memo only |
+| `z1_us_chartered_reserves_transactions` | Z.1 `FU763013005.Q` | US-chartered memo | memo only |
+
+Source notes:
+- the existing `dts_operating_cash_balance` key above still names the Table II deposits-and-withdrawals endpoint and is unchanged; the TRC key is separate
+- DTS Table I is parsed era by era: `Federal Reserve Account` through 2021-09-30, `Treasury General Account (TGA)` to 2022-04-15, then the `Closing Balance` row, whose value sits in `open_today_bal`; SFP and TT&L spellings vary, and TT&L includes its Short-Term Cash Investments successor; an unrecognized or duplicate account on a business day fails the export
+- the SFP and TT&L lines stop after 2022-04-15 at zero balances and are structural zeros afterward; the unclassified `Financial Institution Account` (2008–2010) must be zero on every quarter-end business day
+- DTS TGA plus SFP plus TT&L reproduces Z.1 Treasury operating cash transactions from 2006 to within published rounding, and DTS SFP changes match Z.1 `FU713123043`
+- `WMTSECL1` reports zero before July 2007; those leading zeros are treated as non-reporting, so the foreign-official bound starts in 2007Q4
+- H.3 total reserves include vault cash used to satisfy reserve requirements before April 2020; it is a memo, not a TRC perimeter
+
 ## Optional local support series
 
 - `support__fed_tsy_coupon_interest_proxy.csv` — quarterly Fed Treasury coupon-interest proxy built locally from SOMA holdings snapshots and inferred coupon schedules, normalized to millions of U.S. dollars; when built with `--wamest-root`, pre-full-SOMA quarters are bridged with a WAMEST/H.15 Fed coupon-intensity backcast

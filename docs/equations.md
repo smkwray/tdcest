@@ -307,6 +307,89 @@ This is the only serious recurring ROW receipt candidate currently carried forwa
 
 This is diagnostic only. It is useful as a cross-check, not as the headline estimator.
 
+## Treasury Component of Reserves (TRC)
+
+TRC is an additive, opt-in companion to TDC. It reads the frozen TDC leg table and never rewrites it.
+
+### Theory
+
+```math
+TDC^{DU}_q=\sum_{e\in\mathcal T_q}\lambda^{DU}_e f_e,
+\qquad
+TRC^{RB}_q=\sum_{e\in\mathcal T_q}\mu^{RB}_e f_e,
+\qquad
+\Delta RB_q = TRC^{RB}_q + N^{RB}_q
+```
+
+Plain English:
+- TDC and TRC weight the same Treasury cash and Treasury-security settlement events; TDC records the effect on covered deposits, TRC the effect on aggregate reserve balances.
+- `N^{RB}` is every reserve posting not classified to a Treasury event.
+- Incidence follows the claim debited or credited at settlement, not the holder's legal sector. The typed route registry (`settlement_routes.py`) gives each claim a deposit and a reserve incidence; an event moving cash from claim A to claim B posts `(λ_B − λ_A, μ_B − μ_A)`. A foreign official paying from its Fed deposit and the same holder paying through a bank therefore post different reserve changes.
+
+The exact wedge is the same event ledger weighted by the incidence difference:
+
+```math
+TDC^{DU}_q-TRC^{RB}_q=\sum_{e\in\mathcal T_q}\left(\lambda^{DU}_e-\mu^{RB}_e\right)f_e
+```
+
+### Implemented Default Rows
+
+```math
+\widehat{TRC}^{core}_q
+=
+-\Delta TGA_q
+-\Delta SFP_q
++\Delta TS^{tx}_{Fed,q}
++Remit^{+}_{Fed,q}
+-Coupon^{F}_q
+```
+
+```math
+\widehat{TRC}^{pref}_q=\widehat{TRC}^{core}_q+A^{MMF,RRP,prop}_q
+```
+
+Current construction note:
+- USD million on the Z.1 calendar quarter; the reserve outcome is Z.1 `FU713113003`
+- `ΔTGA` uses the last H.4.1 `WDTGAL` Wednesday on or before quarter end for changes through 2005Q4 and the DTS Table I final-business-day close for changes from 2006Q1; both endpoints of every change sit on one clock, and each row records its clock
+- `ΔSFP` is the DTS supplementary financing account, a structural zero before the program and after the line closes at a zero balance; Treasury Tax and Loan balances are commercial-bank claims and stay out of the cash leg, so Z.1 Treasury operating cash is not used here
+- the Fed terms are the frozen leg-table `fed_tsy_tx`, actual MTS cash remittances, and the SOMA coupon proxy
+- the MMF/ON RRP term carries lower, proportional, and upper companions; it is definitionally zero before the ON RRP mechanism and one-sided after it, so the preferred row is labeled `partial_one_sided_route_coverage`
+- all four 2002 rows are unavailable because no H.4.1 TGA level precedes 2002-12-18
+
+The non-Treasury residual `ΔRB − \widehat{TRC}^{pref}` closes by construction and is labeled definitional.
+
+The measured wedge is a reconciliation of producer legs, not an identity:
+
+```math
+\widehat{TDC}_q-\widehat{TRC}^{pref}_q
+=
+\left(B^{net}_q-I_{B,q}\right)
++R_q
+-\Delta TT\&L_q
++u_q
+```
+
+where `B^{net}` is bank Treasury transactions, `I_B` the bank interest proxy, `R` the ROW leg, and `u` the residual between Z.1 Treasury operating cash and DTS TGA plus SFP plus TT&L. `ΔTT&L` and `u` are unavailable before 2006.
+
+### Nondefault Bounds And Diagnostics
+
+- GSE ON RRP route: `[0, \min(GSE\ Treasury\ increase^{+}, GSE\ ON\ RRP\ runoff^{+})]`
+- foreign-official direct-account route, a heuristic opposite-sign overlap of custody `C` and foreign official Fed cash `F` (deposits plus reverse repos); custody is never a point estimate:
+
+```math
+\Gamma^{FO}_q\in\left[-\min\left((-\Delta C_q)^{+},(\Delta F_q)^{+}\right),\ \min\left((\Delta C_q)^{+},(-\Delta F_q)^{+}\right)\right]
+```
+
+- remainder cells subtract the Treasury allocation exactly once:
+
+```math
+N^{RB}_{RRP,q}=-\Delta RRP_q-\Gamma^{T}_{RRP,q},
+\qquad
+N^{RB}_{FO,q}=-\Delta\left(D^{FO}_q+RRP^{FO}_q\right)-\Gamma^{T}_{FO,q}
+```
+
+- memo perimeters: reserves plus ON RRP, H.3 total reserves, US-chartered reserves; and an all-H.4.1 clock diagnostic
+
 ## Interpretation Rule
 
 Use the equations in this order:

@@ -328,12 +328,13 @@ def classify_week(
     issued = auctions.loc[auctions.issue_date.gt(start) & auctions.issue_date.le(end)]
     records = []
     by_cusip = {cusip: group for cusip, group in issued.groupby("cusip")}
+    empty_issued = issued.iloc[:0]
     for cusip in sorted(
         set(opening.index) | set(closing.index) | set(by_cusip) | set(deferred)
     ):
         a = opening.loc[cusip] if cusip in opening.index else None
         b = closing.loc[cusip] if cusip in closing.index else None
-        matches = by_cusip.get(cusip, issued.iloc[:0])
+        matches = by_cusip.get(cusip, empty_issued)
         old, new = (
             (a.par if a is not None else ZERO),
             (b.par if b is not None else ZERO),

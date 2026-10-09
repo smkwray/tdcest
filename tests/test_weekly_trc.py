@@ -336,6 +336,17 @@ def test_end_month_and_actual_holiday_coupon_dates():
 
 def test_complete_quarters_telescope_and_missing_week_is_not_partial_point():
     ledger, sources = fixture()
+    cumulative = 0
+    for n, day in enumerate(ledger.date):
+        cumulative += n
+        sources["soma"].loc[sources["soma"].asOfDate.eq(day), "parValue"] = str(
+            (100 + cumulative) * 1000000
+        )
+        ledger.loc[
+            ledger.date.eq(day),
+            ["s_h", "f_treasury_securities", "delta_reserve_balances"],
+        ] = str(n)
+        ledger.loc[ledger.date.eq(day), "reserve_balances"] = str(1000 + cumulative)
     w, _, _, _ = build_weekly_trc(ledger, sources)
     components = pd.DataFrame(
         [
@@ -352,7 +363,8 @@ def test_complete_quarters_telescope_and_missing_week_is_not_partial_point():
     q = quarter_tables(w, components).set_index("quarter").loc["2022Q1"]
     assert (
         q.n_weeks == 13
-        and q.trc_core == 0
+        and q.trc_core == 91
+        and q.delta_reserve_balances == 91
         and q.reserve_telescoping_error == 0
         and q.difference_identity_error == 0
     )
@@ -470,6 +482,72 @@ def test_live_weekly_export_has_verified_receipt_and_exact_identity():
         identity.identity_status.eq("closed_exact_decimal")
     ].map(D)
     assert len(errors) > 0 and errors.eq(0).all()
+    # Reconstruct from exported columns, independently of the producer's error diagnostic.
+    parts = [
+        "trc",
+        "non_treasury_signed_factors",
+        "rrp_others_net_route",
+        "bridge_all_securities_premium_discount",
+        "bridge_treasury_securities_source_inflation",
+        "bridge_coupon_remittance_payments",
+        "bridge_published_rounding",
+    ]
+    for row in identity.loc[
+        identity.identity_status.eq("closed_exact_decimal")
+    ].to_dict("records"):
+        assert D(row["delta_reserve_balances"]) == sum((D(row[k]) for k in parts), D(0))
+    weekly = pd.read_csv(
+        root / "data/processed" / OUTPUTS["weekly"], dtype=str, keep_default_na=False
+    )
+    quarterly = pd.read_csv(
+        root / "data/processed" / OUTPUTS["quarterly"], dtype=str, keep_default_na=False
+    )
+    daily = pd.read_csv(
+        root / "data/processed" / OUTPUTS["daily_route"],
+        dtype=str,
+        keep_default_na=False,
+    )
+    ledger = pd.read_csv(
+        root / "data/processed" / LEDGER_OUTPUT_FILES["weekly"],
+        dtype=str,
+        keep_default_na=False,
+    ).set_index("date")
+    assert all(
+        D(row.c_h) == D(ledger.loc[row.date, "c_h"]) for row in weekly.itertuples()
+    )
+    for row in daily.to_dict("records"):
+        assert D(row["route_lower"]) == 0
+        if all(
+            row[k] for k in ("route_upper", "on_rrp_decline", "positive_net_bill_cash")
+        ):
+            assert (
+                0
+                <= D(row["route_upper"])
+                <= min(D(row["on_rrp_decline"]), D(row["positive_net_bill_cash"]))
+            )
+    for row in quarterly.loc[
+        quarterly.clock_status.eq("complete_wednesday_quarter")
+    ].to_dict("records"):
+        weeks = weekly.loc[
+            weekly.date.gt(row["start_wednesday"])
+            & weekly.date.le(row["end_wednesday"])
+        ]
+        for col in [
+            "c_h",
+            "fed_leg_par",
+            "soma_coupon_cash",
+            "cash_remittances",
+            "trc_core",
+            "route_lower",
+            "route_upper",
+            "trc_lower",
+            "trc_upper",
+            "delta_reserve_balances",
+        ]:
+            if weeks[col].eq("").any():
+                assert row[col] == ""
+            else:
+                assert D(row[col]) == sum(weeks[col].map(D), D(0))
     assert receipt["admitted_outputs_before"] == receipt["admitted_outputs_after"]
 
 

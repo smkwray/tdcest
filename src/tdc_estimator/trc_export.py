@@ -9,7 +9,7 @@ import json
 
 import pandas as pd
 
-from .catalog import TRC_FISCUS_INPUTS
+from .catalog import TRC_REGISTRY, FiscusRegistry
 from .config import project_paths
 from .mmf_rrp import MMF_ON_RRP_ROUTE_LIMITATION
 from .settlement_routes import route_registry_frame
@@ -24,9 +24,9 @@ from .trc_reserve_component import (
 )
 
 TRC_SCHEMA_VERSION = "trc_quarterly_series_v1"
-MANIFEST_SCHEMA_VERSION = "trc_fiscus_inputs_v1"
-FISCUS_INPUT_DIR = Path("data/raw/fiscus")
-INPUTS_MANIFEST = FISCUS_INPUT_DIR / "trc_inputs_manifest.json"
+MANIFEST_SCHEMA_VERSION = TRC_REGISTRY.schema_version
+FISCUS_INPUT_DIR = TRC_REGISTRY.input_dir
+INPUTS_MANIFEST = TRC_REGISTRY.manifest
 LEGS_FILE = "tdc_regression_legs_v1.csv"
 QUARTERLY_FILE = "quarterly_inputs.csv"
 TRC_OUTPUT_FILES = {
@@ -77,16 +77,18 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def load_fiscus_inputs(root: Path, manifest: dict) -> tuple[dict[str, pd.DataFrame], dict[str, dict]]:
-    """Read every registered TRC input named by the manifest and verify its bytes."""
-    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+def load_fiscus_inputs(
+    root: Path, manifest: dict, registry: FiscusRegistry = TRC_REGISTRY,
+) -> tuple[dict[str, pd.DataFrame], dict[str, dict]]:
+    """Read every input of ``registry`` named by the manifest and verify its bytes."""
+    if manifest.get("schema_version") != registry.schema_version:
         raise ValueError("inputs manifest: unexpected schema_version")
     entries = manifest.get("inputs", {})
-    expected = {spec.key: spec for spec in TRC_FISCUS_INPUTS}
+    expected = {spec.key: spec for spec in registry.inputs}
     if set(entries) != set(expected):
         raise ValueError(f"inputs manifest: keys differ from the registry {sorted(set(entries) ^ set(expected))}")
     frames, records = {}, {}
-    input_dir = (root / FISCUS_INPUT_DIR).resolve()
+    input_dir = (root / registry.input_dir).resolve()
     for key, spec in expected.items():
         entry = entries[key]
         missing = [field for field in MANIFEST_IDENTITY_FIELDS if field not in entry]
@@ -96,7 +98,7 @@ def load_fiscus_inputs(root: Path, manifest: dict) -> tuple[dict[str, pd.DataFra
             raise ValueError(f"inputs manifest {key}: request differs from the registry")
         path = (root / entry["file"]).resolve()
         if path.parent != input_dir:
-            raise ValueError(f"inputs manifest {key}: file must sit in {FISCUS_INPUT_DIR}")
+            raise ValueError(f"inputs manifest {key}: file must sit in {registry.input_dir}")
         raw, _ = read_pinned_input(root, path, entry["sha256"], key)
         if len(raw) != entry["byte_count"]:
             raise ValueError(f"{key}: byte count differs from the manifest")

@@ -69,6 +69,7 @@ def test_build_parser_exposes_expected_commands():
         "tier2-regression-series",
         "regression-leg-export",
         "trc-export",
+        "reserve-factor-ledger-export",
         "tdc-empirical-anchor",
         "ratewall-du-ru-methodology",
         "route-admissibility-registry",

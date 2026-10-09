@@ -1,16 +1,16 @@
-"""Acquire the TRC export inputs through fiscus into caller-owned files.
+"""Acquire the TRC export or H.4.1 ledger inputs through fiscus into caller-owned files.
 
 Run from the repository root with the package importable, for example
 
-    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--fiscus-project ../fiscus] [--refresh]
+    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger] [--fiscus-project ../fiscus] [--refresh]
 
-Every input comes from the registry `tdc_estimator.catalog.TRC_FISCUS_INPUTS`
-through `uv run --project <fiscus> fiscus ...`. Payloads are exported with
-`fiscus cache export` into data/raw/fiscus/, verified against the fiscus
-artifact SHA-256, and described in data/raw/fiscus/trc_inputs_manifest.json
-together with `fiscus provenance`. FRED requests use the keyless public route
-(FRED_API_KEY is removed from the child environment) so the request identity
-does not depend on a private credential.
+Every input comes from one registry in `tdc_estimator.catalog.FISCUS_REGISTRIES`
+(`trc` by default) through `uv run --project <fiscus> fiscus ...`. Payloads are
+exported with `fiscus cache export` into the registry's input directory,
+verified against the fiscus artifact SHA-256, and described in the registry's
+manifest together with `fiscus provenance`. FRED requests use the keyless public
+route (FRED_API_KEY is removed from the child environment) so the request
+identity does not depend on a private credential.
 """
 
 from __future__ import annotations
@@ -24,8 +24,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from tdc_estimator.catalog import TRC_FISCUS_INPUTS
-from tdc_estimator.trc_export import FISCUS_INPUT_DIR, INPUTS_MANIFEST, MANIFEST_SCHEMA_VERSION
+from tdc_estimator.catalog import FISCUS_REGISTRIES
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +38,7 @@ def run(command: list[str], *, cwd: Path, env: dict[str, str]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--registry", choices=sorted(FISCUS_REGISTRIES), default="trc", help="input registry to acquire")
     parser.add_argument("--fiscus-project", default="../fiscus", help="fiscus checkout, relative to the repository root")
     parser.add_argument("--refresh", action="store_true", help="bypass the fiscus latest pointer and re-read sources")
     args = parser.parse_args(argv)
@@ -46,16 +46,17 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--fiscus-project must be relative to the repository root")
     env = {key: value for key, value in os.environ.items() if key != "FRED_API_KEY"}
     fiscus = ["uv", "run", "--quiet", "--project", args.fiscus_project, "fiscus"]
-    out_dir = ROOT / FISCUS_INPUT_DIR
+    registry = FISCUS_REGISTRIES[args.registry]
+    out_dir = ROOT / registry.input_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = {}
-    for spec in TRC_FISCUS_INPUTS:
+    for spec in registry.inputs:
         response = json.loads(run([*fiscus, *spec.argv, *(["--refresh"] if args.refresh else [])], cwd=ROOT, env=env))
         if response["dataset"]["id"] != spec.dataset_id:
             raise SystemExit(f"{spec.key}: fiscus returned dataset {response['dataset']['id']}")
         artifact = response["artifact"]
-        relative = FISCUS_INPUT_DIR / f"{spec.key}.csv"
+        relative = registry.input_dir / f"{spec.key}.csv"
         run([*fiscus, "cache", "export", artifact["cache_key"], "--out", str(relative)], cwd=ROOT, env=env)
         payload = (ROOT / relative).read_bytes()
         if hashlib.sha256(payload).hexdigest() != artifact["sha256"] or len(payload) != artifact["byte_count"]:
@@ -80,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
             "row_count": manifest.get("row_count"),
             "data_coverage": manifest.get("data_coverage"),
             "catalog_verified_on": manifest.get("catalog_verified_on"),
+            "series_id": spec.series_id,
+            "units": spec.units,
             "usd_million_per_unit": spec.usd_million_per_unit,
             "clock": spec.clock,
         }
@@ -92,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
     dirty = subprocess.run(["git", "-C", args.fiscus_project, "status", "--porcelain"], cwd=ROOT,
                            capture_output=True, text=True)
     document = {
-        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "schema_version": registry.schema_version,
         "acquired_at_utc": datetime.now(UTC).isoformat(),
         "fiscus": {
             "version": version,
@@ -106,8 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     text = json.dumps(document, indent=2, sort_keys=True) + "\n"
     if "api_key" in text.lower():
         raise SystemExit("manifest would record a credential-bearing URL")
-    (ROOT / INPUTS_MANIFEST).write_text(text, encoding="utf-8")
-    print(f"{INPUTS_MANIFEST}: {hashlib.sha256(text.encode('utf-8')).hexdigest()}")
+    (ROOT / registry.manifest).write_text(text, encoding="utf-8")
+    print(f"{registry.manifest}: {hashlib.sha256(text.encode('utf-8')).hexdigest()}")
     return 0
 
 

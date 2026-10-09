@@ -310,6 +310,26 @@ Source notes:
 - `WMTSECL1` reports zero before July 2007; those leading zeros are treated as non-reporting, so the foreign-official bound starts in 2007Q4
 - H.3 total reserves include vault cash used to satisfy reserve requirements before April 2020; it is a memo, not a TRC perimeter
 
+## H.4.1 reserve-factor ledger inputs
+
+`scripts/acquire_trc_inputs.py --registry h41-ledger` acquires every H.4.1 Table 1 row of the ledger through fiscus into `data/raw/fiscus/h41_ledger/` and writes `data/raw/fiscus/h41_ledger/inputs_manifest.json` with the exact series ID, units (USD million), and fiscus identity of each file. The row taxonomy is `H41_TABLE1_ROWS` in `catalog.py`: each row names its FRED series, its Table 1 parent, and its role. Factor rows enter the signed ledger; check rows are published parents and totals that only verify their factor descendants; a memo row is displayed and never summed. A factor never sits under another factor, so a parent and its child never both enter.
+
+| Role | Rows (FRED series) |
+|---|---|
+| outcome | reserve balances (`WRBWFRBL`, Wednesday level; never the `WRESBAL` week average) |
+| supplying factors | Treasury securities `WSHOTSL`; agency debt `WSHOFADSL`; MBS `WSHOMCB`; unamortized premiums `WUPSHO` and discounts `WUDSHO` (published negative); repurchase agreements `WORAL`; term auction credit `RESPPALTNWW`; loans `WLCFLL`; CPFF LLC `H0RESPPAACHNWW`; MMIFF LLCs `H0RESPPAAMMIHNWW`; Maiden Lane I–III `WAML1L`, `WAML2L`, `WAML3L`; TALF LLC `H0RESPPAATALHNWW`; AIA/ALICO preferred interests `H0RESPPAAAAAINWW`; CPFF II LLC `H41RESPPAAC2HNWW`; Corporate Credit Facilities LLC `H41RESPPAABNWW`; Municipal Liquidity Facility LLC `H41RESPPAADHNWW`; MS Facilities LLC `H41RESPPAAENWW`; TALF II LLC `H41RESPPAATAL2HNWW`; float `WOFSRBFL`; central bank liquidity swaps `SWPT`; other Federal Reserve assets `WOFRAL`; foreign currency denominated assets `WFCDA`; gold stock `WOFSRBGSL`; SDR certificate account `WOSDRL`; Treasury currency outstanding `WTCOL` |
+| absorbing factors | currency in circulation `WCICL`; reverse repos with foreign official accounts `WLRRAFOIAL` and others `WLRRAOL`; Treasury cash holdings `WOFDRBTHL`; term deposits `TERMT`; TGA `WDTGAL`; SFP `WDSFAL`; foreign official deposits `WDFOL`; service-related deposits `H0RESPPLLDDSNWW`; other deposits `WLODL`; AIG disposition funds held as agent `H0RESPPLLANWW`; Treasury contributions to credit facilities `H41RESH4ENWW`; other liabilities and capital `WOLCL` |
+| checks | total supplying `WTFSRFL`; total absorbing other than reserve balances `WTFORBAFL`; Reserve Bank credit `WOFSRBRBC`; securities held outright `WSHOSHO`; reverse repos `WLRRAL`; deposits other than reserve balances `WOFDRBORBL` |
+| memo | Treasury inflation compensation `WSHOICL` (inside `WSHOTSL`) |
+| outcome bridge | Z.1 `FL713113003.Q` level and `FU713113003.Q` transactions |
+
+Source notes:
+- every series is the H.4.1 Wednesday level in USD million from 2002-12-18 to the latest published Wednesday
+- `WLODL` is the "other deposits" row that closes against `WOFDRBORBL`; `RESPPMLLDONWW` does not and is not used
+- `WDSFAL` begins 2008-09-24; earlier Wednesdays are structural zeros only because the program began 2008-09-17
+- a removed row is a structural zero after its last observation; a row removed at a nonzero balance (TALF LLC, AIA/ALICO preferred interests, AIG disposition funds, service-related deposits) carries a declared reason, and published totals must close with the zero
+- a row that ends early without a declared removal, a gap inside a row's reporting span, or a missing input raises
+
 ## Optional local support series
 
 - `support__fed_tsy_coupon_interest_proxy.csv` — quarterly Fed Treasury coupon-interest proxy built locally from SOMA holdings snapshots and inferred coupon schedules, normalized to millions of U.S. dollars; when built with `--wamest-root`, pre-full-SOMA quarters are bridged with a WAMEST/H.15 Fed coupon-intensity backcast

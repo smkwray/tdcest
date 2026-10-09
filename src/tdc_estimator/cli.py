@@ -90,6 +90,7 @@ from .dst_du_sector_allocation import write_dst_du_sector_allocation
 from .tier2_regression_backcast import write_tier2_regression_backcast
 from .tier2_regression_series import write_tier2_regression_series, write_regression_leg_table
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
+from .reserve_factor_ledger import write_reserve_factor_ledger_export
 from .trc_export import write_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
 from .utils import project_relative_path, write_json
@@ -1347,6 +1348,16 @@ def cmd_trc_export(args: argparse.Namespace) -> int:
         legs_sha256=args.legs_sha256,
         quarterly_sha256=args.quarterly_sha256,
         inputs_manifest_sha256=args.inputs_manifest_sha256,
+    )
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_reserve_factor_ledger_export(args: argparse.Namespace) -> int:
+    receipt = write_reserve_factor_ledger_export(
+        root=args.root,
+        inputs_manifest_sha256=args.inputs_manifest_sha256,
+        trc_components_sha256=args.trc_components_sha256,
     )
     print(json.dumps(receipt, indent=2))
     return 0
@@ -2699,6 +2710,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_trc.add_argument("--quarterly-sha256", required=True)
     p_trc.add_argument("--inputs-manifest-sha256", required=True)
     p_trc.set_defaults(func=cmd_trc_export)
+
+    p_ledger = sub.add_parser(
+        "reserve-factor-ledger-export", parents=[root_parent],
+        help="Export the H.4.1 Wednesday reserve-factor ledger and its bridges to the admitted TRC.",
+    )
+    p_ledger.add_argument("--inputs-manifest-sha256", required=True)
+    p_ledger.add_argument("--trc-components-sha256", required=True)
+    p_ledger.set_defaults(func=cmd_reserve_factor_ledger_export)
 
     p_component_comparison = sub.add_parser(
         "tier2-component-anchor-comparison",

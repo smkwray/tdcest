@@ -390,6 +390,38 @@ N^{RB}_{FO,q}=-\Delta\left(D^{FO}_q+RRP^{FO}_q\right)-\Gamma^{T}_{FO,q}
 
 - memo perimeters: reserves plus ON RRP, H.3 total reserves, US-chartered reserves; and an all-H.4.1 clock diagnostic
 
+### H.4.1 Reserve-Factor Ledger And Bridges
+
+The opt-in `tdc reserve-factor-ledger-export` command builds an independent H.4.1 Table 1 ledger on the Wednesday clock and reconciles it with the admitted TRC rows above, which it reads under a pinned hash and never rewrites.
+
+```math
+\Delta RB^{H}_w=\sum_{k\in S}\Delta A_{k,w}-\sum_{k\in A}\Delta L_{k,w}+\rho^{H}_w,
+\qquad
+C^{H}_w=-\Delta TGA_w-\Delta SFP_w,
+\qquad
+S^{H}_w=\Delta TS^{H.4.1}_w
+```
+
+Plain English:
+- `S` are the supplying factors and `A` the absorbing factors other than reserve balances; each enters once as a signed change `f_k`
+- `ρ^H` is the published rounding plus any unmapped row; level and change closure against reserve balances, the two published totals, and each published parent must hold within half a million per rounded component, or the export fails
+- `C^H` uses the H.4.1 TGA and SFP rows only; Treasury Tax and Loan balances are not Federal Reserve liabilities
+- `S^H` is the change in Table 1 "U.S. Treasury securities" held outright: bills, nominal notes and bonds, inflation-indexed notes and bonds, and inflation compensation; premiums and discounts cover all securities held outright and remain separate factors
+- quarters telescope between the last Wednesdays of adjacent quarters, the same dating as the all-H.4.1 TRC diagnostic
+
+For each admitted TRC row `x = C^M + B + Γ` (core, preferred, lower, upper) and the Z.1 outcome `y^Z`:
+
+```math
+y^{Z}_q-x_q=\sum_{k\notin\{TGA,SFP,TS,RRP^{o}\}}F^{H}_{k,q}+N^{RRP,o}_q+\left(y^{Z}_q-y^{H}_q\right)+\left(C^{H}_q-C^{M}_q\right)+\left(S^{H}_q-B_q\right)+\rho^{H}_q,
+\qquad
+N^{RRP,o}_q=-\Delta RRP^{o}_q-\Gamma_q
+```
+
+- the identity holds row by row; the MMF/ON RRP route already counted in TRC is removed from the RRP-others factor once
+- `y^Z − y^H` is the outcome perimeter, clock, and source bridge; it splits into the H.4.1 term-deposit change (Z.1 `FL713113003` includes term deposits), Z.1 transactions less the Z.1 level change, and an explicit unattributed remainder that carries the quarter-end versus last-Wednesday clock and the 2007Q1–2017Q4 FHLB exclusion
+- `C^H − C^M` is the Treasury-deposit clock and source bridge; `S^H − B` is the securities valuation, accrual, and Fed-payment bridge
+- the bridges and `ρ^H` are measured accounting differences, not estimates; no covariance or causal decomposition is computed here
+
 ## Interpretation Rule
 
 Use the equations in this order:

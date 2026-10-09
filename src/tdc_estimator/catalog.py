@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -45,6 +46,22 @@ class FiscusInput:
     usd_million_per_unit: float
     clock: str
     description: str
+    series_id: str | None = None
+
+    @property
+    def units(self) -> str:
+        return {1.0: "USD million", 1000.0: "USD billion"}[self.usd_million_per_unit]
+
+
+@dataclass(frozen=True)
+class FiscusRegistry:
+    """Named fiscus inputs exported to one directory and described by one manifest."""
+
+    name: str
+    inputs: tuple[FiscusInput, ...]
+    input_dir: Path
+    manifest: Path
+    schema_version: str
 
 
 BASE_FRED_SERIES: list[FredSeries] = [
@@ -809,25 +826,38 @@ TREASURY_DATASETS: list[TreasuryDataset] = [
 TRC_WINDOW = ("2002-01-01", "2025-12-31")
 
 
-def _fred_input(key: str, series_id: str, scale: float, clock: str, description: str) -> FiscusInput:
+def _window_argv(window: tuple[str, str | None]) -> tuple[str, ...]:
+    start, end = window
+    return ("--start", start) if end is None else ("--start", start, "--end", end)
+
+
+def _fred_input(
+    key: str, series_id: str, scale: float, clock: str, description: str,
+    window: tuple[str, str | None] = TRC_WINDOW,
+) -> FiscusInput:
     return FiscusInput(
         key=key,
         dataset_id=f"fred.{series_id.lower()}",
-        argv=("get-series", f"fred.{series_id.lower()}", "--start", TRC_WINDOW[0], "--end", TRC_WINDOW[1]),
+        argv=("get-series", f"fred.{series_id.lower()}", *_window_argv(window)),
         usd_million_per_unit=scale,
         clock=clock,
         description=description,
+        series_id=series_id,
     )
 
 
-def _z1_input(key: str, code: str, description: str) -> FiscusInput:
+def _z1_input(
+    key: str, code: str, description: str, window: tuple[str, str | None] = TRC_WINDOW,
+    clock: str = "z1_calendar_quarter_transactions",
+) -> FiscusInput:
     return FiscusInput(
         key=key,
         dataset_id=f"z1.{code.lower().replace('.', '_')}",
-        argv=("z1-series", code, code[:2], "--start", TRC_WINDOW[0], "--end", TRC_WINDOW[1]),
+        argv=("z1-series", code, code[:2], *_window_argv(window)),
         usd_million_per_unit=1.0,
-        clock="z1_calendar_quarter_transactions",
+        clock=clock,
         description=description,
+        series_id=code,
     )
 
 
@@ -868,6 +898,127 @@ TRC_FISCUS_INPUTS: list[FiscusInput] = [
     _z1_input("z1_us_chartered_reserves_transactions", "FU763013005.Q",
               "U.S.-chartered depository institutions; depository institution reserves; asset, transactions"),
 ]
+TRC_REGISTRY = FiscusRegistry(
+    name="trc", inputs=tuple(TRC_FISCUS_INPUTS), input_dir=Path("data/raw/fiscus"),
+    manifest=Path("data/raw/fiscus/trc_inputs_manifest.json"), schema_version="trc_fiscus_inputs_v1",
+)
+
+
+@dataclass(frozen=True)
+class H41Row:
+    """One H.4.1 Table 1 row, Wednesday level, USD million.
+
+    ``parent`` places the row in the published Table 1 hierarchy. ``role`` is
+    ``factor`` (enters the signed ledger), ``check`` (a published parent or total
+    that only verifies its factor descendants), ``memo`` (a published child of a
+    factor, displayed but never summed), or ``outcome`` (reserve balances).
+    ``introduced`` dates a row that enters Table 1 after the ledger start;
+    ``discontinued`` marks a source series that ends before the latest
+    Wednesday; ``terminal_nonzero`` explains a removed row whose last published
+    value is not zero.
+    """
+
+    key: str
+    series_id: str
+    label: str
+    parent: str | None
+    role: str
+    introduced: str | None = None
+    discontinued: bool = False
+    terminal_nonzero: str | None = None
+
+
+H41_LEDGER_START = "2002-12-18"
+_SUPPLY, _ABSORB, _RBC, _SHO = "total_supplying", "total_absorbing", "reserve_bank_credit", "securities_held_outright"
+_DEP = "deposits_other_than_reserve_balances"
+H41_TABLE1_ROWS: tuple[H41Row, ...] = (
+    H41Row("total_supplying", "WTFSRFL", "Total factors supplying reserve funds", None, "check"),
+    H41Row("total_absorbing", "WTFORBAFL", "Total factors, other than reserve balances, absorbing reserve funds",
+           None, "check"),
+    H41Row("reserve_balances", "WRBWFRBL", "Reserve balances with Federal Reserve Banks", None, "outcome"),
+    H41Row(_RBC, "WOFSRBRBC", "Reserve Bank credit", _SUPPLY, "check"),
+    H41Row(_SHO, "WSHOSHO", "Securities held outright", _RBC, "check"),
+    H41Row("treasury_securities", "WSHOTSL", "U.S. Treasury securities", _SHO, "factor"),
+    H41Row("treasury_inflation_compensation", "WSHOICL", "U.S. Treasury securities: inflation compensation",
+           "treasury_securities", "memo"),
+    H41Row("federal_agency_debt", "WSHOFADSL", "Federal agency debt securities", _SHO, "factor"),
+    H41Row("mortgage_backed_securities", "WSHOMCB", "Mortgage-backed securities", _SHO, "factor"),
+    H41Row("unamortized_premiums", "WUPSHO", "Unamortized premiums on securities held outright", _RBC, "factor"),
+    H41Row("unamortized_discounts", "WUDSHO", "Unamortized discounts on securities held outright", _RBC, "factor"),
+    H41Row("repurchase_agreements", "WORAL", "Repurchase agreements", _RBC, "factor"),
+    H41Row("term_auction_credit", "RESPPALTNWW", "Term auction credit", _RBC, "factor"),
+    H41Row("loans", "WLCFLL", "Loans", _RBC, "factor"),
+    H41Row("cpff_llc", "H0RESPPAACHNWW", "Net portfolio holdings of Commercial Paper Funding Facility LLC", _RBC,
+           "factor", discontinued=True),
+    H41Row("mmiff_llcs", "H0RESPPAAMMIHNWW",
+           "Net portfolio holdings of LLCs funded through the Money Market Investor Funding Facility", _RBC, "factor",
+           discontinued=True),
+    H41Row("maiden_lane_llc", "WAML1L", "Net portfolio holdings of Maiden Lane LLC", _RBC, "factor",
+           discontinued=True),
+    H41Row("maiden_lane_ii_llc", "WAML2L", "Net portfolio holdings of Maiden Lane II LLC", _RBC, "factor",
+           discontinued=True),
+    H41Row("maiden_lane_iii_llc", "WAML3L", "Net portfolio holdings of Maiden Lane III LLC", _RBC, "factor",
+           discontinued=True),
+    H41Row("talf_llc", "H0RESPPAATALHNWW", "Net portfolio holdings of TALF LLC", _RBC, "factor", discontinued=True,
+           terminal_nonzero="Row removed after 2014-11-05 at USD 24 million; published totals close with zero thereafter"),
+    H41Row("aia_alico_preferred_interests", "H0RESPPAAAAAINWW",
+           "Preferred interests in AIA Aurora LLC and ALICO Holdings LLC", _RBC, "factor", discontinued=True,
+           terminal_nonzero="Row removed after 2011-01-12 with the AIG recapitalization; published totals close with zero thereafter"),
+    H41Row("cpff_ii_llc", "H41RESPPAAC2HNWW", "Net portfolio holdings of Commercial Paper Funding Facility II LLC",
+           _RBC, "factor", discontinued=True),
+    H41Row("corporate_credit_facilities_llc", "H41RESPPAABNWW", "Net portfolio holdings of Corporate Credit Facilities LLC",
+           _RBC, "factor", discontinued=True),
+    H41Row("municipal_liquidity_facility_llc", "H41RESPPAADHNWW",
+           "Net portfolio holdings of Municipal Liquidity Facility LLC", _RBC, "factor", discontinued=True),
+    H41Row("ms_facilities_llc", "H41RESPPAAENWW",
+           "Net portfolio holdings of MS Facilities LLC (Main Street Lending Program)", _RBC, "factor"),
+    H41Row("talf_ii_llc", "H41RESPPAATAL2HNWW", "Net portfolio holdings of TALF II LLC", _RBC, "factor",
+           discontinued=True),
+    H41Row("float", "WOFSRBFL", "Float", _RBC, "factor"),
+    H41Row("central_bank_liquidity_swaps", "SWPT", "Central bank liquidity swaps", _RBC, "factor"),
+    H41Row("other_federal_reserve_assets", "WOFRAL", "Other Federal Reserve assets", _RBC, "factor"),
+    H41Row("foreign_currency_denominated_assets", "WFCDA", "Foreign currency denominated assets", _SUPPLY, "factor"),
+    H41Row("gold_stock", "WOFSRBGSL", "Gold stock", _SUPPLY, "factor"),
+    H41Row("sdr_certificate_account", "WOSDRL", "Special drawing rights certificate account", _SUPPLY, "factor"),
+    H41Row("treasury_currency_outstanding", "WTCOL", "Treasury currency outstanding", _SUPPLY, "factor"),
+    H41Row("currency_in_circulation", "WCICL", "Currency in circulation", _ABSORB, "factor"),
+    H41Row("reverse_repurchase_agreements", "WLRRAL", "Reverse repurchase agreements", _ABSORB, "check"),
+    H41Row("rrp_foreign_official", "WLRRAFOIAL", "Reverse repurchase agreements: foreign official and international accounts",
+           "reverse_repurchase_agreements", "factor"),
+    H41Row("rrp_others", "WLRRAOL", "Reverse repurchase agreements: others", "reverse_repurchase_agreements", "factor"),
+    H41Row("treasury_cash_holdings", "WOFDRBTHL", "Treasury cash holdings", _ABSORB, "factor"),
+    H41Row(_DEP, "WOFDRBORBL", "Deposits with F.R. Banks, other than reserve balances", _ABSORB, "check"),
+    H41Row("term_deposits", "TERMT", "Term deposits held by depository institutions", _DEP, "factor"),
+    H41Row("treasury_general_account", "WDTGAL", "U.S. Treasury, General Account", _DEP, "factor"),
+    H41Row("supplementary_financing_account", "WDSFAL", "U.S. Treasury, Supplementary Financing Account", _DEP,
+           "factor", introduced="2008-09-17", discontinued=True),
+    H41Row("foreign_official_deposits", "WDFOL", "Foreign official", _DEP, "factor"),
+    H41Row("service_related_deposits", "H0RESPPLLDDSNWW", "Service-related", _DEP, "factor", discontinued=True,
+           terminal_nonzero="Row removed after 2012-07-11 with the end of required clearing balances; published totals close with zero thereafter"),
+    H41Row("other_deposits", "WLODL", "Other", _DEP, "factor"),
+    H41Row("aig_disposition_funds_held_as_agent", "H0RESPPLLANWW",
+           "Funds from American International Group, Inc. asset dispositions, held as agent", _ABSORB, "factor",
+           discontinued=True,
+           terminal_nonzero="Row removed after 2011-01-12 with the AIG recapitalization; published totals close with zero thereafter"),
+    H41Row("treasury_contributions_to_credit_facilities", "H41RESH4ENWW", "Treasury contributions to credit facilities",
+           _ABSORB, "factor"),
+    H41Row("other_liabilities_and_capital", "WOLCL", "Other liabilities and capital", _ABSORB, "factor"),
+)
+H41_LEDGER_FISCUS_INPUTS: list[FiscusInput] = [
+    *(_fred_input(row.key, row.series_id, 1.0, "h41_wednesday_level", f"H.4.1 Table 1: {row.label}, Wednesday level",
+                  window=(H41_LEDGER_START, None)) for row in H41_TABLE1_ROWS),
+    _z1_input("z1_reserves_level", "FL713113003.Q",
+              "Central bank; depository institution reserves, excluding FHLB deposits; liability, level",
+              window=(TRC_WINDOW[0], None), clock="z1_calendar_quarter_end_level"),
+    _z1_input("z1_reserves_transactions", "FU713113003.Q",
+              "Central bank; depository institution reserves, excluding FHLB deposits; liability, transactions",
+              window=(TRC_WINDOW[0], None)),
+]
+H41_LEDGER_REGISTRY = FiscusRegistry(
+    name="h41-ledger", inputs=tuple(H41_LEDGER_FISCUS_INPUTS), input_dir=Path("data/raw/fiscus/h41_ledger"),
+    manifest=Path("data/raw/fiscus/h41_ledger/inputs_manifest.json"), schema_version="h41_ledger_fiscus_inputs_v1",
+)
+FISCUS_REGISTRIES = {registry.name: registry for registry in (TRC_REGISTRY, H41_LEDGER_REGISTRY)}
 
 BANK_DEPOSITORY_TX_KEYS = [
     "us_chartered_tsy_tx",

@@ -192,9 +192,69 @@ Source conventions: [Treasury settlement regulations, Appendix B](https://www.tr
 [DTS](https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/), and
 [Treasury's dated corporate-credit contribution](https://home.treasury.gov/news/press-releases/sm1007).
 
+
 ## Build readout
 
-The generated receipt carries era sums, observed counts, unavailable quarters,
-internal-posting statuses, classification dollars, route scenarios and the named
-quarterly differences. All 45 observed TIPS redemptions use published nominal-date
-reference CPI; reconstructed issue-ratio comparisons still report six mismatches.
+Producer `5942c0c5ad14a5d35481b06c2d3ac0f2fa6aacbf`; receipt SHA-256
+`fb55ea0a321c947dc2070425ff8cbdc47f1a39884e496ed527a87b5579f1e49c`.
+
+Core coverage is 1,031 weeks, 2005-10-12–2025-12-31; the first complete available quarter is 2006Q1.
+
+Amounts below are sums in **USD billion**, not measured gross transactions.
+The total covers the four declared eras (2006Q1–2025Q4); twelve available
+2005Q4 weeks remain in the full-history receipt. Component and route sums
+carry their own observed counts. Core and par use the same available weeks.
+
+| Era | Core weeks | Primary cash adjustment | TIPS redemption inflation | J applied | J candidate only (net) | Unknown net par (absolute) | Unpriced secondary net par | Cash-corrected core | Par sensitivity |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2006Q1–2008Q3 | 141 | -0.286 | 1.034 | 0.000 | 0.000 | 2,127.424 | 200.089 | -408.566 | -407.247 |
+| 2008Q4 | 14 | -0.083 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | -196.312 | -196.229 |
+| 2009Q1–2015Q4 | 356 | -0.425 | 2.447 | 0.000 | 3.000 | 0.000 | 3,224.973 | 2,205.287 | 2,208.159 |
+| 2016Q1–2025Q4 | 508 | -49.001 | 41.763 | -31.509 | 40.688 | 0.000 | 3,528.954 | 400.534 | 522.807 |
+| Total | 1019 | -49.795 | 45.244 | -31.509 | 43.688 | 2,127.424 | 6,954.016 | 2,000.942 | 2,127.490 |
+
+The unknown event category is missing SOMA auction allotments. Other observed
+unclassifiable categories have zero unresolved net par in these eras; unknown
+gross trades cannot be measured. SDR candidates are +$3bn in 2009–2015 and
++$10bn in 2016–2025. Gold is zero net, with $0.006bn absolute candidate changes
+in 2006Q1–2008Q3. Facility candidates net +$30.688bn after applied matches:
+−$10bn remains from the documented partial transfer and +$40.688bn from eight
+cash/stock mismatches. Eleven other dated matches are applied. Total absolute
+candidate changes are $63.694bn; signed net candidates are not uncertainty
+limits. The receipt reports every posting status and event count.
+
+| Era | Forward scenario (observed weeks) | Reverse scenario (observed weeks) |
+|---|---:|---:|
+| 2006Q1–2008Q3 | 0.000 (143) | 0.000 (143) |
+| 2008Q4 | 0.000 (14) | 0.000 (14) |
+| 2009Q1–2015Q4 | 8,990.325 (361) | -8,582.221 (359) |
+| 2016Q1–2025Q4 | 86,570.446 (508) | -82,186.985 (501) |
+| Total | 95,560.771 (1026) | -90,769.206 (1017) |
+
+Missing capacities are not zero. These are observed-week sums, not full-era
+route totals; early zeros declare facility scope.
+
+| Era | Quarters | Deposit clock | Fed source/par | Primary price | Redemption inflation | Coupon measurement/clock | Remittance source/clock | Internal postings | Core difference |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2006Q1–2008Q3 | 10 | 167.182 | -2.929 | -0.286 | -1.034 | -0.173 | 0.000 | 0.000 | 162.760 |
+| 2008Q4 | 1 | -167.498 | 0.706 | -0.083 | 0.000 | -0.668 | 0.003 | 0.000 | -167.541 |
+| 2009Q1–2015Q4 | 23 | -93.851 | -42.452 | -0.426 | -2.404 | -7.497 | 0.004 | 0.000 | -146.627 |
+| 2016Q1–2025Q4 | 33 | -207.367 | 202.341 | -40.555 | -26.852 | -22.035 | 0.009 | -31.509 | -125.968 |
+| Total | 67 | -301.534 | 157.666 | -41.349 | -30.290 | -30.374 | 0.016 | -31.509 | -277.374 |
+
+The separate maturity-payment-clock difference is zero in this build. Its
+holiday-shift fixture still checks the required clock adjustment. Reconciliation
+uses 67 complete common core quarters. Arithmetic closure does not certify
+measurement.
+
+Unavailable quarters with missing DTS history: 2003Q3, 2003Q4, 2004Q1, 2004Q2, 2004Q3, 2004Q4, 2005Q1, 2005Q2, 2005Q3, 2005Q4. The first snapshot is also absent in 2003Q3.
+
+Unavailable quarters with missing consecutive SOMA snapshots: 2007Q3, 2009Q4, 2012Q3, 2013Q4, 2014Q1, 2015Q4, 2018Q4, 2019Q4, 2020Q1, 2020Q4, 2024Q2, 2024Q4, 2025Q1.
+
+The TIPS reconstruction check compares 259 rows, with one unavailable row and
+six mismatches: 2000-07-17, 2000-10-16 (before the weekly sample), 2016-07-29,
+2016-08-31, 2016-09-30 and 2016-10-31. All 45 observed TIPS redemptions use
+published nominal-date reference CPI. Their quantities still assume no
+intervening trade. Primary TIPS cash uses published auction settlement fields;
+published contractual reference CPI is preferred for coupon ratios where
+available. Remaining coupon and secondary entitlement uncertainty is retained.

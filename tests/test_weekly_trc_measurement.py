@@ -613,3 +613,43 @@ def test_internal_cash_individual_return_not_netted_with_unrelated_esf():
     b["record_date"] = "2022-01-03"
     j = internal_postings(internal_h(41294), END, pd.concat([a, b]))
     assert j["j_applied"] == 41294 and j["j_facility_dts_cash_candidate"] == 41117
+
+
+def test_tips_contract_index_preferred_over_revised_cpi():
+    original = auction("OLD", kind="Note")
+    original.update(inflation_index_security="Yes", ref_cpi_on_issue_date="100")
+    same_date = auction("OTHER", "2022-01-04", kind="Note")
+    same_date.update(
+        inflation_index_security="Yes",
+        ref_cpi_on_dated_date="105",
+        ref_cpi_on_issue_date="105",
+    )
+    a = prepare_auctions(pd.DataFrame([original, same_date]))
+    revised = {
+        pd.Period("2021-10", freq="M"): D(95),
+        pd.Period("2021-11", freq="M"): D(95),
+    }
+    assert (
+        redemption_cash(D(100), "TIPS", "OLD", pd.Timestamp("2022-01-04"), a, revised)
+        == 105
+    )
+
+
+def test_tips_reopening_base_does_not_map_to_later_coupon_date():
+    original = auction("OLD", "2021-01-15", kind="Note")
+    original.update(
+        inflation_index_security="Yes",
+        ref_cpi_on_dated_date="100",
+        ref_cpi_on_issue_date="100",
+    )
+    reopen = auction("OLD", "2021-07-30", kind="Note")
+    reopen.update(
+        inflation_index_security="Yes",
+        dated_date="2021-07-15",
+        original_dated_date="null",
+        ref_cpi_on_dated_date="100",
+        ref_cpi_on_issue_date="105",
+    )
+    a = prepare_auctions(pd.DataFrame([original, reopen]))
+    assert pd.Timestamp("2021-07-15") not in a.attrs["contractual_reference_cpi"]
+    assert a.attrs["contractual_reference_cpi"][pd.Timestamp("2021-07-30")] == 105

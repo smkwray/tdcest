@@ -67,9 +67,9 @@ BOUNDARIES = [
     "Core coverage cannot begin before 2005-10-12; first potentially complete Wednesday quarter is 2006Q1.",
     "Admitted H.4.1 cash and factors are unchanged; no monthly fund holdings or weekly preferred series.",
     "Primary cash includes discount, price, indexed principal and accrued interest. Missing corrections have statuses and unresolved par magnitudes; the par sensitivity is retained.",
-    "Redemption quantities assume no intervening trade. TIPS maturity principal uses max(par, indexed par) on the nominal maturity index date; current CPI reconstruction is a proxy where contractual values are absent.",
+    "Redemption quantities assume no intervening trade. TIPS maturity principal uses max(par, indexed par) on the nominal maturity index date; published contractual reference CPI is preferred; current CPI reconstruction is a proxy where those values are absent.",
     "Coupons are payment-date proxies on prior-week positions plus known primary allotments settling strictly before payment. Secondary entitlement is unobserved.",
-    "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction ratios cross-check reconstructed CPI ratios, not all payment ratios.",
+    "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction references supply nominal payment-date CPI where available; issue ratios independently cross-check the reconstruction.",
     "FRN rates carry through a documented no-auction interval within the complete auction-query window; missing feed/rate observations remain unavailable. Published daily intervals start inclusive and end exclusive, with feed history from 2024-10-31.",
     "J applies to dated DTS cash matched to the facility factor or an independently documented dated facility transfer; unmatched stock remainder stays candidate-only. Other stock changes, certificate special-account entries and unmatched DTS cash remain candidates, not zero-valued observed corrections.",
     "Coin, Treasury currency, Treasury cash holdings, IORB and FIMA lending remain outside core.",
@@ -226,7 +226,42 @@ def prepare_auctions(frame):
         frame.auction_date.min(),
         frame.auction_date.max(),
     )
+    frame.attrs["contractual_reference_cpi"] = contractual_cpi(frame)
     return frame
+
+
+def contractual_cpi(auctions):
+    """Date/reference CPI crosswalk from original dated-date bases and issue-date references.
+
+    Reopening dated_date can be a later coupon date while its base CPI still
+    refers to the original dated date. Only the first issue establishes that
+    date/base pair; issue-date reference CPI is independently dated on each row.
+    """
+    if "inflation_index_security" not in auctions:
+        return {}
+    tips = auctions.loc[auctions.inflation_index_security.eq("Yes")]
+    values = {}
+
+    def add(day, value):
+        if not present(day) or not present(value):
+            return
+        day = pd.Timestamp(day)
+        value = decimal(value, "published reference CPI")
+        if day in values and values[day] != value:
+            raise ValueError(
+                f"TIPS: conflicting contractual reference CPI on {day.date()}"
+            )
+        values[day] = value
+
+    for _, g in tips.groupby("cusip"):
+        first = g.sort_values("issue_date").iloc[0]
+        dated = first.get("original_dated_date")
+        if not present(dated):
+            dated = first.get("dated_date")
+        add(dated, first.get("ref_cpi_on_dated_date"))
+    for _, row in tips.iterrows():
+        add(row.issue_date, row.get("ref_cpi_on_issue_date"))
+    return values
 
 
 def present(value):
@@ -395,7 +430,12 @@ def classify_week(
                     redemption, kind, cusip, maturity, auctions, cpi or {}
                 )
                 redstatus = (
-                    "cash_proxy_no_intervening_trade"
+                    (
+                        "contractual_reference_cpi_no_intervening_trade"
+                        if maturity
+                        in auctions.attrs.get("contractual_reference_cpi", {})
+                        else "reconstructed_cpi_proxy_no_intervening_trade"
+                    )
                     if kind == "TIPS"
                     else "par_cash_no_intervening_trade"
                 )
@@ -486,7 +526,7 @@ def reference_cpi(day, cpi):
     )
 
 
-def tips_ratio(cusip, day, auctions, cpi):
+def reconstructed_tips_ratio(cusip, day, auctions, cpi):
     master = auctions.loc[auctions.cusip.eq(cusip)].sort_values("issue_date")
     if master.empty or "ref_cpi_on_dated_date" not in master:
         raise ValueError(f"TIPS {cusip}: no dated-date reference CPI")
@@ -498,6 +538,24 @@ def tips_ratio(cusip, day, auctions, cpi):
     base = decimal(bases.iloc[0], "TIPS base CPI")
     return (
         (reference_cpi(day, cpi) / base)
+        .quantize(D("0.000001"), rounding=ROUND_DOWN)
+        .quantize(D("0.00001"), rounding=ROUND_HALF_UP)
+    )
+
+
+def tips_ratio(cusip, day, auctions, cpi):
+    """Prefer published contractual reference CPI on the nominal index date."""
+    references = auctions.attrs.get("contractual_reference_cpi", {})
+    master = auctions.loc[auctions.cusip.eq(cusip)].sort_values("issue_date")
+    if master.empty or "ref_cpi_on_dated_date" not in master:
+        raise ValueError(f"TIPS {cusip}: no dated-date reference CPI")
+    bases = master.ref_cpi_on_dated_date.loc[master.ref_cpi_on_dated_date.map(present)]
+    if bases.empty:
+        raise ValueError(f"TIPS {cusip}: missing base CPI")
+    if pd.Timestamp(day) not in references:
+        return reconstructed_tips_ratio(cusip, day, auctions, cpi)
+    return (
+        (references[pd.Timestamp(day)] / decimal(bases.iloc[0]))
         .quantize(D("0.000001"), rounding=ROUND_DOWN)
         .quantize(D("0.00001"), rounding=ROUND_HALF_UP)
     )
@@ -1570,7 +1628,7 @@ def tips_crosscheck(auctions, cpi_frame):
             missing += 1
             continue
         try:
-            rebuilt = tips_ratio(row.cusip, row.issue_date, auctions, cpi)
+            rebuilt = reconstructed_tips_ratio(row.cusip, row.issue_date, auctions, cpi)
         except ValueError:
             missing += 1
             continue
@@ -1591,7 +1649,10 @@ def tips_crosscheck(auctions, cpi_frame):
         unavailable=missing,
         mismatch_count=len(mismatches),
         mismatches=mismatches,
-        status="auction_issue_ratio_crosscheck_payment_ratios_not_comprehensively_observed",
+        status="reconstruction_crosscheck_primary_cash_uses_published_fields_payment_ratios_prefer_contractual_reference_cpi",
+        published_reference_dates=len(
+            auctions.attrs.get("contractual_reference_cpi", {})
+        ),
     )
 
 
@@ -1939,6 +2000,15 @@ def write_weekly_trc_export(
         "tips_contract_crosscheck": tips_crosscheck(
             sources["auctions"], sources["cpi"]
         ),
+        "tips_redemption_index_status_counts": {
+            str(k): int(v)
+            for k, v in changes.loc[
+                changes.security_type.eq("TIPS") & changes.redemptions_par.gt(ZERO),
+                "redemption_status",
+            ]
+            .value_counts()
+            .items()
+        },
         "auction_field_coverage_by_era": auction_field_coverage(sources["auctions"]),
         "frn_feed_semantics": frn_feed_semantics(sources["frn"]),
         "admitted_outputs_before": before,

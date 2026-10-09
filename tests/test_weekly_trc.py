@@ -70,6 +70,14 @@ def auction(
         high_discnt_rate="0.1",
         spread="0.1",
         ref_cpi_on_dated_date="100",
+        accrued_int_per1000="0",
+        soma_included="No",
+        fima_included="Yes",
+        fima_noncomp_accepted="0",
+        dated_date=issue,
+        int_rate="0",
+        inflation_index_security="No",
+        floating_rate="No",
     )
 
 
@@ -113,6 +121,15 @@ def fixture():
         ),
         "frn": pd.DataFrame(
             columns=["cusip", "start_of_accrual_period", "daily_accrued_int_per100"]
+        ),
+        "internal_dts": pd.DataFrame(
+            columns=[
+                "record_date",
+                "transaction_catg",
+                "account_type",
+                "transaction_type",
+                "transaction_today_amt",
+            ]
         ),
         "remittances": pd.DataFrame(
             [
@@ -279,7 +296,7 @@ def test_unknown_auction_is_recorded_and_never_assigned_secondary_purchase():
     assert changes[0]["secondary_purchases_par"] is None
 
 
-def test_route_bounds_never_exceed_either_input_and_net_rrp_once():
+def test_route_scenarios_use_gross_cash_and_net_rrp_once():
     ledger, sources = fixture()
     sources["on_rrp"].loc[sources["on_rrp"].date.ge("2022-01-04"), "value"] = "0.99"
     sources["auctions"] = pd.DataFrame(
@@ -287,20 +304,24 @@ def test_route_bounds_never_exceed_either_input_and_net_rrp_once():
     )
     result = build_weekly_trc(ledger, sources)
     row = target(result)
-    assert row.route_lower == 0 and row.route_upper == 8
+    assert row.route_baseline == 0 and row.route_forward == 8
     d = result[3].set_index("date").loc["2022-01-04"]
     assert (
-        0 <= d.route_upper <= d.on_rrp_decline
-        and d.route_upper <= d.positive_net_bill_cash
+        0 <= d.route_forward <= d.on_rrp_opening_principal
+        and d.route_forward <= d.gross_non_soma_bill_issue_cash
     )
-    identity = result[1].query("date == '2022-01-05' and variant == 'upper'").iloc[0]
+    identity = (
+        result[1]
+        .query("date == '2022-01-05' and variant == 'forward_scenario'")
+        .iloc[0]
+    )
     assert (
         identity.trc == 8
         and identity.rrp_others_net_route == -8
         and identity.identity_error == 0
     )
     sources["on_rrp"].loc[sources["on_rrp"].date.eq("2022-01-04"), "value"] = "."
-    assert target(build_weekly_trc(ledger, sources)).route_upper is None
+    assert target(build_weekly_trc(ledger, sources)).route_forward is None
 
 
 def test_end_month_and_actual_holiday_coupon_dates():
@@ -490,6 +511,10 @@ def test_live_weekly_export_has_verified_receipt_and_exact_identity():
         "bridge_all_securities_premium_discount",
         "bridge_treasury_securities_source_inflation",
         "bridge_coupon_remittance_payments",
+        "bridge_primary_cash_price",
+        "bridge_redemption_inflation",
+        "bridge_internal_postings",
+        "bridge_maturity_payment_clock",
         "bridge_published_rounding",
     ]
     for row in identity.loc[
@@ -516,14 +541,38 @@ def test_live_weekly_export_has_verified_receipt_and_exact_identity():
         D(row.c_h) == D(ledger.loc[row.date, "c_h"]) for row in weekly.itertuples()
     )
     for row in daily.to_dict("records"):
-        assert D(row["route_lower"]) == 0
+        assert D(row["route_baseline"]) == 0
         if all(
-            row[k] for k in ("route_upper", "on_rrp_decline", "positive_net_bill_cash")
+            row[k]
+            for k in (
+                "route_forward",
+                "on_rrp_opening_principal",
+                "gross_non_soma_bill_issue_cash",
+            )
         ):
             assert (
                 0
-                <= D(row["route_upper"])
-                <= min(D(row["on_rrp_decline"]), D(row["positive_net_bill_cash"]))
+                <= D(row["route_forward"])
+                <= min(
+                    D(row["on_rrp_opening_principal"]),
+                    D(row["gross_non_soma_bill_issue_cash"]),
+                )
+            )
+        if all(
+            row[k]
+            for k in (
+                "route_reverse",
+                "on_rrp_closing_principal",
+                "gross_non_soma_bill_redemption_cash",
+            )
+        ):
+            assert (
+                -min(
+                    D(row["on_rrp_closing_principal"]),
+                    D(row["gross_non_soma_bill_redemption_cash"]),
+                )
+                <= D(row["route_reverse"])
+                <= 0
             )
     for row in quarterly.loc[
         quarterly.clock_status.eq("complete_wednesday_quarter")
@@ -538,10 +587,11 @@ def test_live_weekly_export_has_verified_receipt_and_exact_identity():
             "soma_coupon_cash",
             "cash_remittances",
             "trc_core",
-            "route_lower",
-            "route_upper",
-            "trc_lower",
-            "trc_upper",
+            "route_baseline",
+            "route_forward",
+            "route_reverse",
+            "trc_forward_scenario",
+            "trc_reverse_scenario",
             "delta_reserve_balances",
         ]:
             if weeks[col].eq("").any():
@@ -606,7 +656,7 @@ def test_frn_index_conversion_and_payment_lockout_match_regulatory_example():
     late.update(
         cusip="LATE", auction_date=pd.Timestamp("2012-07-30"), high_discnt_rate="9"
     )
-    a = pd.concat([a, pd.DataFrame([late])], ignore_index=True)
+    a = prepare_auctions(pd.concat([a, pd.DataFrame([late])], ignore_index=True))
     assert frn_coupon_per100(
         "FRN",
         pd.Timestamp("2012-07-30"),

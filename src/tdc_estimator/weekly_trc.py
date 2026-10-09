@@ -1,4 +1,4 @@
-"""Par-valued weekly Treasury reserve component on the Thursday–Wednesday clock.
+"""Cash-corrected weekly Treasury reserve proxy on the Thursday–Wednesday clock.
 
 Snapshot differences identify net positions, not gross transactions. Auction
 allotments remove primary transfers from the secondary-market classification.
@@ -30,7 +30,7 @@ from pandas.tseries.holiday import (
     sunday_to_monday,
 )
 
-from .catalog import WEEKLY_TRC_REGISTRY
+from .catalog import WEEKLY_TRC_REGISTRY, WEEKLY_TRC_INTERNAL_MATCHES
 from .mmf_rrp import ON_RRP_OPERATION_START
 from .reserve_factor_ledger import CASH_KEYS, RRP_OTHER_KEY, load_h41_rows
 from .tier2_regression_series import read_pinned_input, require_clean_commit
@@ -42,7 +42,12 @@ D = Decimal
 ZERO = D(0)
 MILLION = D(1000000)
 CENT_MILLION = D("0.00000001")
-ERAS = (("2003Q3", "2008Q3"), ("2009Q1", "2015Q3"), ("2016Q1", "2025Q4"))
+ERAS = (
+    ("2006Q1", "2008Q3"),
+    ("2008Q4", "2008Q4"),
+    ("2009Q1", "2015Q4"),
+    ("2016Q1", "2025Q4"),
+)
 OUTPUTS = {
     "weekly": "trc_weekly_components_v1.csv",
     "quarterly": "trc_weekly_quarterly_v1.csv",
@@ -52,29 +57,59 @@ OUTPUTS = {
     "receipt": "trc_weekly_v1_receipt.json",
 }
 CLASSIFICATION_RULE = (
-    "For each consecutive Wednesday and CUSIP: maturity on the Fed payment calendar removes opening par; "
-    "auction soma_accepted on issue dates is a primary add-on; residual par increase/decrease is net "
-    "secondary purchase/sale. Missing auction allotments or inconsistent maturity/snapshot metadata carry "
-    "an unclassifiable status. Primary add-ons and maturity removals both enter net Fed par to offset "
-    "Treasury cash; matched rollover amounts are memo only and never added twice. Inflation compensation "
-    "stock changes are noncash and excluded from net par. Weekly snapshots cannot identify gross churn."
+    "Net snapshot partition including auction-only CUSIPs. Primary cash uses auction settlement fields; "
+    "maturity cash assumes no intervening trade in opening holdings. Residuals are NET secondary par, "
+    "with gross churn and prices unobserved. Missing expected auction records remain unclassifiable. "
+    "Rollover memo matches payment and issue settlement dates, not weekly minima."
 )
 BOUNDARIES = [
-    "Core is a par-valued public-data proxy, not an exact cash-settlement flow or a causal estimate.",
-    "H.4.1 cash leg is reused verbatim; no monthly fund position is allocated to weeks and no preferred row exists.",
-    "Coupons use actual payment dates and the latest strictly preceding weekly holding. Intraweek trades are unobserved.",
-    "TIPS coupons use CPI-U NSA reference CPI interpolation and auction dated-date base; FRNs reconstruct daily interest per USD 100 from 13-week auction high rates and lifetime spread, with payment lockout; complete published daily-rate periods cross-check the reconstruction.",
-    "TIPS principal inflation paid at redemption, bill discount, accrued purchase interest, and primary auction price "
-    "differences are not in the par-valued core; the named securities bridge retains their effect together with source differences.",
-    "The premium/discount bridge covers all securities and mixes cash-price differences, amortization and derecognition. "
-    "It does not identify Treasury cash prices and is never added to core.",
-    "Route upper is a same-day net-bill-funding envelope, conditional on no intraday recycling or lagged funding. "
-    "It excludes SOMA allotments from issue cash and snapshot-held SOMA par from redemptions. It uses total ON RRP, not observed money-fund participation; it is not an unconditional bound on gross MMF purchases.",
-    "DTS observed positive cash remittances are retained even during an aggregate deferred-asset period; "
-    "negative earnings accruals are not remittances. A reported zero is used, never a deferred-asset-based forced zero.",
-    "Missing snapshots, missing daily observations, or required payment-rate inputs produce unavailable values with statuses.",
-    "Identities close with named source/valuation and payment bridges; closure does not independently validate core.",
+    "Core is a cash-corrected public-data proxy with supported adjustments only, not an exact settlement flow.",
+    "Core coverage cannot begin before 2005-10-12; first potentially complete Wednesday quarter is 2006Q1.",
+    "Admitted H.4.1 cash and factors are unchanged; no monthly fund holdings or weekly preferred series.",
+    "Primary cash includes discount, price, indexed principal and accrued interest. Missing corrections have statuses and unresolved par magnitudes; the par sensitivity is retained.",
+    "Redemption quantities assume no intervening trade. TIPS maturity principal uses max(par, indexed par) on the nominal maturity index date; current CPI reconstruction is a proxy where contractual values are absent.",
+    "Coupons are payment-date proxies on prior-week positions plus known primary allotments settling strictly before payment. Secondary entitlement is unobserved.",
+    "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction ratios cross-check reconstructed CPI ratios, not all payment ratios.",
+    "FRN rates carry through a documented no-auction interval within the complete auction-query window; missing feed/rate observations remain unavailable. Published daily intervals start inclusive and end exclusive, with feed history from 2024-10-31.",
+    "J applies to dated DTS cash matched to the facility factor or an independently documented dated facility transfer; unmatched stock remainder stays candidate-only. Other stock changes, certificate special-account entries and unmatched DTS cash remain candidates, not zero-valued observed corrections.",
+    "Coin, Treasury currency, Treasury cash holdings, IORB and FIMA lending remain outside core.",
+    "Secondary activity stays par-valued, with net unpriced par reported; gross secondary cash and churn are not measured.",
+    "All-securities premiums/discounts are a reconciliation bridge, never a Treasury cash-price estimator.",
+    "ON RRP variants are signed same-day primary-bill channel scenarios with shared total-facility capacity, not MMF observations, TRC bounds or coefficient bounds. Zero is a no-route baseline.",
+    "The net-bill/ON RRP overlap statistic is diagnostic only. Pre-2013 zeros declare facility scope.",
+    "Identity closure and telescoping check accounting only; independent event-cash fixtures test measurement.",
 ]
+
+EVENT_COLUMNS = (
+    "date",
+    "cusip",
+    "security_type",
+    "nominal_maturity_date",
+    "payment_date",
+    "issue_settlement_dates",
+    "opening_par",
+    "closing_par",
+    "delta_par",
+    "settlement_clock_adjustment",
+    "redemptions_par",
+    "redemptions_cash",
+    "redemption_inflation",
+    "primary_addons_par",
+    "primary_addons_cash",
+    "primary_cash_adjustment",
+    "primary_cash_unavailable_par",
+    "redemption_cash_unavailable_par",
+    "secondary_purchases_par",
+    "secondary_sales_par",
+    "unclassifiable_par",
+    "unclassifiable_abs_par",
+    "event_type",
+    "inflation_compensation_change_excluded",
+    "classification_status",
+    "primary_cash_status",
+    "redemption_status",
+    "gross_trade_status",
+)
 
 
 class FedPaymentCalendar(AbstractHolidayCalendar):
@@ -186,28 +221,120 @@ def prepare_auctions(frame):
         frame[c] = pd.to_datetime(frame[c], errors="raise")
     if frame.duplicated(["cusip", "issue_date"]).any() or frame.cusip.eq("").any():
         raise ValueError("Auctions: duplicate allotment or missing CUSIP")
-    return frame.sort_values("issue_date")
+    frame = frame.sort_values("issue_date")
+    frame.attrs["auction_feed_window"] = (
+        frame.auction_date.min(),
+        frame.auction_date.max(),
+    )
+    return frame
 
 
-def classify_week(start, end, opening, closing, auctions, holidays):
-    """Return a complete signed partition of net par; unknown classification never becomes a sale."""
+def present(value):
+    return str(value) not in ("", "null", "nan", "None", "<NA>")
+
+
+def primary_cash(row, par):
+    """Auction cash in millions; adjusted TIPS fields are already indexed."""
+    kind = row.security_type
+    tips = str(row.get("inflation_index_security", "No")) == "Yes"
+    if tips:
+        if present(row.get("adj_price")):
+            price = decimal(row.adj_price)
+        else:
+            price = decimal(row.get("unadj_price", row.price_per100)) * decimal(
+                row.get("index_ratio_on_issue_date"), "TIPS issue ratio"
+            )
+        if present(row.get("adj_accrued_int_per1000")):
+            accrued = decimal(row.adj_accrued_int_per1000) / D(10)
+        elif present(row.get("unadj_accrued_int_per1000")):
+            accrued = (
+                decimal(row.unadj_accrued_int_per1000)
+                / D(10)
+                * decimal(row.index_ratio_on_issue_date)
+            )
+        else:
+            accrued = acquisition_accrual(row) * decimal(row.index_ratio_on_issue_date)
+    else:
+        price = decimal(row.price_per100, "auction price")
+        accrued = ZERO if kind == "Bill" else acquisition_accrual(row)
+    if par < ZERO or price <= ZERO or accrued < ZERO:
+        raise ValueError("invalid primary par, price or accrued interest")
+    return money(par * (price + accrued) / D(100))
+
+
+def acquisition_accrual(row):
+    for field, divisor in (
+        ("accrued_int_per100", D(1)),
+        ("accrued_int_per1000", D(10)),
+    ):
+        if present(row.get(field)):
+            return decimal(row[field], field) / divisor
+    # A genuinely new issue dated on settlement has definitionally no accrued interest.
+    if (
+        present(row.get("dated_date"))
+        and pd.Timestamp(row.dated_date) == row.issue_date
+    ):
+        return ZERO
+    raise ValueError(
+        "missing acquisition accrued interest and no same-day dated-date evidence"
+    )
+
+
+def redemption_cash(par, kind, cusip, nominal, auctions, cpi):
+    ratio = tips_ratio(cusip, nominal, auctions, cpi) if kind == "TIPS" else D(1)
+    return money(par * max(D(1), ratio))
+
+
+def classify_week(
+    start, end, opening, closing, auctions, holidays, cpi=None, deferred=None
+):
+    """Net partition; cash-price support and redemption entitlement are separate grades."""
+    deferred = {} if deferred is None else deferred
     issued = auctions.loc[auctions.issue_date.gt(start) & auctions.issue_date.le(end)]
     records = []
     by_cusip = {cusip: group for cusip, group in issued.groupby("cusip")}
-    for cusip in sorted(set(opening.index) | set(closing.index)):
+    for cusip in sorted(
+        set(opening.index) | set(closing.index) | set(by_cusip) | set(deferred)
+    ):
         a = opening.loc[cusip] if cusip in opening.index else None
         b = closing.loc[cusip] if cusip in closing.index else None
+        matches = by_cusip.get(cusip, issued.iloc[:0])
         old, new = (
             (a.par if a is not None else ZERO),
             (b.par if b is not None else ZERO),
         )
-        row = b if b is not None else a
-        redemption = (
-            old if start < payment_day(row.maturityDate, holidays) <= end else ZERO
+        row = b if b is not None else (a if a is not None else deferred.get(cusip))
+        if row is None:
+            auction = matches.iloc[0]
+            kind = (
+                "Bills"
+                if auction.security_type == "Bill"
+                else (
+                    "TIPS"
+                    if auction.get("inflation_index_security") == "Yes"
+                    else (
+                        "FRNs"
+                        if auction.get("floating_rate") == "Yes"
+                        else "NotesBonds"
+                    )
+                )
+            )
+            maturity = auction.maturity_date
+        else:
+            kind, maturity = row.securityType, row.maturityDate
+        paid = payment_day(maturity, holidays)
+        entitlement = (
+            old if old else (deferred[cusip].par if cusip in deferred else ZERO)
         )
-        matches = by_cusip.get(cusip, issued.iloc[:0])
+        redemption = entitlement if start < paid <= end else ZERO
+        clock_adjustment = (
+            -entitlement if cusip in deferred and old == ZERO and redemption else ZERO
+        )
+        if old > new and start < maturity <= end < paid:
+            clock_adjustment = old - new
         status = "classified_net_snapshot_change"
-        primary = ZERO
+        primary, cash = ZERO, ZERO
+        primary_status = "no_primary_event_in_complete_auction_query"
         if (
             a is not None
             and b is not None
@@ -216,63 +343,133 @@ def classify_week(start, end, opening, closing, auctions, holidays):
             status = "unclassifiable_changed_security_metadata"
         if redemption and new:
             status = "unclassifiable_held_after_maturity"
-        if old > new and start < row.maturityDate <= end < payment_day(
-            row.maturityDate, holidays
-        ):
-            status = "unclassifiable_maturity_snapshot_payment_clock"
+        if old > new and start < maturity <= end < paid:
+            status = "assumed_maturity_snapshot_payment_clock_no_intervening_trade"
         if not matches.empty:
-            if matches.soma_accepted.isin(["", "null"]).any():
-                status = "unclassifiable_missing_soma_auction_allotment"
-            else:
-                primary = sum(
-                    (
-                        decimal(v, "auction SOMA accepted") / MILLION
-                        for v in matches.soma_accepted
-                    ),
-                    ZERO,
-                )
+            primary_status = "auction_cash_observed"
+            for _, auction in matches.iterrows():
+                if not present(auction.soma_accepted):
+                    status = "unclassifiable_missing_soma_auction_allotment"
+                    primary_status = "unavailable_soma_allotment"
+                    cash = None
+                    continue
+                amount = decimal(auction.soma_accepted, "SOMA allotment") / MILLION
+                primary += amount
+                if amount:
+                    try:
+                        amount_cash = primary_cash(auction, amount)
+                    except ValueError as exc:
+                        primary_status = "unavailable_primary_cash:" + str(exc)
+                        cash = None
+                    else:
+                        if cash is not None:
+                            cash += amount_cash
+        # A new issue in the snapshot implies an expected auction record. Its absence is not secondary evidence.
+        history_missing = (
+            a is None
+            and b is not None
+            and matches.empty
+            and not auctions.cusip.eq(cusip).any()
+        )
+        expected = (
+            a is None
+            and b is not None
+            and present(b.get("issueDate"))
+            and start < pd.Timestamp(b.issueDate) <= end
+        )
+        if history_missing:
+            status = "unclassifiable_missing_security_auction_history"
+        if expected and matches.empty:
+            status = "unclassifiable_missing_expected_auction_record"
+            primary_status = "unavailable_expected_auction_record"
+            cash = None
         delta = new - old
-        residual = delta + redemption - primary
-        if a is None and matches.empty:
-            # Existing seasoned CUSIP may enter through secondary purchase; metadata supports that inference.
-            if row.maturityDate <= end:
-                status = "unclassifiable_new_matured_security"
+        residual = delta + clock_adjustment + redemption - primary
         inflation = (b.inflation if b is not None else ZERO) - (
             a.inflation if a is not None else ZERO
         )
-        # Retain zero-par changes only if inflation or a primary/maturity event changed.
+        redcash, redstatus = ZERO, "no_redemption"
+        if redemption:
+            try:
+                redcash = redemption_cash(
+                    redemption, kind, cusip, maturity, auctions, cpi or {}
+                )
+                redstatus = (
+                    "cash_proxy_no_intervening_trade"
+                    if kind == "TIPS"
+                    else "par_cash_no_intervening_trade"
+                )
+            except ValueError as exc:
+                redcash, redstatus = None, "unavailable_redemption_cash:" + str(exc)
         if (
             delta
             or primary
             or redemption
             or inflation
             or status.startswith("unclassifiable")
+            or cash is None
         ):
             unknown = status.startswith("unclassifiable")
             records.append(
-                {
-                    "date": str(end.date()),
-                    "cusip": cusip,
-                    "security_type": row.securityType,
-                    "opening_par": old,
-                    "closing_par": new,
-                    "delta_par": delta,
-                    "redemptions_par": redemption,
-                    "primary_addons_par": primary,
-                    "secondary_purchases_par": None if unknown else max(residual, ZERO),
-                    "secondary_sales_par": None if unknown else max(-residual, ZERO),
-                    "unclassifiable_par": residual if unknown else ZERO,
-                    "inflation_compensation_change_excluded": inflation,
-                    "classification_status": status,
-                }
+                dict(
+                    date=str(end.date()),
+                    cusip=cusip,
+                    security_type=kind,
+                    nominal_maturity_date=str(maturity.date()),
+                    payment_date=str(paid.date()),
+                    issue_settlement_dates="|".join(
+                        str(d.date()) for d in matches.issue_date
+                    ),
+                    opening_par=old,
+                    closing_par=new,
+                    delta_par=delta,
+                    settlement_clock_adjustment=clock_adjustment,
+                    redemptions_par=redemption,
+                    redemptions_cash=redcash,
+                    redemption_inflation=None
+                    if redcash is None
+                    else redcash - redemption,
+                    primary_addons_par=primary,
+                    primary_addons_cash=cash,
+                    primary_cash_adjustment=None if cash is None else cash - primary,
+                    primary_cash_unavailable_par=max(primary, abs(residual))
+                    if cash is None
+                    else ZERO,
+                    redemption_cash_unavailable_par=redemption
+                    if redcash is None
+                    else ZERO,
+                    secondary_purchases_par=None if unknown else max(residual, ZERO),
+                    secondary_sales_par=None if unknown else max(-residual, ZERO),
+                    unclassifiable_par=residual if unknown else ZERO,
+                    unclassifiable_abs_par=abs(residual) if unknown else ZERO,
+                    event_type=status.removeprefix("unclassifiable_")
+                    if unknown
+                    else "net_partition",
+                    inflation_compensation_change_excluded=inflation,
+                    classification_status=status,
+                    primary_cash_status=primary_status,
+                    redemption_status=redstatus,
+                    gross_trade_status="unobserved_intraweek_gross_trades",
+                )
             )
     if sum((r["delta_par"] for r in records), ZERO) != sum(closing.par, ZERO) - sum(
         opening.par, ZERO
     ):
-        raise ValueError(
-            "SOMA classification partition does not equal snapshot net par"
-        )
+        raise ValueError("SOMA partition does not equal snapshot net par")
     return records
+
+
+def rollover_memo(changes, auctions):
+    """Date-matched par memo; cash/par differences and reinvestment destinations remain separate."""
+    red, primary = {}, {}
+    for r in changes:
+        day = r["payment_date"]
+        red[day] = red.get(day, ZERO) + r["redemptions_par"]
+    for _, a in auctions.iterrows():
+        if present(a.soma_accepted):
+            day = str(a.issue_date.date())
+            primary[day] = primary.get(day, ZERO) + decimal(a.soma_accepted) / MILLION
+    return sum((min(v, primary.get(d, ZERO)) for d, v in red.items()), ZERO)
 
 
 def reference_cpi(day, cpi):
@@ -349,8 +546,13 @@ def frn_coupon_per100(cusip, prev, nominal, paid, auctions, holidays):
             ]
         )
         eligible = bills.loc[bills.auction_date.lt(cutoff)]
-        if eligible.empty or (day - eligible.auction_date.iloc[-1]).days > 14:
-            raise ValueError(f"FRN {cusip}: missing weekly bill index auction")
+        window = auctions.attrs.get("auction_feed_window")
+        if (
+            eligible.empty
+            or window is None
+            or not window[0] <= cutoff <= window[1] + pd.Timedelta(days=1)
+        ):
+            raise ValueError(f"FRN {cusip}: unavailable auction feed coverage")
         bill = eligible.iloc[-1]
         rate = decimal(bill.high_discnt_rate, "13-week high discount rate")
         term = D((bill.maturity_date - bill.issue_date).days)
@@ -364,16 +566,46 @@ def frn_coupon_per100(cusip, prev, nominal, paid, auctions, holidays):
 
 
 def coupon_week(start, end, opening, closing, auctions, cpi, frn, holidays):
-    """Payment-date coupons using the latest strictly prior weekly position; missing rates carry status."""
+    """Payment-date proxy on prior-week positions plus known pre-payment primary allotments."""
     total = ZERO
     issues = []
     # A nominal payment moved from Wednesday holiday to Thursday belongs to the following week.
     payment_months = pd.period_range(
         (start - pd.Timedelta(days=7)).to_period("M"), end.to_period("M"), freq="M"
     )
-    for cusip, row in opening.iterrows():
+    positions = opening.copy()
+    issued = auctions.loc[auctions.issue_date.gt(start) & auctions.issue_date.le(end)]
+    for cusip, group in issued.groupby("cusip"):
+        if cusip not in positions.index:
+            first = group.iloc[0]
+            kind = (
+                "Bills"
+                if first.security_type == "Bill"
+                else (
+                    "TIPS"
+                    if first.get("inflation_index_security") == "Yes"
+                    else (
+                        "FRNs" if first.get("floating_rate") == "Yes" else "NotesBonds"
+                    )
+                )
+            )
+            if (
+                kind != "Bills"
+                and group.soma_accepted.map(present).all()
+                and any(decimal(v) for v in group.soma_accepted)
+            ):
+                positions.loc[cusip] = dict.fromkeys(positions.columns)
+                positions.loc[
+                    cusip, ["securityType", "maturityDate", "par", "rate"]
+                ] = [
+                    kind,
+                    first.maturity_date,
+                    ZERO,
+                    ZERO if kind == "FRNs" else first.get("int_rate"),
+                ]
+    for cusip, row in positions.iterrows():
         kind = row.securityType
-        if kind == "Bills" or row.par == ZERO:
+        if kind == "Bills":
             continue
         step = 3 if kind == "FRNs" else 6
         maturity = row.maturityDate
@@ -394,6 +626,16 @@ def coupon_week(start, end, opening, closing, auctions, cpi, frn, holidays):
             if not start < paid <= end:
                 continue
             try:
+                additions = issued.loc[
+                    issued.cusip.eq(cusip) & issued.issue_date.lt(paid)
+                ]
+                if not additions.soma_accepted.map(present).all():
+                    raise ValueError(f"{cusip}: unavailable primary coupon entitlement")
+                entitlement = row.par + sum(
+                    (decimal(v) / MILLION for v in additions.soma_accepted), ZERO
+                )
+                if entitlement == ZERO:
+                    continue
                 if kind == "FRNs":
                     prev = schedule_date(maturity, months_before + step)
                     rates = frn.loc[
@@ -423,21 +665,23 @@ def coupon_week(start, end, opening, closing, auctions, cpi, frn, holidays):
                             raise ValueError(
                                 f"FRN {cusip}: reconstructed index disagrees with daily cash rates"
                             )
-                    coupon = row.par / D(100) * per100
+                    coupon = entitlement / D(100) * per100
                 else:
                     ratio = (
                         tips_ratio(cusip, nominal, auctions, cpi)
                         if kind == "TIPS"
                         else D(1)
                     )
-                    coupon = row.par * ratio * row.rate / D(200)
+                    coupon = (
+                        entitlement * ratio * decimal(row.rate, "coupon rate") / D(200)
+                    )
                 total += money(coupon)
             except ValueError as exc:
                 issues.append(str(exc))
     return (None if issues else total), (
         "unavailable_payment_input:" + "|".join(issues)
         if issues
-        else "payment_dates_prior_week_positions"
+        else "payment_date_proxy_prior_week_plus_primary_secondary_entitlement_unobserved"
     )
 
 
@@ -483,102 +727,251 @@ def remittance_weeks(frame, dates, holidays):
     return values, status
 
 
+def bill_total_par(row):
+    """Normalize published total to all allotments, then remove SOMA exactly once."""
+    par = decimal(row.total_accepted, "bill total") / MILLION
+    soma = decimal(row.soma_accepted, "bill SOMA") / MILLION
+    for flag, amount in (
+        ("soma_included", soma),
+        (
+            "fima_included",
+            decimal(row.get("fima_noncomp_accepted"), "bill FIMA") / MILLION,
+        ),
+    ):
+        included = row.get(flag)
+        if included not in ("Yes", "No"):
+            raise ValueError(f"missing {flag} total inclusion convention")
+        if included == "No":
+            par += amount
+    if soma < ZERO or par < soma:
+        raise ValueError("SOMA exceeds normalized allotments")
+    return par, soma
+
+
+def allocate_route_capacity(capacity, shares):
+    """MMF/GSE/other declared shares consume one shared channel capacity."""
+    capacity = decimal(capacity)
+    if capacity < ZERO:
+        raise ValueError("negative route capacity")
+    shares = [decimal(v) for v in shares]
+    if any(v < ZERO for v in shares) or sum(shares, ZERO) > D(1):
+        raise ValueError("route participants exceed shared capacity")
+    return [capacity * v for v in shares]
+
+
 def route_daily(rrp, auctions, start, end, holidays, snapshots=None):
-    """A conditional same-day net-settlement bound; no monthly money-fund interpolation."""
+    """Signed same-day primary-bill channel scenarios; overlap is diagnostic only."""
     rrp = rrp.copy()
     rrp["date"] = pd.to_datetime(rrp.date, errors="raise")
     if rrp.date.duplicated().any():
         raise ValueError("ON RRP: duplicate day")
-    # FRED prints '.' on holidays; never treat missing open-business-day observations as zero.
     levels = {
-        d: decimal(v, "ON RRP take-up") * D(1000)
+        d: decimal(v, "ON RRP") * D(1000)
         for d, v in zip(rrp.date, rrp.value)
         if str(v) not in (".", "", "nan")
     }
+    issuance, redemption, unknown_issue, unknown_red = {}, {}, set(), set()
     bills = auctions.loc[auctions.security_type.eq("Bill")]
-    issuance, redemption, unknown = {}, {}, set()
     for _, row in bills.iterrows():
         issue, maturity = row.issue_date, payment_day(row.maturity_date, holidays)
         if not (start <= issue <= end or start <= maturity <= end):
             continue
         try:
-            par = decimal(row.total_accepted, "bill accepted") / MILLION
-            soma = decimal(row.soma_accepted, "bill SOMA allotment") / MILLION
-            if soma < ZERO or soma > par:
-                raise ValueError("bill SOMA allotment exceeds total")
-            price = decimal(row.price_per100, "bill price") / D(100)
-            if not ZERO < price <= D(1):
-                raise ValueError("bill issue price outside (0,100]")
+            full, soma = bill_total_par(row)
         except ValueError:
             if start <= issue <= end:
-                unknown.add(issue)
+                unknown_issue.add(issue)
             if start <= maturity <= end:
-                unknown.add(maturity)
+                unknown_red.add(maturity)
             continue
-        # All allotments supply a conservative net-cash capacity; counterparties are not classified as MMFs.
-        issuance[issue] = issuance.get(issue, ZERO) + (par - soma) * price
-        redemption[maturity] = redemption.get(maturity, ZERO) + par
+        redemption[maturity] = redemption.get(maturity, ZERO) + full
+        if start <= issue <= end:
+            try:
+                price = decimal(row.price_per100, "bill price") / D(100)
+                if not ZERO < price <= D(1):
+                    raise ValueError("bill price outside (0,100]")
+            except ValueError:
+                unknown_issue.add(issue)
+            else:
+                issuance[issue] = issuance.get(issue, ZERO) + (full - soma) * price
+    # Aggregate all reopenings/allotments, and remove actual prior-snapshot SOMA once per CUSIP.
     if snapshots is not None:
         snapshot_dates = sorted(snapshots)
         for cusip, group in bills.groupby("cusip"):
             maturity = payment_day(group.maturity_date.iloc[0], holidays)
-            if not start <= maturity <= end or maturity in unknown:
+            if not start <= maturity <= end or maturity in unknown_red:
                 continue
             prior = [d for d in snapshot_dates if d < maturity]
             if not prior or (maturity - prior[-1]).days > 7:
-                unknown.add(maturity)
+                unknown_red.add(maturity)
                 continue
             held = snapshots[prior[-1]]
             if cusip in held.index:
                 redemption[maturity] -= held.loc[cusip].par
+            if redemption[maturity] < ZERO:
+                unknown_red.add(maturity)
     records, previous = [], None
     for day in pd.date_range(start - pd.Timedelta(days=7), end):
         business = day.weekday() < 5 and day not in holidays
         level = levels.get(day)
+        issue = None if day in unknown_issue else money(issuance.get(day, ZERO))
+        red = None if day in unknown_red else money(redemption.get(day, ZERO))
+        net = None if issue is None or red is None else max(issue - red, ZERO)
         if day < ON_RRP_OPERATION_START:
-            decline, upper, status = (
-                ZERO,
-                ZERO,
-                "structural_zero_before_on_rrp_facility",
-            )
+            opening, closing, decline, forward, reverse, overlap = (ZERO,) * 6
+            status = "declared_zero_before_on_rrp_facility_scope"
         elif not business:
-            decline, upper, status = ZERO, ZERO, "no_settlement_closed_day"
-        elif level is None or previous is None:
-            decline, upper, status = None, None, "unavailable_on_rrp_daily_observation"
-        elif day in unknown:
-            decline, upper, status = (
-                max(previous - level, ZERO),
-                None,
-                "unavailable_bill_cash_price_or_allotment",
+            opening, closing, decline, forward, reverse, overlap = (
+                previous,
+                previous,
+                ZERO,
+                ZERO,
+                ZERO,
+                ZERO,
             )
+            status = "no_settlement_closed_day"
         else:
-            decline = max(previous - level, ZERO)
-            upper = min(
-                decline, max(issuance.get(day, ZERO) - redemption.get(day, ZERO), ZERO)
-            ).quantize(CENT_MILLION, rounding=ROUND_DOWN)
-            status = "conditional_same_day_net_bill_bound"
-        if day >= start:
-            net = (
-                money(max(issuance.get(day, ZERO) - redemption.get(day, ZERO), ZERO))
-                if day not in unknown
-                else None
+            opening, closing = previous, level
+            decline = (
+                None
+                if previous is None or level is None
+                else max(previous - level, ZERO)
             )
+            forward = (
+                None if previous is None or issue is None else min(previous, issue)
+            )
+            reverse = None if level is None or red is None else min(level, red)
+            overlap = None if decline is None or net is None else min(decline, net)
+            flags = []
+            if previous is None or level is None:
+                flags.append("unavailable_on_rrp_daily_observation")
+            if issue is None:
+                flags.append("unavailable_bill_issue_cash_or_inclusion")
+            if red is None:
+                flags.append("unavailable_bill_redemption_entitlement_or_inclusion")
+            status = (
+                "|".join(flags)
+                if flags
+                else "same_day_channel_capacity_redemption_prior_snapshot_assumption"
+            )
+        if day >= start:
             records.append(
-                {
-                    "date": str(day.date()),
-                    "week": str(wednesday(day).date()),
-                    "on_rrp_decline": decline,
-                    "positive_net_bill_cash": net,
-                    "route_lower": ZERO,
-                    "route_upper": upper,
-                    "route_status": status,
-                }
+                dict(
+                    date=str(day.date()),
+                    week=str(wednesday(day).date()),
+                    on_rrp_opening_principal=opening,
+                    on_rrp_closing_principal=closing,
+                    on_rrp_decline=decline,
+                    gross_non_soma_bill_issue_cash=issue,
+                    gross_non_soma_bill_redemption_cash=red,
+                    positive_net_bill_cash=net,
+                    net_bill_on_rrp_overlap=overlap,
+                    route_forward=forward,
+                    route_reverse=None if reverse is None else -reverse,
+                    route_baseline=ZERO,
+                    route_status=status,
+                )
             )
         if business:
-            previous = (
-                level  # A missing business day breaks the next day's decline too.
-            )
+            previous = level
     return pd.DataFrame(records)
+
+
+INTERNAL_FACTORS = (
+    "treasury_contributions_to_credit_facilities",
+    "sdr_certificate_account",
+    "gold_stock",
+)
+
+
+def internal_postings(h, end, frame):
+    """Require dated cash/account evidence; a stock factor by itself is candidate-only."""
+    out = {}
+    for key in INTERNAL_FACTORS:
+        candidate = decimal(h["f_" + key])
+        applied = ZERO
+        status = "no_stock_candidate"
+        cash = None
+        if candidate:
+            status = "candidate_only_no_dated_tga_cash_crosswalk"
+            if (
+                key == "treasury_contributions_to_credit_facilities"
+                and frame is not None
+            ):
+                x = frame.loc[
+                    (pd.to_datetime(frame.record_date) > end - pd.Timedelta(days=7))
+                    & (pd.to_datetime(frame.record_date) <= end)
+                ]
+                x = x.loc[
+                    x.transaction_catg.eq("ESF - Economic Recovery Programs")
+                    & x.account_type.isin(
+                        ["Federal Reserve Account", "Treasury General Account (TGA)"]
+                    )
+                ]
+                if not x.empty:
+                    if x.duplicated(
+                        ["record_date", "transaction_type", "account_type"]
+                    ).any():
+                        raise ValueError(
+                            "DTS internal cash: duplicate account/date/type"
+                        )
+                    if not x.transaction_type.isin(["Withdrawals", "Deposits"]).all():
+                        raise ValueError("DTS internal cash: unknown transaction type")
+                    cash = sum(
+                        (
+                            -decimal(r.transaction_today_amt)
+                            if r.transaction_type == "Withdrawals"
+                            else decimal(r.transaction_today_amt)
+                            for r in x.itertuples()
+                        ),
+                        ZERO,
+                    )
+                    # A broad ESF category is not enough when stock/cash disagree; no fitted residual.
+                    signed = [
+                        (
+                            -decimal(r.transaction_today_amt)
+                            if r.transaction_type == "Withdrawals"
+                            else decimal(r.transaction_today_amt)
+                        )
+                        for r in x.itertuples()
+                    ]
+                    if cash == candidate or signed.count(candidate) == 1:
+                        applied = candidate
+                        status = "applied_dated_dts_facility_cash_match"
+                    else:
+                        status = "candidate_only_dts_cash_stock_mismatch"
+                        for match in WEEKLY_TRC_INTERNAL_MATCHES:
+                            dated = x.loc[
+                                x.record_date.eq(match["date"])
+                                & x.transaction_type.eq(match["transaction_type"])
+                            ]
+                            if len(dated) == 1 and decimal(
+                                dated.transaction_today_amt.iloc[0]
+                            ) == decimal(match["amount"]):
+                                confirmed = (
+                                    -decimal(match["amount"])
+                                    if match["transaction_type"] == "Withdrawals"
+                                    else decimal(match["amount"])
+                                )
+                                if candidate * confirmed > ZERO and abs(
+                                    confirmed
+                                ) < abs(candidate):
+                                    applied = confirmed
+                                    status = "applied_dated_cash_partial_stock_remainder_candidate"
+            elif key in ("sdr_certificate_account", "gold_stock"):
+                status = (
+                    "candidate_only_certificate_special_account_tga_link_unobserved"
+                )
+        out["j_" + key + "_applied"] = applied
+        out["j_" + key + "_candidate_only"] = candidate - applied
+        out["j_" + key + "_status"] = status
+        if key == "treasury_contributions_to_credit_facilities":
+            out["j_facility_dts_cash_candidate"] = cash
+    out["j_applied"] = sum((out["j_" + k + "_applied"] for k in INTERNAL_FACTORS), ZERO)
+    out["j_candidate_only"] = sum(
+        (out["j_" + k + "_candidate_only"] for k in INTERNAL_FACTORS), ZERO
+    )
+    return out
 
 
 def total(values):
@@ -630,6 +1023,7 @@ def build_weekly_trc(ledger, sources):
     )
     if frn.duplicated(["cusip", "start_of_accrual_period"]).any():
         raise ValueError("FRN: duplicate daily accrual")
+    frn_feed_semantics(sources["frn"])
     remits, remit_status = remittance_weeks(sources["remittances"], dates, holidays)
     daily_route = route_daily(
         sources["on_rrp"],
@@ -661,7 +1055,23 @@ def build_weekly_trc(ledger, sources):
         )
         opening, closing = snapshots.get(start), snapshots.get(end)
         if opening is not None and closing is not None:
-            changes = classify_week(start, end, opening, closing, auctions, holidays)
+            prior = snapshots.get(start - pd.Timedelta(days=7))
+            deferred = (
+                {}
+                if prior is None
+                else {
+                    cusip: r
+                    for cusip, r in prior.iterrows()
+                    if r.maturityDate
+                    <= start
+                    < payment_day(r.maturityDate, holidays)
+                    <= end
+                    and (cusip not in opening.index or opening.loc[cusip].par == ZERO)
+                }
+            )
+            changes = classify_week(
+                start, end, opening, closing, auctions, holidays, cpi, deferred
+            )
             all_changes.extend(changes)
             fed = sum(closing.par, ZERO) - sum(opening.par, ZERO)
             inflation = sum(closing.inflation, ZERO) - sum(opening.inflation, ZERO)
@@ -689,17 +1099,58 @@ def build_weekly_trc(ledger, sources):
         )
         cash = decimal(h.c_h, "ledger cash")
         remit = remits[end]
-        core = total([cash, fed, None if coupon is None else -coupon, remit])
+        primary_adjustment = (
+            sum(
+                (
+                    r["primary_cash_adjustment"]
+                    for r in changes
+                    if r["primary_cash_adjustment"] is not None
+                ),
+                ZERO,
+            )
+            if fed is not None
+            else None
+        )
+        redemption_inflation = (
+            sum(
+                (
+                    r["redemption_inflation"]
+                    for r in changes
+                    if r["redemption_inflation"] is not None
+                ),
+                ZERO,
+            )
+            if fed is not None
+            else None
+        )
+        j = internal_postings(h, end, sources.get("internal_dts"))
+        par_core = total([cash, fed, None if coupon is None else -coupon, remit])
+        clock_adjustment = (
+            sum((r["settlement_clock_adjustment"] for r in changes), ZERO)
+            if fed is not None
+            else None
+        )
+        fed_cash = total(
+            [
+                fed,
+                clock_adjustment,
+                primary_adjustment,
+                None if redemption_inflation is None else -redemption_inflation,
+            ]
+        )
+        core = total(
+            [cash, fed_cash, None if coupon is None else -coupon, remit, j["j_applied"]]
+        )
         group = route[str(end.date())]
-        upper = total(group.route_upper)
-        lower = ZERO
+        forward = total(group.route_forward)
+        reverse = total(group.route_reverse)
         state = (
             "unavailable_required_input"
             if core is None
             else (
-                "par_proxy_unclassifiable_changes"
+                "cash_corrected_proxy_unclassifiable_changes"
                 if unknown
-                else "par_proxy_weekly_positions"
+                else "cash_corrected_proxy_secondary_prices_and_entitlements_unobserved"
             )
         )
         result = {
@@ -711,6 +1162,28 @@ def build_weekly_trc(ledger, sources):
                 decimal(h["f_" + k]) for k in valuation_keys
             ),
             "fed_leg_par": fed,
+            "fed_leg_cash_corrected": fed_cash,
+            "settlement_clock_adjustment": clock_adjustment,
+            "primary_cash_adjustment": primary_adjustment,
+            "redemption_inflation": redemption_inflation,
+            "primary_cash_unavailable_par": sum(
+                (r["primary_cash_unavailable_par"] for r in changes), ZERO
+            )
+            if fed is not None
+            else None,
+            "redemption_cash_unavailable_par": sum(
+                (r["redemption_cash_unavailable_par"] for r in changes), ZERO
+            )
+            if fed is not None
+            else None,
+            "cash_correction_status": "supported_adjustments_only_unavailable_events_reported"
+            if any(
+                r["primary_cash_adjustment"] is None
+                or r["redemption_inflation"] is None
+                for r in changes
+            )
+            else "identified_primary_cash_redemption_proxy_no_intervening_trade",
+            **j,
             "soma_coupon_cash": coupon,
             "cash_remittances": remit,
             "soma_inflation_compensation_change_excluded": inflation,
@@ -729,11 +1202,40 @@ def build_weekly_trc(ledger, sources):
             if fed is not None
             else None,
             "unclassifiable_changes": unknown,
+            "unclassifiable_abs_par": sum(
+                (r["unclassifiable_abs_par"] for r in changes), ZERO
+            )
+            if fed is not None
+            else None,
+            "unpriced_secondary_net_par": sum(
+                (
+                    r["secondary_purchases_par"] + r["secondary_sales_par"]
+                    for r in changes
+                    if r["secondary_purchases_par"] is not None
+                ),
+                ZERO,
+            )
+            if fed is not None
+            else None,
             "trc_core": core,
-            "route_lower": lower,
-            "route_upper": upper,
-            "trc_lower": core,
-            "trc_upper": total([core, upper]),
+            "trc_par_sensitivity": par_core,
+            "route_baseline": ZERO,
+            "route_forward": forward,
+            "route_reverse": reverse,
+            "net_bill_on_rrp_overlap": total(group.net_bill_on_rrp_overlap),
+            "trc_forward_scenario": total([core, forward]),
+            "trc_reverse_scenario": total([core, reverse]),
+            "rrp_others_vs_on_rrp_flow_bridge": total(
+                [
+                    decimal(h["f_" + RRP_OTHER_KEY]),
+                    None
+                    if group.on_rrp_closing_principal.iloc[-1] is None
+                    else group.on_rrp_closing_principal.iloc[-1],
+                    None
+                    if group.on_rrp_opening_principal.iloc[0] is None
+                    else -group.on_rrp_opening_principal.iloc[0],
+                ]
+            ),
             "core_status": state,
             "coupon_status": coupon_status,
             "remittance_status": remit_status[end],
@@ -747,12 +1249,21 @@ def build_weekly_trc(ledger, sources):
             "delta_reserve_balances": decimal(h.delta_reserve_balances),
         }
         result["matched_rollover_par_memo"] = (
-            min(result["redemptions_par"], result["primary_addons_par"])
+            rollover_memo(
+                changes,
+                auctions.loc[
+                    auctions.issue_date.gt(start) & auctions.issue_date.le(end)
+                ],
+            )
             if fed is not None
             else None
         )
         weeks.append(result)
-        for variant, gamma in (("core", ZERO), ("lower", lower), ("upper", upper)):
+        for variant, gamma in (
+            ("core", ZERO),
+            ("forward_scenario", forward),
+            ("reverse_scenario", reverse),
+        ):
             x = total([core, gamma])
             identity = {
                 "date": str(end.date()),
@@ -775,6 +1286,14 @@ def build_weekly_trc(ledger, sources):
                 "bridge_treasury_securities_source_inflation": total(
                     [decimal(h.s_h), None if fed is None else -fed]
                 ),
+                "bridge_maturity_payment_clock": None
+                if clock_adjustment is None
+                else -clock_adjustment,
+                "bridge_primary_cash_price": None
+                if primary_adjustment is None
+                else -primary_adjustment,
+                "bridge_redemption_inflation": redemption_inflation,
+                "bridge_internal_postings": -j["j_applied"],
                 "bridge_coupon_remittance_payments": total(
                     [coupon, None if remit is None else -remit]
                 ),
@@ -787,6 +1306,10 @@ def build_weekly_trc(ledger, sources):
                 "bridge_all_securities_premium_discount",
                 "bridge_treasury_securities_source_inflation",
                 "bridge_coupon_remittance_payments",
+                "bridge_maturity_payment_clock",
+                "bridge_primary_cash_price",
+                "bridge_redemption_inflation",
+                "bridge_internal_postings",
                 "bridge_published_rounding",
             ]
             identity["identity_rhs"] = total(identity[c] for c in names)
@@ -811,24 +1334,8 @@ def build_weekly_trc(ledger, sources):
                     f"Weekly identity failed {end}: {identity['identity_error']}"
                 )
             identities.append(identity)
-    changes = pd.DataFrame(
-        all_changes,
-        columns=[
-            "date",
-            "cusip",
-            "security_type",
-            "opening_par",
-            "closing_par",
-            "delta_par",
-            "redemptions_par",
-            "primary_addons_par",
-            "secondary_purchases_par",
-            "secondary_sales_par",
-            "unclassifiable_par",
-            "inflation_compensation_change_excluded",
-            "classification_status",
-        ],
-    )
+    changes = pd.DataFrame(all_changes, columns=EVENT_COLUMNS)
+
     return pd.DataFrame(weeks), pd.DataFrame(identities), changes, daily_route
 
 
@@ -843,10 +1350,23 @@ def quarter_tables(weekly, components):
         "soma_coupon_cash",
         "cash_remittances",
         "trc_core",
-        "route_lower",
-        "route_upper",
-        "trc_lower",
-        "trc_upper",
+        "trc_par_sensitivity",
+        "primary_cash_adjustment",
+        "redemption_inflation",
+        "fed_leg_cash_corrected",
+        "settlement_clock_adjustment",
+        "primary_cash_unavailable_par",
+        "redemption_cash_unavailable_par",
+        "j_applied",
+        "j_candidate_only",
+        "unclassifiable_abs_par",
+        "unpriced_secondary_net_par",
+        "route_baseline",
+        "route_forward",
+        "route_reverse",
+        "net_bill_on_rrp_overlap",
+        "trc_forward_scenario",
+        "trc_reverse_scenario",
         "delta_reserve_balances",
     ]
     for quarter, group in weekly.groupby("quarter", sort=True):
@@ -870,10 +1390,28 @@ def quarter_tables(weekly, components):
         for column in numeric:
             row[column] = total(group[column]) if full_clock else None
         row["quarter_status"] = (
-            "available_par_proxy"
+            "available_cash_corrected_proxy"
             if row["trc_core"] is not None
             else "unavailable_required_weeks"
         )
+        row["unavailable_reasons"] = "|".join(
+            sorted(
+                set(
+                    str(r.core_status)
+                    + ":"
+                    + str(r.soma_status)
+                    + ":"
+                    + str(r.coupon_status)
+                    + ":"
+                    + str(r.remittance_status)
+                    for r in group.loc[group.trc_core.isna()].itertuples()
+                )
+            )
+        )
+        if not full_clock:
+            row["unavailable_reasons"] = (
+                "incomplete_wednesday_quarter|" + row["unavailable_reasons"]
+            )
         if full_clock:
             endpoints = decimal(group.reserve_balances_end.iloc[-1]) - decimal(
                 group.reserve_balances_start.iloc[0]
@@ -896,7 +1434,7 @@ def quarter_tables(weekly, components):
             row["difference_fed_source_par_vs_z1"] = total(
                 [row["fed_leg_par"], -admitted_fed]
             )
-            row["difference_coupon_schedule_timing"] = total(
+            row["difference_coupon_measurement_clock"] = total(
                 [
                     None
                     if row["soma_coupon_cash"] is None
@@ -904,37 +1442,37 @@ def quarter_tables(weekly, components):
                     admitted_coupon,
                 ]
             )
-            row["difference_remittance_cash_timing"] = total(
+            row["difference_remittance_source_clock"] = total(
                 [row["cash_remittances"], -admitted_remit]
             )
+            row["difference_maturity_payment_clock"] = row[
+                "settlement_clock_adjustment"
+            ]
+            row["difference_primary_cash_price"] = row["primary_cash_adjustment"]
+            row["difference_redemption_inflation"] = (
+                None
+                if row["redemption_inflation"] is None
+                else -row["redemption_inflation"]
+            )
+            row["difference_internal_postings"] = row["j_applied"]
             row["difference_core"] = total(
                 [row["trc_core"], -row["admitted_quarterly_core"]]
             )
+            difference_names = (
+                "difference_treasury_deposit_clock",
+                "difference_fed_source_par_vs_z1",
+                "difference_coupon_measurement_clock",
+                "difference_remittance_source_clock",
+                "difference_primary_cash_price",
+                "difference_redemption_inflation",
+                "difference_internal_postings",
+                "difference_maturity_payment_clock",
+            )
+            difference_sum = total(row[k] for k in difference_names)
             row["difference_identity_error"] = total(
                 [
                     row["difference_core"],
-                    None
-                    if any(
-                        row[k] is None
-                        for k in (
-                            "difference_treasury_deposit_clock",
-                            "difference_fed_source_par_vs_z1",
-                            "difference_coupon_schedule_timing",
-                            "difference_remittance_cash_timing",
-                        )
-                    )
-                    else -sum(
-                        (
-                            row[k]
-                            for k in (
-                                "difference_treasury_deposit_clock",
-                                "difference_fed_source_par_vs_z1",
-                                "difference_coupon_schedule_timing",
-                                "difference_remittance_cash_timing",
-                            )
-                        ),
-                        ZERO,
-                    ),
+                    None if difference_sum is None else -difference_sum,
                 ]
             )
             # Admitted components are binary floats printed to CSV; explicitly retain their decimal arithmetic residue.
@@ -948,7 +1486,7 @@ def quarter_tables(weekly, components):
 
 def describe_by_era(frame, columns, *, common=False):
     out = {}
-    for start, end in ERAS:
+    for start, end in (*ERAS, ("2006Q1", "2025Q4"), ("2003Q3", "2025Q4")):
         window = frame.loc[frame.quarter.ge(start) & frame.quarter.le(end)]
         if common:
             window = window.loc[window[columns].notna().all(axis=1)]
@@ -968,6 +1506,144 @@ def describe_by_era(frame, columns, *, common=False):
     return out
 
 
+def era_windows(frame):
+    for start, end in (*ERAS, ("2006Q1", "2025Q4"), ("2003Q3", "2025Q4")):
+        yield (
+            start + "-" + end,
+            frame.loc[frame.quarter.ge(start) & frame.quarter.le(end)],
+        )
+
+
+def event_summary(changes):
+    frame = changes.assign(
+        quarter=pd.to_datetime(changes.date).dt.to_period("Q").astype(str)
+    )
+    return {
+        era: {
+            str(kind): {
+                "n": len(g),
+                "signed_par": str(sum(g.unclassifiable_par, ZERO)),
+                "absolute_par": str(sum(g.unclassifiable_abs_par, ZERO)),
+            }
+            for kind, g in window.loc[
+                window.classification_status.str.startswith("unclassifiable")
+            ].groupby("event_type")
+        }
+        for era, window in era_windows(frame)
+    }
+
+
+def internal_summary(weekly):
+    return {
+        era: {
+            key: {
+                str(status): {
+                    "n": len(g),
+                    "applied": str(sum(g["j_" + key + "_applied"], ZERO)),
+                    "candidate_only": str(sum(g["j_" + key + "_candidate_only"], ZERO)),
+                    "candidate_only_absolute": str(
+                        sum((abs(v) for v in g["j_" + key + "_candidate_only"]), ZERO)
+                    ),
+                }
+                for status, g in window.groupby("j_" + key + "_status")
+            }
+            for key in INTERNAL_FACTORS
+        }
+        for era, window in era_windows(weekly)
+    }
+
+
+def tips_crosscheck(auctions, cpi_frame):
+    auctions = prepare_auctions(auctions)
+    cpi = {
+        pd.Period(d, freq="M"): decimal(v)
+        for d, v in zip(cpi_frame.date, cpi_frame.value)
+        if present(v) and v != "."
+    }
+    checked, missing, mismatches = 0, 0, []
+    for _, row in auctions.loc[
+        auctions.get(
+            "inflation_index_security", pd.Series(index=auctions.index, dtype=str)
+        ).eq("Yes")
+    ].iterrows():
+        if not present(row.index_ratio_on_issue_date):
+            missing += 1
+            continue
+        try:
+            rebuilt = tips_ratio(row.cusip, row.issue_date, auctions, cpi)
+        except ValueError:
+            missing += 1
+            continue
+        checked += 1
+        published = decimal(row.index_ratio_on_issue_date)
+        if rebuilt != published:
+            mismatches.append(
+                dict(
+                    cusip=row.cusip,
+                    issue_date=str(row.issue_date.date()),
+                    reconstructed=str(rebuilt),
+                    published=str(published),
+                    difference=str(rebuilt - published),
+                )
+            )
+    return dict(
+        checked=checked,
+        unavailable=missing,
+        mismatch_count=len(mismatches),
+        mismatches=mismatches,
+        status="auction_issue_ratio_crosscheck_payment_ratios_not_comprehensively_observed",
+    )
+
+
+def auction_field_coverage(frame):
+    frame = frame.assign(
+        quarter=pd.to_datetime(frame.issue_date).dt.to_period("Q").astype(str)
+    )
+    fields = (
+        "soma_accepted",
+        "price_per100",
+        "adj_price",
+        "accrued_int_per100",
+        "accrued_int_per1000",
+        "adj_accrued_int_per1000",
+        "index_ratio_on_issue_date",
+        "soma_included",
+        "fima_included",
+    )
+    return {
+        era: {
+            kind: {
+                field: int(g[field].map(present).sum()) if field in g else 0
+                for field in fields
+            }
+            for kind, g in window.groupby("security_type")
+        }
+        for era, window in era_windows(frame)
+    }
+
+
+def frn_feed_semantics(frame):
+    if frame.empty:
+        return {"status": "unavailable_empty_feed", "rows": 0}
+    if "end_of_accrual_period" not in frame:
+        raise ValueError("FRN feed: missing accrual interval end")
+    lengths = (
+        pd.to_datetime(frame.end_of_accrual_period)
+        - pd.to_datetime(frame.start_of_accrual_period)
+    ).dt.days
+    if not lengths.eq(1).all():
+        raise ValueError(
+            "FRN feed: expected verified one-calendar-day accrual intervals"
+        )
+    return {
+        "status": "observed_one_day_start_inclusive_end_exclusive",
+        "rows": len(frame),
+        "first_accrual_date": str(frame.start_of_accrual_period.min()),
+        "last_accrual_date": str(frame.start_of_accrual_period.max()),
+        "source_record_date_is_publication_not_accrual_date": True,
+    }
+
+
 def column_contracts(tables):
     """Every output column has an explicit source and a clock, including diagnostics and statuses."""
     source = {
@@ -975,28 +1651,29 @@ def column_contracts(tables):
         "fed_leg_par": "soma.treasury_holdings: difference of sum(parValue)/1e6",
         "soma_coupon_cash": "soma.treasury_holdings + fiscaldata.auctions_query + fred.cpiaucns + fiscaldata.frn_daily_indexes; scheduled cash coupons",
         "cash_remittances": "fiscaldata.dts_deposits_withdrawals: Federal Reserve Earnings deposits",
-        "route_lower": "definition: zero",
-        "route_upper": "min(on_rrp_decline,positive_net_bill_cash), summed by week",
+        "route_baseline": "declared no-route baseline: zero",
+        "route_forward": "min(opening ON RRP principal,gross non-SOMA bill settlement cash), summed by week",
+        "route_reverse": "-min(closing ON RRP principal,gross non-SOMA bill redemption cash), summed by week",
         "on_rrp_decline": "fred.rrpontsyd: positive decline from preceding business day, billion times 1000",
-        "positive_net_bill_cash": "fiscaldata.auctions_query: (total bill allotments - SOMA accepted) times price minus (maturing bill par - prior-snapshot SOMA par); clipped at zero",
+        "positive_net_bill_cash": "normalized gross non-SOMA bill issue cash less gross non-SOMA redemption proxy, clipped at zero",
         "bridge_all_securities_premium_discount": "admitted ledger:f_unamortized_premiums+f_unamortized_discounts; ALL securities",
         "bridge_treasury_securities_source_inflation": "admitted ledger:s_h - fed_leg_par; includes H.4.1 inflation, source, maturity valuation and settlement differences",
         "bridge_coupon_remittance_payments": "soma_coupon_cash - cash_remittances",
         "bridge_published_rounding": "admitted ledger:rho",
         "non_treasury_signed_factors": "admitted ledger: all factors except TGA,SFP,Treasury securities,RRP others,premiums,discounts",
         "rrp_others_net_route": "admitted ledger:f_rrp_others - route",
-        "trc_core": "c_h + fed_leg_par - soma_coupon_cash + cash_remittances",
-        "trc_lower": "trc_core + route_lower",
-        "trc_upper": "trc_core + route_upper",
+        "trc_core": "c_h + fed_leg_cash_corrected - soma_coupon_cash + cash_remittances + j_applied",
+        "trc_forward_scenario": "trc_core + route_forward",
+        "trc_reverse_scenario": "trc_core + route_reverse",
         "trc": "trc_<variant>",
-        "route": "route_<variant>, zero for core",
+        "route": "declared forward or reverse channel scenario; zero for core",
         "admitted_quarterly_core": "admitted trc_quarterly_components_v1:trc_core",
         "difference_core": "weekly-quarter trc_core - admitted quarterly trc_core",
         "difference_treasury_deposit_clock": "weekly-quarter c_h - admitted trc_cash_leg",
         "difference_fed_source_par_vs_z1": "weekly-quarter fed_leg_par - admitted fed_tsy_tx; source and par vs Z.1 valuation",
-        "difference_coupon_schedule_timing": "admitted fed_tsy_coupon_interest_proxy - weekly-quarter soma_coupon_cash",
-        "difference_remittance_cash_timing": "weekly-quarter cash_remittances - admitted fed_remit_positive",
-        "difference_identity_error": "difference_core less four named differences; printed admitted float arithmetic residue",
+        "difference_coupon_measurement_clock": "admitted fed_tsy_coupon_interest_proxy - weekly-quarter soma_coupon_cash",
+        "difference_remittance_source_clock": "weekly-quarter cash_remittances - admitted fed_remit_positive",
+        "difference_identity_error": "difference_core less eight named differences; printed admitted float arithmetic residue",
         "reserve_telescoping_error": "sum weekly delta_reserve_balances less Wednesday endpoint difference",
         "reserve_balances_start": "admitted ledger:reserve_balances - delta_reserve_balances",
         "reserve_balances_end": "admitted ledger:reserve_balances",
@@ -1005,17 +1682,54 @@ def column_contracts(tables):
         "identity_error": "delta_reserve_balances - identity_rhs, Decimal arithmetic",
         "soma_inflation_compensation_change_excluded": "soma.treasury_holdings: difference of inflationCompensation, excluded from core",
         "inflation_compensation_change_excluded": "soma.treasury_holdings: CUSIP inflationCompensation difference, excluded from par",
-        "matched_rollover_par_memo": "min(weekly redemptions_par,primary_addons_par); aggregate memo, not security-level cash matching",
+        "matched_rollover_par_memo": "sum over actual settlement dates of min(maturing par,SOMA allotment par); date-matched memo only",
         "opening_par": "soma.treasury_holdings: prior snapshot parValue/1e6",
         "closing_par": "soma.treasury_holdings: current snapshot parValue/1e6",
         "delta_par": "closing_par - opening_par",
-        "redemptions_par": "opening_par at scheduled maturity, CLASSIFICATION_RULE",
+        "redemptions_par": "prior-snapshot entitlement at actual payment date, including deferred holiday maturity; no-intervening-trade assumption",
         "primary_addons_par": "fiscaldata.auctions_query:soma_accepted on issue date, CLASSIFICATION_RULE",
         "secondary_purchases_par": "positive net residual delta_par+redemptions_par-primary_addons_par, CLASSIFICATION_RULE",
         "secondary_sales_par": "negative net residual delta_par+redemptions_par-primary_addons_par, CLASSIFICATION_RULE",
         "unclassifiable_par": "unresolved classification residual, CLASSIFICATION_RULE",
         "unclassifiable_changes": "count of CUSIP changes carrying unclassifiable status",
     }
+    source.update(
+        {
+            "settlement_clock_adjustment": "defer holiday maturity par removals from nominal snapshot date to payment week; opening entitlement assumption",
+            "bridge_maturity_payment_clock": "-settlement_clock_adjustment",
+            "difference_maturity_payment_clock": "weekly-quarter settlement_clock_adjustment",
+            "fed_leg_cash_corrected": "fed_leg_par + maturity payment-clock adjustment + supported primary_cash_adjustment - supported redemption_inflation",
+            "trc_par_sensitivity": "c_h + fed_leg_par - soma_coupon_cash + cash_remittances; no cash or J correction",
+            "primary_addons_cash": "auction SOMA par times dirty settlement price, with adjusted TIPS fields indexed once",
+            "primary_cash_adjustment": "supported primary_addons_cash - primary_addons_par; null event corrections reported separately",
+            "redemptions_cash": "opening par with no-intervening-trade assumption; TIPS max(par,par*nominal-maturity index ratio)",
+            "redemption_inflation": "redemptions_cash - redemptions_par; supported adjustments only in weekly aggregate",
+            "primary_cash_unavailable_par": "par magnitude of events missing acquisition cash or allotment; not an error bound",
+            "redemption_cash_unavailable_par": "par magnitude of events missing redemption cash; not an error bound",
+            "unclassifiable_abs_par": "sum absolute net unresolved classification residuals; not gross unknown transactions",
+            "unpriced_secondary_net_par": "sum absolute classified NET secondary residual par; no observed gross prices or churn",
+            "on_rrp_opening_principal": "preceding observed business-day ON RRP take-up, billion times 1000",
+            "on_rrp_closing_principal": "current business-day ON RRP take-up, billion times 1000",
+            "gross_non_soma_bill_issue_cash": "normalized all auction allotments less SOMA once, times bill price; FIMA included, owners not classified",
+            "gross_non_soma_bill_redemption_cash": "all normalized original auction par less prior-snapshot SOMA once; no-intervening-trade entitlement proxy",
+            "net_bill_on_rrp_overlap": "min(positive aggregate ON RRP decline,positive net bill cash); diagnostic only",
+            "bridge_primary_cash_price": "-primary_cash_adjustment",
+            "bridge_redemption_inflation": "+redemption_inflation",
+            "bridge_internal_postings": "-j_applied",
+            "difference_primary_cash_price": "weekly-quarter primary_cash_adjustment",
+            "difference_redemption_inflation": "negative weekly-quarter redemption_inflation",
+            "difference_internal_postings": "weekly-quarter j_applied",
+            "j_applied": "sum supported dated Treasury-Fed cash matches",
+            "j_candidate_only": "sum signed internal factors lacking matched dated cash support; excluded from core",
+            "j_facility_dts_cash_candidate": "signed dated DTS ESF cash: deposits minus withdrawals, negative withdrawals retained as returns",
+            "rrp_others_vs_on_rrp_flow_bridge": "signed H.4.1 RRP-others factor + change in daily ON RRP principal; perimeters differ",
+        }
+    )
+    for key in INTERNAL_FACTORS:
+        source["j_" + key + "_applied"] = "dated cash match to admitted ledger:f_" + key
+        source["j_" + key + "_candidate_only"] = (
+            "admitted ledger:f_" + key + " less applied dated cash match"
+        )
     metadata = {
         "date",
         "quarter",
@@ -1027,6 +1741,11 @@ def column_contracts(tables):
         "variant",
         "cusip",
         "security_type",
+        "nominal_maturity_date",
+        "payment_date",
+        "issue_settlement_dates",
+        "event_type",
+        "unavailable_reasons",
     }
     contracts = {}
     for role, frame in tables.items():
@@ -1124,8 +1843,12 @@ def write_weekly_trc_export(
     differences = [
         "difference_treasury_deposit_clock",
         "difference_fed_source_par_vs_z1",
-        "difference_coupon_schedule_timing",
-        "difference_remittance_cash_timing",
+        "difference_coupon_measurement_clock",
+        "difference_remittance_source_clock",
+        "difference_primary_cash_price",
+        "difference_redemption_inflation",
+        "difference_internal_postings",
+        "difference_maturity_payment_clock",
         "difference_core",
     ]
     receipt = {
@@ -1187,8 +1910,37 @@ def write_weekly_trc_export(
             quarterly, ["bridge_all_securities_premium_discount"]
         ),
         "weekly_summary_by_era": describe_by_era(
-            weekly, ["trc_core", "route_lower", "route_upper"]
+            weekly,
+            [
+                "trc_core",
+                "trc_par_sensitivity",
+                "primary_cash_adjustment",
+                "redemption_inflation",
+                "j_applied",
+                "j_candidate_only",
+                "unclassifiable_abs_par",
+                "unpriced_secondary_net_par",
+                "primary_cash_unavailable_par",
+                "redemption_cash_unavailable_par",
+                "route_forward",
+                "route_reverse",
+            ],
         ),
+        "unavailable_quarters": quarterly.loc[
+            quarterly.trc_core.isna(), ["quarter", "unavailable_reasons"]
+        ].to_dict("records"),
+        "core_sample": {
+            "n_weeks": int(weekly.trc_core.notna().sum()),
+            "first": weekly.loc[weekly.trc_core.notna(), "date"].min(),
+            "last": weekly.loc[weekly.trc_core.notna(), "date"].max(),
+        },
+        "unclassifiable_by_event_and_era": event_summary(changes),
+        "internal_postings_by_status_and_era": internal_summary(weekly),
+        "tips_contract_crosscheck": tips_crosscheck(
+            sources["auctions"], sources["cpi"]
+        ),
+        "auction_field_coverage_by_era": auction_field_coverage(sources["auctions"]),
+        "frn_feed_semantics": frn_feed_semantics(sources["frn"]),
         "admitted_outputs_before": before,
         "admitted_outputs_after": after,
         "input_missingness": {
@@ -1203,6 +1955,7 @@ def write_weekly_trc_export(
                 if r["status"] != "source_reported"
             ],
         },
+        "internal_cash_event_crosswalk": list(WEEKLY_TRC_INTERNAL_MATCHES),
         "acquisition": {
             "fiscus": manifest.get("fiscus"),
             "manifest_sha256": inputs_manifest_sha256,

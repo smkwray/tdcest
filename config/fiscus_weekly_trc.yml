@@ -73,7 +73,7 @@ entries:
   - cash
   verified_on: '2026-10-09'
   history:
-    start: '2014-01-31'
+    start: '2024-10-31'
   frequency: daily
   units:
     label: Interest per USD 100, field-specific

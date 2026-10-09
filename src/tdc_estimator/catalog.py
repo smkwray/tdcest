@@ -1023,6 +1023,13 @@ H41_LEDGER_REGISTRY = FiscusRegistry(
 # Weekly inputs retain event clocks; monthly fund positions never enter this registry.
 WEEKLY_TRC_WINDOW = ("2003-07-02", "2025-12-31")
 WEEKLY_TRC_OVERLAY = Path("config/fiscus_weekly_trc.yml")
+# Event crosswalk only where a dated Treasury statement independently names facility cash.
+# The DTS row must still match the amount/account/date; factor residuals stay candidate-only.
+WEEKLY_TRC_INTERNAL_MATCHES = (
+    {"date": "2020-05-11", "transaction_type": "Withdrawals", "amount": "37500",
+     "source_url": "https://home.treasury.gov/news/press-releases/sm1007",
+     "meaning": "Treasury's May 12 statement identifies 37.5 billion transmitted the preceding day to the corporate-credit SPV"},
+)
 WEEKLY_TRC_REGISTRY = FiscusRegistry(
     name="weekly-trc", input_dir=Path("data/raw/fiscus/weekly_trc"),
     manifest=Path("data/raw/fiscus/weekly_trc/inputs_manifest.json"),
@@ -1041,6 +1048,11 @@ WEEKLY_TRC_REGISTRY = FiscusRegistry(
             "filter=record_date:gte:2005-10-03,record_date:lte:2025-12-31,transaction_catg:eq:Federal Reserve Earnings",
             "--param", "page[size]=10000", "--max-pages", "100"),
             1.0, "dts_record_date", "DTS Table II Federal Reserve Earnings cash deposits"),
+        FiscusInput("internal_dts", "fiscaldata.dts_deposits_withdrawals", (
+            "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
+            "filter=record_date:gte:2020-01-01,record_date:lte:2025-12-31,transaction_catg:eq:ESF - Economic Recovery Programs",
+            "--param", "page[size]=10000", "--max-pages", "100"),
+            1.0, "dts_record_date", "Dated ESF cash candidates for Treasury-Fed facility matching"),
         FiscusInput("frn", "fiscaldata.frn_daily_indexes", (
             "fiscaldata-query", "fiscaldata.frn_daily_indexes", "--param",
             "filter=record_date:lte:2025-12-31", "--param", "page[size]=10000",

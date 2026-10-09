@@ -2728,7 +2728,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ledger.set_defaults(func=cmd_reserve_factor_ledger_export)
 
     p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],
-                                 help="Export par-valued weekly core TRC and route bounds on the H.4.1 Wednesday clock.")
+                                 help="Export cash-corrected weekly core proxy and signed route scenarios on the H.4.1 Wednesday clock.")
     p_weekly_trc.add_argument("--inputs-manifest-sha256", required=True)
     p_weekly_trc.add_argument("--ledger-sha256", required=True)
     p_weekly_trc.add_argument("--trc-components-sha256", required=True)

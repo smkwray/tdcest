@@ -47,10 +47,12 @@ class FiscusInput:
     clock: str
     description: str
     series_id: str | None = None
+    snapshot_window: tuple[str, str] | None = None
+    native_units: str | None = None
 
     @property
     def units(self) -> str:
-        return {1.0: "USD million", 1000.0: "USD billion"}[self.usd_million_per_unit]
+        return self.native_units or {0.000001: "USD dollars or field-specific", 1.0: "USD million", 1000.0: "USD billion"}[self.usd_million_per_unit]
 
 
 @dataclass(frozen=True)
@@ -1018,7 +1020,40 @@ H41_LEDGER_REGISTRY = FiscusRegistry(
     name="h41-ledger", inputs=tuple(H41_LEDGER_FISCUS_INPUTS), input_dir=Path("data/raw/fiscus/h41_ledger"),
     manifest=Path("data/raw/fiscus/h41_ledger/inputs_manifest.json"), schema_version="h41_ledger_fiscus_inputs_v1",
 )
-FISCUS_REGISTRIES = {registry.name: registry for registry in (TRC_REGISTRY, H41_LEDGER_REGISTRY)}
+# Weekly inputs retain event clocks; monthly fund positions never enter this registry.
+WEEKLY_TRC_WINDOW = ("2003-07-02", "2025-12-31")
+WEEKLY_TRC_OVERLAY = Path("config/fiscus_weekly_trc.yml")
+WEEKLY_TRC_REGISTRY = FiscusRegistry(
+    name="weekly-trc", input_dir=Path("data/raw/fiscus/weekly_trc"),
+    manifest=Path("data/raw/fiscus/weekly_trc/inputs_manifest.json"),
+    schema_version="weekly_trc_fiscus_inputs_v1",
+    inputs=(
+        FiscusInput("soma", "soma.treasury_holdings", ("soma-holdings",), 0.000001,
+                    "wednesday_asof_snapshot", "CUSIP-level SOMA par and inflation compensation",
+                    snapshot_window=WEEKLY_TRC_WINDOW),
+        FiscusInput("auctions", "fiscaldata.auctions_query", (
+            "fiscaldata-query", "fiscaldata.auctions_query", "--param",
+            "filter=issue_date:gte:1979-11-01,issue_date:lte:2025-12-31",
+            "--param", "page[size]=10000", "--max-pages", "100"),
+            0.000001, "issue_and_maturity_date", "Auction allotments and security schedules"),
+        FiscusInput("remittances", "fiscaldata.dts_deposits_withdrawals", (
+            "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
+            "filter=record_date:gte:2005-10-03,record_date:lte:2025-12-31,transaction_catg:eq:Federal Reserve Earnings",
+            "--param", "page[size]=10000", "--max-pages", "100"),
+            1.0, "dts_record_date", "DTS Table II Federal Reserve Earnings cash deposits"),
+        FiscusInput("frn", "fiscaldata.frn_daily_indexes", (
+            "fiscaldata-query", "fiscaldata.frn_daily_indexes", "--param",
+            "filter=record_date:lte:2025-12-31", "--param", "page[size]=10000",
+            "--max-pages", "100"), 0.000001, "daily_accrual_date", "FRN coupon rates by accrual day",
+            native_units="interest per USD 100 and field-specific rates"),
+        _fred_input("on_rrp", "RRPONTSYD", 1000.0, "business_day_take_up", "ON RRP daily take-up",
+                    window=("2003-06-25", "2025-12-31")),
+        FiscusInput("cpi", "fred.cpiaucns", ("get-series", "fred.cpiaucns", "--start", "1996-01-01", "--end", "2025-12-31"),
+                    1.0, "monthly_reference_cpi", "CPI-U NSA for TIPS index ratios", series_id="CPIAUCNS",
+                    native_units="index 1982-1984=100, not seasonally adjusted"),
+    ),
+)
+FISCUS_REGISTRIES = {registry.name: registry for registry in (TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY)}
 
 BANK_DEPOSITORY_TX_KEYS = [
     "us_chartered_tsy_tx",

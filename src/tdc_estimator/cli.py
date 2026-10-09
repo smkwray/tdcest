@@ -92,6 +92,7 @@ from .tier2_regression_series import write_tier2_regression_series, write_regres
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
 from .reserve_factor_ledger import write_reserve_factor_ledger_export
 from .trc_export import write_trc_export
+from .weekly_trc import write_weekly_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
 from .utils import project_relative_path, write_json
 from .wamest_interest_contract import resolve_wamest_interest_contract_paths
@@ -1359,6 +1360,13 @@ def cmd_reserve_factor_ledger_export(args: argparse.Namespace) -> int:
         inputs_manifest_sha256=args.inputs_manifest_sha256,
         trc_components_sha256=args.trc_components_sha256,
     )
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_weekly_trc_export(args: argparse.Namespace) -> int:
+    receipt = write_weekly_trc_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256,
+                                      ledger_sha256=args.ledger_sha256, trc_components_sha256=args.trc_components_sha256)
     print(json.dumps(receipt, indent=2))
     return 0
 
@@ -2718,6 +2726,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_ledger.add_argument("--inputs-manifest-sha256", required=True)
     p_ledger.add_argument("--trc-components-sha256", required=True)
     p_ledger.set_defaults(func=cmd_reserve_factor_ledger_export)
+
+    p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],
+                                 help="Export par-valued weekly core TRC and route bounds on the H.4.1 Wednesday clock.")
+    p_weekly_trc.add_argument("--inputs-manifest-sha256", required=True)
+    p_weekly_trc.add_argument("--ledger-sha256", required=True)
+    p_weekly_trc.add_argument("--trc-components-sha256", required=True)
+    p_weekly_trc.set_defaults(func=cmd_weekly_trc_export)
 
     p_component_comparison = sub.add_parser(
         "tier2-component-anchor-comparison",

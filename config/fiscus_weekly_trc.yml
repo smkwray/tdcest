@@ -1,0 +1,125 @@
+schema_version: 1
+family: fiscaldata
+entries:
+- id: fiscaldata.dts_deposits_withdrawals
+  family: fiscaldata
+  title: DTS Table II deposits and withdrawals
+  description: DTS Table II deposits and withdrawals
+  publisher: U.S. Department of the Treasury, Bureau of the Fiscal Service
+  aliases:
+  - DTS Table II deposits and withdrawals
+  tags:
+  - treasury
+  - cash
+  verified_on: '2026-10-09'
+  history:
+    start: '2005-10-03'
+  frequency: daily
+  units:
+    label: USD million
+    scale: millions
+    seasonal_adjustment: not seasonally adjusted
+    annualized: false
+    unit_class: usd_millions_nsa
+  endpoint:
+    url: https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/deposits_withdrawals_operating_cash
+    default_params:
+      format: json
+      sort: record_date,src_line_nbr
+      page[size]: '100'
+    allowed_params:
+    - fields
+    - filter
+    - sort
+    - page[size]
+  access:
+    executor: fiscaldata
+    mode: machine
+    auth:
+      mode: none
+  response:
+    format: json
+    data_path: data
+    date_fields:
+    - record_date
+    value_fields:
+    - transaction_today_amt
+    pagination:
+      kind: fiscaldata
+      default_page_size: 100
+      hard_max_pages: 100
+    vintage_strategy: http_last_modified_or_retrieval
+  refresh:
+    cadence: daily
+    notes: Published on Treasury business days.
+  semantics:
+    granularity: date and source row
+    basis: DTS Table II deposits and withdrawals
+    notes: 'Caller-owned fiscus overlay; same maintained FiscalData executor. Source
+      definitions: https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/
+      and https://www.treasurydirect.gov/auctions/announcements-data-results/frn-daily/'
+  tools:
+  - fiscaldata_query
+  caveats: []
+- id: fiscaldata.frn_daily_indexes
+  family: fiscaldata
+  title: Treasury FRN daily indexes
+  description: Treasury FRN daily indexes
+  publisher: U.S. Department of the Treasury, Bureau of the Fiscal Service
+  aliases:
+  - Treasury FRN daily indexes
+  tags:
+  - treasury
+  - cash
+  verified_on: '2026-10-09'
+  history:
+    start: '2014-01-31'
+  frequency: daily
+  units:
+    label: Interest per USD 100, field-specific
+    scale: field-specific
+    seasonal_adjustment: not seasonally adjusted
+    annualized: false
+    unit_class: field_specific_not_saar
+  endpoint:
+    url: https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/frn_daily_indexes
+    default_params:
+      format: json
+      sort: record_date,cusip
+      page[size]: '100'
+    allowed_params:
+    - fields
+    - filter
+    - sort
+    - page[size]
+  access:
+    executor: fiscaldata
+    mode: machine
+    auth:
+      mode: none
+  response:
+    format: json
+    data_path: data
+    date_fields:
+    - record_date
+    - start_of_accrual_period
+    - end_of_accrual_period
+    value_fields:
+    - daily_accrued_int_per100
+    pagination:
+      kind: fiscaldata
+      default_page_size: 100
+      hard_max_pages: 100
+    vintage_strategy: http_last_modified_or_retrieval
+  refresh:
+    cadence: daily
+    notes: Published on Treasury business days.
+  semantics:
+    granularity: date and source row
+    basis: Treasury FRN daily indexes
+    notes: 'Caller-owned fiscus overlay; same maintained FiscalData executor. Source
+      definitions: https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/
+      and https://www.treasurydirect.gov/auctions/announcements-data-results/frn-daily/'
+  tools:
+  - fiscaldata_query
+  caveats: []

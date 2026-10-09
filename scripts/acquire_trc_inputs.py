@@ -92,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
                         "--quiet",
                         "--project",
                         args.fiscus_project,
+                        "--with-editable",
+                        ".",
                         "python",
                         "scripts/acquire_trc_inputs.py",
                         "--registry",
@@ -223,9 +225,24 @@ def acquire_snapshots(args) -> int:
     """Consolidate weekly fiscus exports; retain each original cache identity, including empty snapshots."""
     import csv
     import tempfile
+    import pandas as pd
     from concurrent.futures import ThreadPoolExecutor
     from datetime import date, timedelta
     from fiscus.service import FiscusService
+    from fiscus.executors.soma import ASOF_DATES_URL, SOMA_POLICY
+    from tdc_estimator.weekly_trc import snapshot_date_mapping
+
+    # Use the existing fiscus executor's source/request policy for discovery.
+    with FiscusService() as service:
+        response = service.soma.requester.get(ASOF_DATES_URL, policy=SOMA_POLICY)
+        available = response.json().get("soma", {}).get("asOfDates")
+        if not isinstance(available, list) or not available:
+            raise ValueError("SOMA: empty or malformed as-of date list")
+        asof_list_record = {
+            "source_url": ASOF_DATES_URL,
+            "sha256": hashlib.sha256(response.content).hexdigest(),
+            "retrieved_at_utc": datetime.now(UTC).isoformat(),
+        }
 
     registry = FISCUS_REGISTRIES[args.registry]
     spec = next(s for s in registry.inputs if s.key == args.snapshot_worker)
@@ -246,6 +263,10 @@ def acquire_snapshots(args) -> int:
             ):
                 raise ValueError(f"{day}: snapshot hash does not verify")
             rows = list(csv.DictReader(raw.decode().splitlines()))
+            if any(row["asOfDate"] != day.isoformat() for row in rows):
+                raise ValueError(
+                    f"{day}: snapshot rows have a different source as-of date"
+                )
             record = {
                 **artifact,
                 **response["provenance"],
@@ -257,6 +278,26 @@ def acquire_snapshots(args) -> int:
     all_rows, snapshots = [], []
     with ThreadPoolExecutor(max_workers=4) as pool:
         for n, (rows, record) in enumerate(pool.map(fetch, days), 1):
+            target = days[n - 1]
+            record.update(
+                effective_wednesday=str(target), substitution_reason="exact_wednesday"
+            )
+            if not rows:
+                mapping = snapshot_date_mapping(
+                    [target], [d for d in available if d != str(target)]
+                )
+                replacement = mapping.get(pd.Timestamp(target))
+                if replacement:
+                    rows, substitute = fetch(date.fromisoformat(replacement["asof"]))
+                    if not rows:
+                        raise ValueError(
+                            f"SOMA: listed substitute {replacement['asof']} is empty"
+                        )
+                    record = {
+                        **substitute,
+                        **replacement,
+                        "original_empty_snapshot": record,
+                    }
             all_rows.extend(rows)
             snapshots.append(record)
             if n % 100 == 0:
@@ -283,6 +324,7 @@ def acquire_snapshots(args) -> int:
         "source_metadata": {
             "snapshots": snapshots,
             "snapshot_window": list(spec.snapshot_window),
+            "asof_date_list": asof_list_record,
         },
         "row_count": len(all_rows),
         "data_coverage": {"start": str(start), "end": str(end)},

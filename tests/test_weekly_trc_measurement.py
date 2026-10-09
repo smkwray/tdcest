@@ -653,3 +653,208 @@ def test_tips_reopening_base_does_not_map_to_later_coupon_date():
     a = prepare_auctions(pd.DataFrame([original, reopen]))
     assert pd.Timestamp("2021-07-15") not in a.attrs["contractual_reference_cpi"]
     assert a.attrs["contractual_reference_cpi"][pd.Timestamp("2021-07-30")] == 105
+
+
+@pytest.mark.parametrize(
+    "target_day,source_day",
+    [
+        ("2007-07-04", "2007-07-03"),
+        ("2019-11-27", "2019-11-28"),
+    ],
+)
+def test_closed_day_snapshot_maps_to_effective_wednesday(target_day, source_day):
+    from tdc_estimator.weekly_trc import snapshot_date_mapping
+
+    target_date = pd.Timestamp(target_day)
+    mapping = snapshot_date_mapping([target_day], [source_day])
+    assert mapping[target_date]["asof"] == source_day
+    assert mapping[target_date]["effective_wednesday"] == target_day
+    snapshots = prepare_soma(pd.DataFrame([holding(source_day)]), [target_day])
+    assert snapshots[target_date].loc["OLD"].asOfDate == pd.Timestamp(source_day)
+
+
+@pytest.mark.parametrize(
+    "target_day,source_day",
+    [
+        ("2007-07-04", "2007-07-02"),  # Tuesday between source and holiday is open.
+        ("2007-07-04", "2007-07-05"),  # Far endpoint is open.
+        ("2022-01-05", "2022-01-04"),
+        ("2022-01-05", "2022-01-06"),
+        ("2003-07-02", "2003-07-09"),
+    ],
+)
+def test_open_settlement_day_prevents_snapshot_substitution(target_day, source_day):
+    from tdc_estimator.weekly_trc import snapshot_date_mapping
+
+    assert snapshot_date_mapping([target_day], [source_day]) == {}
+    assert prepare_soma(pd.DataFrame([holding(source_day)]), [target_day]) == {}
+
+
+def test_exact_wednesday_preferred_over_eligible_substitute():
+    snapshots = prepare_soma(
+        pd.DataFrame(
+            [
+                holding("2019-11-27", par=100),
+                holding("2019-11-28", par=200),
+            ]
+        ),
+        ["2019-11-27"],
+    )
+    assert snapshots[pd.Timestamp("2019-11-27")].loc["OLD"].par == 100
+
+
+def test_friday_before_saturday_fixed_holiday_remains_settlement_day():
+    from tdc_estimator.weekly_trc import FedPaymentCalendar
+
+    assert pd.Timestamp("2020-07-03") not in set(
+        FedPaymentCalendar().holidays("2020-01-01", "2020-12-31")
+    )
+
+
+def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping():
+    from tdc_estimator.weekly_trc import FedPaymentCalendar
+
+    ledger, sources = fixture()
+    dates = pd.date_range("2019-09-25", "2020-01-08", freq="W-WED")
+    ledger = pd.concat([ledger.iloc[[0]]] * len(dates), ignore_index=True)
+    ledger["date"] = [str(d.date()) for d in dates]
+    ledger["delta_reserve_balances"] = "1"
+    ledger["rho"] = "1"
+    ledger["reserve_balances"] = [str(1001 + i) for i in range(len(dates))]
+    sources["soma"] = pd.DataFrame(
+        [
+            row
+            for d in dates
+            for row in (
+                [holding(str(d.date()), maturity="2032-12-25", coupon="2")]
+                + (
+                    [
+                        holding(
+                            str(d.date()),
+                            cusip="BILL",
+                            par=20,
+                            maturity="2019-12-26",
+                            kind="Bills",
+                        )
+                    ]
+                    if d < pd.Timestamp("2019-12-26")
+                    else []
+                )
+            )
+        ]
+    )
+    sources["auctions"] = pd.DataFrame(
+        [auction("BILL", "2019-09-05", "2019-12-26", soma="20000000")]
+    )
+    holidays = set(FedPaymentCalendar().holidays("2019-01-01", "2020-12-31"))
+    business = [
+        d
+        for d in pd.date_range("2019-09-18", dates[-1])
+        if d.weekday() < 5 and d not in holidays
+    ]
+    sources["on_rrp"] = pd.DataFrame(
+        {"date": [str(d.date()) for d in business], "value": "1"}
+    )
+    seed = sources["remittances"].iloc[0].to_dict()
+    sources["remittances"] = pd.DataFrame(
+        [{**seed, "record_date": str(d.date())} for d in business]
+    )
+    baseline = build_weekly_trc(ledger, sources)
+    for target_day, source_day in [
+        ("2019-11-27", "2019-11-28"),
+        ("2019-12-25", "2019-12-24"),
+        ("2020-01-01", "2019-12-31"),
+    ]:
+        sources["soma"].loc[sources["soma"].asOfDate.eq(target_day), "asOfDate"] = (
+            source_day
+        )
+    substituted = build_weekly_trc(ledger, sources)
+    # Compare classification, Fed/coupon cash and daily route consumers through the production entry point.
+    for expected, actual in zip(baseline, substituted):
+        pd.testing.assert_frame_equal(expected, actual)
+    new_year = substituted[0].set_index("date").loc["2020-01-01"]
+    assert new_year.fed_leg_par == -20 and new_year.soma_coupon_cash == 1
+    redemption_day = substituted[3].set_index("date").loc["2019-12-26"]
+    assert redemption_day.gross_non_soma_bill_redemption_cash == 100
+    assert redemption_day.route_reverse == -100
+    comp = pd.DataFrame(
+        [
+            dict(
+                quarter="2019Q4",
+                trc_cash_leg="0",
+                fed_tsy_tx="0",
+                fed_tsy_coupon_interest_proxy="0",
+                fed_remit_positive="0",
+                trc_core="0",
+            )
+        ]
+    )
+    q = quarter_tables(substituted[0], comp).set_index("quarter").loc["2019Q4"]
+    assert q.quarter_status == "available_cash_corrected_proxy"
+    assert q.n_weeks == q.expected_weeks == 13
+    assert q.reserve_telescoping_error == 0 and q.delta_reserve_balances == 13
+    sources["soma"] = sources["soma"].loc[sources["soma"].asOfDate.ne("2019-11-28")]
+    missing = (
+        quarter_tables(build_weekly_trc(ledger, sources)[0], comp)
+        .set_index("quarter")
+        .loc["2019Q4"]
+    )
+    assert (
+        missing.trc_core is None
+        and "missing_consecutive_snapshot" in missing.unavailable_reasons
+    )
+
+
+def test_unmatched_dts_cash_with_zero_stock_change_is_reported_not_applied():
+    frame = dts_cash(10000)
+    frame["record_date"] = "2020-04-13"
+    j = internal_postings(internal_h(), pd.Timestamp("2020-04-15"), frame)
+    assert j["j_applied"] == 0 and j["j_candidate_only"] == 0
+    assert j["j_facility_dts_cash_candidate"] == -10000
+    assert j["j_facility_dts_cash_candidate_only"] == -10000
+    assert j["j_facility_dts_cash_candidate_dates"] == "2020-04-13:-10000"
+    assert (
+        j["j_facility_dts_cash_status"]
+        == "cash_candidate_only_no_same_week_stock_crosswalk"
+    )
+    # A possibly delayed counterpart cannot consume the previous week's cash again.
+    later = internal_postings(internal_h(-10000), pd.Timestamp("2020-04-22"), frame)
+    assert later["j_applied"] == 0 and later["j_candidate_only"] == -10000
+    assert later["j_facility_dts_cash_candidate_only"] == 0
+
+
+def test_matched_cash_excluded_once_and_other_dated_cash_retained():
+    a, b = dts_cash(-41294), dts_cash(177)
+    b["record_date"] = "2022-01-03"
+    j = internal_postings(internal_h(41294), END, pd.concat([a, b]))
+    assert j["j_applied"] == 41294
+    assert j["j_facility_dts_cash_candidate_only"] == -177
+    assert j["j_facility_dts_cash_candidate_dates"] == "2022-01-03:-177"
+
+
+def test_auction_only_unknown_pre_payment_coupon_entitlement_is_unavailable():
+    _, sources = fixture()
+    a = auction("NEW", "2022-01-03", "2032-01-04", soma="null", kind="Note")
+    a["int_rate"] = "2"
+    positions = prepare_soma(sources["soma"])[START]
+    value, status = coupon_week(
+        START,
+        END,
+        positions,
+        positions,
+        prepare_auctions(pd.DataFrame([a])),
+        {},
+        sources["frn"],
+        set(),
+    )
+    assert value is None and "NEW: unavailable primary coupon entitlement" in status
+
+
+def test_cash_candidate_missing_input_or_query_coverage_is_unavailable():
+    frame = dts_cash(100)
+    frame.attrs["query_window"] = ("2020-01-01", "2025-12-31")
+    for source in (None, frame):
+        j = internal_postings(internal_h(-100), pd.Timestamp("2019-12-25"), source)
+        assert j["j_applied"] == 0 and j["j_candidate_only"] == -100
+        assert j["j_facility_dts_cash_candidate_only"] is None
+        assert j["j_facility_dts_cash_status"] == "unavailable_dated_cash_input"

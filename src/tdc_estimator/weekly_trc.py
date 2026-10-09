@@ -71,6 +71,7 @@ BOUNDARIES = [
     "Coupons are payment-date proxies on prior-week positions plus known primary allotments settling strictly before payment. Secondary entitlement is unobserved.",
     "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction references supply nominal payment-date CPI where available; issue ratios independently cross-check the reconstruction.",
     "FRN rates carry through a documented no-auction interval within the complete auction-query window; missing feed/rate observations remain unavailable. Published daily intervals start inclusive and end exclusive, with feed history from 2024-10-31.",
+    "Dated ESF cash is inspected independently of stock changes only within its pinned query window; outside-window candidates are unavailable. Unmatched postings retain their cash dates. No adjacent-week matching is applied.",
     "J applies to dated DTS cash matched to the facility factor or an independently documented dated facility transfer; unmatched stock remainder stays candidate-only. Other stock changes, certificate special-account entries and unmatched DTS cash remain candidates, not zero-valued observed corrections.",
     "Coin, Treasury currency, Treasury cash holdings, IORB and FIMA lending remain outside core.",
     "Secondary activity stays par-valued, with net unpriced par reported; gross secondary cash and churn are not measured.",
@@ -161,7 +162,42 @@ def wednesday(day) -> pd.Timestamp:
     return day + pd.Timedelta(days=(2 - day.weekday()) % 7)
 
 
-def prepare_soma(frame):
+def snapshot_date_mapping(targets, asof_dates):
+    """Prefer Wednesday; substitute only across (min(source,target), max(source,target)] closed days."""
+    targets = sorted({pd.Timestamp(d).normalize() for d in targets})
+    sources = sorted({pd.Timestamp(d).normalize() for d in asof_dates})
+    if any(d.weekday() != 2 for d in targets):
+        raise ValueError("SOMA: effective dates must be Wednesdays")
+    if not targets or not sources:
+        return {}
+    holidays = set(
+        FedPaymentCalendar().holidays(min(*targets, *sources), max(*targets, *sources))
+    )
+    mapping = {}
+    for target in targets:
+        lower = upper = target
+        # Earlier sources may reach the open day immediately BEFORE a closed run.
+        while lower.weekday() >= 5 or lower in holidays:
+            lower -= pd.Timedelta(days=1)
+        # Later sources may reach the last closed day, never the next open day.
+        while (upper + pd.Timedelta(days=1)).weekday() >= 5 or upper + pd.Timedelta(
+            days=1
+        ) in holidays:
+            upper += pd.Timedelta(days=1)
+        eligible = [d for d in sources if lower <= d <= upper]
+        if eligible:
+            source = min(eligible, key=lambda d: (abs(d - target), d))
+            mapping[target] = {
+                "asof": str(source.date()),
+                "effective_wednesday": str(target.date()),
+                "substitution_reason": "exact_wednesday"
+                if source == target
+                else "unchanged_position_across_non_settlement_days",
+            }
+    return mapping
+
+
+def prepare_soma(frame, targets=None):
     required = {
         "asOfDate",
         "cusip",
@@ -176,12 +212,8 @@ def prepare_soma(frame):
     frame = frame.copy()
     frame["asOfDate"] = pd.to_datetime(frame.asOfDate, errors="raise")
     frame["maturityDate"] = pd.to_datetime(frame.maturityDate, errors="raise")
-    if (
-        frame.empty
-        or frame.duplicated(["asOfDate", "cusip"]).any()
-        or not frame.asOfDate.dt.weekday.eq(2).all()
-    ):
-        raise ValueError("SOMA: empty, duplicate CUSIP/date or non-Wednesday snapshot")
+    if frame.empty or frame.duplicated(["asOfDate", "cusip"]).any():
+        raise ValueError("SOMA: empty or duplicate CUSIP/date")
     if (
         not set(frame.securityType) <= {"Bills", "NotesBonds", "TIPS", "FRNs"}
         or frame.cusip.eq("").any()
@@ -199,7 +231,18 @@ def prepare_soma(frame):
         decimal(v, "SOMA inflation") / MILLION if t == "TIPS" else ZERO
         for t, v in zip(frame.securityType, frame.inflationCompensation)
     ]
-    return {day: group.set_index("cusip") for day, group in frame.groupby("asOfDate")}
+    if targets is None:
+        first, last = frame.asOfDate.min(), frame.asOfDate.max()
+        first -= pd.Timedelta(days=(first.weekday() - 2) % 7)
+        targets = pd.date_range(first, wednesday(last), freq="W-WED")
+    mapping = snapshot_date_mapping(targets, frame.asOfDate.unique())
+    originals = {
+        day: group.set_index("cusip") for day, group in frame.groupby("asOfDate")
+    }
+    return {
+        target: originals[pd.Timestamp(record["asof"])]
+        for target, record in mapping.items()
+    }
 
 
 def prepare_auctions(frame):
@@ -648,11 +691,7 @@ def coupon_week(start, end, opening, closing, auctions, cpi, frn, holidays):
                     )
                 )
             )
-            if (
-                kind != "Bills"
-                and group.soma_accepted.map(present).all()
-                and any(decimal(v) for v in group.soma_accepted)
-            ):
+            if kind != "Bills":
                 positions.loc[cusip] = dict.fromkeys(positions.columns)
                 positions.loc[
                     cusip, ["securityType", "maturityDate", "par", "rate"]
@@ -944,79 +983,80 @@ INTERNAL_FACTORS = (
 
 
 def internal_postings(h, end, frame):
-    """Require dated cash/account evidence; a stock factor by itself is candidate-only."""
+    """Report stock and dated cash independently; only a same-week crosswalk applies J."""
+    cash = None
+    postings = []
+    window = None if frame is None else frame.attrs.get("query_window")
+    covered = window is None or (
+        pd.Timestamp(window[0]) <= end - pd.Timedelta(days=6)
+        and end <= pd.Timestamp(window[1])
+    )
+    if frame is not None and covered:
+        x = frame.loc[
+            (pd.to_datetime(frame.record_date) > end - pd.Timedelta(days=7))
+            & (pd.to_datetime(frame.record_date) <= end)
+            & frame.transaction_catg.eq("ESF - Economic Recovery Programs")
+            & frame.account_type.isin(
+                ["Federal Reserve Account", "Treasury General Account (TGA)"]
+            )
+        ]
+        if x.duplicated(["record_date", "transaction_type", "account_type"]).any():
+            raise ValueError("DTS internal cash: duplicate account/date/type")
+        if not x.transaction_type.isin(["Withdrawals", "Deposits"]).all():
+            raise ValueError("DTS internal cash: unknown transaction type")
+        postings = [
+            {
+                "date": r.record_date,
+                "transaction_type": r.transaction_type,
+                "amount": -decimal(r.transaction_today_amt)
+                if r.transaction_type == "Withdrawals"
+                else decimal(r.transaction_today_amt),
+            }
+            for r in x.itertuples()
+        ]
+        cash = sum((r["amount"] for r in postings), ZERO)
     out = {}
+    matched = set()
     for key in INTERNAL_FACTORS:
         candidate = decimal(h["f_" + key])
         applied = ZERO
         status = "no_stock_candidate"
-        cash = None
         if candidate:
             status = "candidate_only_no_dated_tga_cash_crosswalk"
-            if (
-                key == "treasury_contributions_to_credit_facilities"
-                and frame is not None
-            ):
-                x = frame.loc[
-                    (pd.to_datetime(frame.record_date) > end - pd.Timedelta(days=7))
-                    & (pd.to_datetime(frame.record_date) <= end)
-                ]
-                x = x.loc[
-                    x.transaction_catg.eq("ESF - Economic Recovery Programs")
-                    & x.account_type.isin(
-                        ["Federal Reserve Account", "Treasury General Account (TGA)"]
-                    )
-                ]
-                if not x.empty:
-                    if x.duplicated(
-                        ["record_date", "transaction_type", "account_type"]
-                    ).any():
-                        raise ValueError(
-                            "DTS internal cash: duplicate account/date/type"
-                        )
-                    if not x.transaction_type.isin(["Withdrawals", "Deposits"]).all():
-                        raise ValueError("DTS internal cash: unknown transaction type")
-                    cash = sum(
-                        (
-                            -decimal(r.transaction_today_amt)
-                            if r.transaction_type == "Withdrawals"
-                            else decimal(r.transaction_today_amt)
-                            for r in x.itertuples()
-                        ),
-                        ZERO,
-                    )
-                    # A broad ESF category is not enough when stock/cash disagree; no fitted residual.
-                    signed = [
-                        (
-                            -decimal(r.transaction_today_amt)
-                            if r.transaction_type == "Withdrawals"
-                            else decimal(r.transaction_today_amt)
-                        )
-                        for r in x.itertuples()
-                    ]
-                    if cash == candidate or signed.count(candidate) == 1:
-                        applied = candidate
-                        status = "applied_dated_dts_facility_cash_match"
-                    else:
-                        status = "candidate_only_dts_cash_stock_mismatch"
-                        for match in WEEKLY_TRC_INTERNAL_MATCHES:
-                            dated = x.loc[
-                                x.record_date.eq(match["date"])
-                                & x.transaction_type.eq(match["transaction_type"])
-                            ]
-                            if len(dated) == 1 and decimal(
-                                dated.transaction_today_amt.iloc[0]
-                            ) == decimal(match["amount"]):
-                                confirmed = (
-                                    -decimal(match["amount"])
-                                    if match["transaction_type"] == "Withdrawals"
-                                    else decimal(match["amount"])
-                                )
-                                if candidate * confirmed > ZERO and abs(
-                                    confirmed
-                                ) < abs(candidate):
-                                    applied = confirmed
-                                    status = "applied_dated_cash_partial_stock_remainder_candidate"
+            if key == "treasury_contributions_to_credit_facilities" and postings:
+                signed = [r["amount"] for r in postings]
+                if cash == candidate:
+                    applied = candidate
+                    matched = set(range(len(postings)))
+                    status = "applied_dated_dts_facility_cash_match"
+                elif signed.count(candidate) == 1:
+                    applied = candidate
+                    matched = {signed.index(candidate)}
+                    status = "applied_dated_dts_facility_cash_match"
+                else:
+                    status = "candidate_only_dts_cash_stock_mismatch"
+                    for match in WEEKLY_TRC_INTERNAL_MATCHES:
+                        eligible = [
+                            i
+                            for i, r in enumerate(postings)
+                            if r["date"] == match["date"]
+                            and r["transaction_type"] == match["transaction_type"]
+                            and r["amount"]
+                            == (
+                                -decimal(match["amount"])
+                                if match["transaction_type"] == "Withdrawals"
+                                else decimal(match["amount"])
+                            )
+                        ]
+                        if len(eligible) == 1:
+                            i = eligible[0]
+                            confirmed = postings[i]["amount"]
+                            if candidate * confirmed > ZERO and abs(confirmed) < abs(
+                                candidate
+                            ):
+                                applied = confirmed
+                                matched = {i}
+                                status = "applied_dated_cash_partial_stock_remainder_candidate"
             elif key in ("sdr_certificate_account", "gold_stock"):
                 status = (
                     "candidate_only_certificate_special_account_tga_link_unobserved"
@@ -1024,8 +1064,28 @@ def internal_postings(h, end, frame):
         out["j_" + key + "_applied"] = applied
         out["j_" + key + "_candidate_only"] = candidate - applied
         out["j_" + key + "_status"] = status
-        if key == "treasury_contributions_to_credit_facilities":
-            out["j_facility_dts_cash_candidate"] = cash
+    unmatched = [
+        r for i, r in enumerate(postings) if i not in matched and r["amount"] != ZERO
+    ]
+    out["j_facility_dts_cash_candidate"] = cash
+    out["j_facility_dts_cash_candidate_only"] = (
+        None if cash is None else sum((r["amount"] for r in unmatched), ZERO)
+    )
+    out["j_facility_dts_cash_candidate_only_absolute"] = (
+        None if cash is None else sum((abs(r["amount"]) for r in unmatched), ZERO)
+    )
+    out["j_facility_dts_cash_candidate_dates"] = "|".join(
+        r["date"] + ":" + str(r["amount"]) for r in unmatched
+    )
+    out["j_facility_dts_cash_status"] = (
+        "unavailable_dated_cash_input"
+        if cash is None
+        else "cash_candidate_only_no_same_week_stock_crosswalk"
+        if unmatched
+        else "applied_dated_cash_no_unmatched_postings"
+        if matched
+        else "no_nonzero_dated_cash_candidate"
+    )
     out["j_applied"] = sum((out["j_" + k + "_applied"] for k in INTERNAL_FACTORS), ZERO)
     out["j_candidate_only"] = sum(
         (out["j_" + k + "_candidate_only"] for k in INTERNAL_FACTORS), ZERO
@@ -1051,7 +1111,6 @@ def build_weekly_trc(ledger, sources):
         or not dates.to_series().diff().dropna().eq(pd.Timedelta(days=7)).all()
     ):
         raise ValueError("Ledger: expected consecutive unique Wednesdays")
-    snapshots = prepare_soma(sources["soma"])
     auctions = prepare_auctions(sources["auctions"])
     first, last = (
         max(pd.Timestamp(WEEKLY_TRC_REGISTRY.inputs[0].snapshot_window[0]), dates[0]),
@@ -1060,6 +1119,7 @@ def build_weekly_trc(ledger, sources):
     dates = dates[(dates >= first) & (dates <= last)]
     if dates.empty:
         raise ValueError("Ledger and SOMA do not overlap")
+    snapshots = prepare_soma(sources["soma"], dates.union(dates - pd.Timedelta(days=7)))
     ledger = ledger.set_index(pd.to_datetime(ledger.date)).loc[dates]
     holidays = set(
         FedPaymentCalendar().holidays(
@@ -1084,6 +1144,18 @@ def build_weekly_trc(ledger, sources):
         raise ValueError("FRN: duplicate daily accrual")
     frn_feed_semantics(sources["frn"])
     remits, remit_status = remittance_weeks(sources["remittances"], dates, holidays)
+    internal_dts = sources.get("internal_dts")
+    if internal_dts is not None:
+        internal_dts = internal_dts.copy()
+        spec = next(s for s in WEEKLY_TRC_REGISTRY.inputs if s.key == "internal_dts")
+        query = next(
+            v.removeprefix("filter=") for v in spec.argv if v.startswith("filter=")
+        )
+        filters = dict(part.rsplit(":", 1) for part in query.split(","))
+        internal_dts.attrs["query_window"] = (
+            filters["record_date:gte"],
+            filters["record_date:lte"],
+        )
     daily_route = route_daily(
         sources["on_rrp"],
         auctions,
@@ -1182,7 +1254,7 @@ def build_weekly_trc(ledger, sources):
             if fed is not None
             else None
         )
-        j = internal_postings(h, end, sources.get("internal_dts"))
+        j = internal_postings(h, end, internal_dts)
         par_core = total([cash, fed, None if coupon is None else -coupon, remit])
         clock_adjustment = (
             sum((r["settlement_clock_adjustment"] for r in changes), ZERO)
@@ -1783,7 +1855,10 @@ def column_contracts(tables):
             "difference_internal_postings": "weekly-quarter j_applied",
             "j_applied": "sum supported dated Treasury-Fed cash matches",
             "j_candidate_only": "sum signed internal factors lacking matched dated cash support; excluded from core",
-            "j_facility_dts_cash_candidate": "signed dated DTS ESF cash: deposits minus withdrawals, negative withdrawals retained as returns",
+            "j_facility_dts_cash_candidate": "all signed dated DTS ESF cash independently of facility stock changes; deposits minus withdrawals",
+            "j_facility_dts_cash_candidate_only": "unmatched signed dated ESF postings after excluding matched cash once; no adjacent-week matching",
+            "j_facility_dts_cash_candidate_only_absolute": "sum absolute unmatched dated ESF postings; not an uncertainty bound",
+            "j_facility_dts_cash_candidate_dates": "cash dates and signed USD million for unmatched nonzero dated ESF postings",
             "rrp_others_vs_on_rrp_flow_bridge": "signed H.4.1 RRP-others factor + change in daily ON RRP principal; perimeters differ",
         }
     )
@@ -1980,6 +2055,8 @@ def write_weekly_trc_export(
                 "redemption_inflation",
                 "j_applied",
                 "j_candidate_only",
+                "j_facility_dts_cash_candidate_only",
+                "j_facility_dts_cash_candidate_only_absolute",
                 "unclassifiable_abs_par",
                 "unpriced_secondary_net_par",
                 "primary_cash_unavailable_par",
@@ -1998,6 +2075,26 @@ def write_weekly_trc_export(
         },
         "unclassifiable_by_event_and_era": event_summary(changes),
         "internal_postings_by_status_and_era": internal_summary(weekly),
+        "internal_cash_candidates_by_status_and_era": {
+            era: {
+                str(status): {
+                    "n_weeks": len(g),
+                    "candidate_only": None
+                    if g.j_facility_dts_cash_candidate_only.isna().all()
+                    else str(total(g.j_facility_dts_cash_candidate_only)),
+                    "candidate_only_absolute": None
+                    if g.j_facility_dts_cash_candidate_only_absolute.isna().all()
+                    else str(total(g.j_facility_dts_cash_candidate_only_absolute)),
+                }
+                for status, g in window.groupby("j_facility_dts_cash_status")
+            }
+            for era, window in era_windows(weekly)
+        },
+        "snapshot_substitutions": [
+            r
+            for r in manifest["inputs"]["soma"]["source_metadata"].get("snapshots", [])
+            if r.get("substitution_reason") not in (None, "exact_wednesday")
+        ],
         "tips_contract_crosscheck": tips_crosscheck(
             sources["auctions"], sources["cpi"]
         ),

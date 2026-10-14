@@ -11,7 +11,7 @@ import pandas as pd
 
 from .bill_discount_validation import ensure_treasury_interest_expense_file, write_bill_discount_validation
 from .bill_discount_allocator import write_bill_discount_allocation
-from .catalog import BASE_FRED_SERIES, TREASURY_DATASETS, all_fred_series
+from .catalog import BASE_FRED_SERIES, DEFAULT_VINTAGE, MEASUREMENT_VINTAGES, TREASURY_DATASETS, all_fred_series
 from .config import ensure_project_dirs, project_paths
 from .demo import generate_synthetic_raw_bundle
 from .download import download_fred_bundle, download_treasury_bundle
@@ -1338,6 +1338,7 @@ def cmd_regression_leg_export(args: argparse.Namespace) -> int:
         regression_sha256=args.regression_sha256,
         out_path=paths.processed / "tdc_regression_legs_v1.csv",
         receipt_path=paths.processed / "tdc_regression_legs_v1_receipt.json",
+        vintage=MEASUREMENT_VINTAGES[args.vintage],
     )
     print(json.dumps(receipt, indent=2))
     return 0
@@ -1349,6 +1350,7 @@ def cmd_trc_export(args: argparse.Namespace) -> int:
         legs_sha256=args.legs_sha256,
         quarterly_sha256=args.quarterly_sha256,
         inputs_manifest_sha256=args.inputs_manifest_sha256,
+        vintage=MEASUREMENT_VINTAGES[args.vintage],
     )
     print(json.dumps(receipt, indent=2))
     return 0
@@ -1359,6 +1361,7 @@ def cmd_reserve_factor_ledger_export(args: argparse.Namespace) -> int:
         root=args.root,
         inputs_manifest_sha256=args.inputs_manifest_sha256,
         trc_components_sha256=args.trc_components_sha256,
+        vintage=MEASUREMENT_VINTAGES[args.vintage],
     )
     print(json.dumps(receipt, indent=2))
     return 0
@@ -1366,7 +1369,8 @@ def cmd_reserve_factor_ledger_export(args: argparse.Namespace) -> int:
 
 def cmd_weekly_trc_export(args: argparse.Namespace) -> int:
     receipt = write_weekly_trc_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256,
-                                      ledger_sha256=args.ledger_sha256, trc_components_sha256=args.trc_components_sha256)
+                                      ledger_sha256=args.ledger_sha256, trc_components_sha256=args.trc_components_sha256,
+                                      vintage=MEASUREMENT_VINTAGES[args.vintage])
     print(json.dumps(receipt, indent=2))
     return 0
 
@@ -2708,6 +2712,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_legs.add_argument("--quarterly-sha256", required=True)
     p_legs.add_argument("--regression-sha256", required=True)
+    vintage_help = "Measurement vintage whose endpoint bounds the sample (v1 is the admitted default)."
+    p_legs.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_legs.set_defaults(func=cmd_regression_leg_export)
 
     p_trc = sub.add_parser(
@@ -2717,6 +2723,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_trc.add_argument("--legs-sha256", required=True)
     p_trc.add_argument("--quarterly-sha256", required=True)
     p_trc.add_argument("--inputs-manifest-sha256", required=True)
+    p_trc.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_trc.set_defaults(func=cmd_trc_export)
 
     p_ledger = sub.add_parser(
@@ -2725,6 +2732,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ledger.add_argument("--inputs-manifest-sha256", required=True)
     p_ledger.add_argument("--trc-components-sha256", required=True)
+    p_ledger.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_ledger.set_defaults(func=cmd_reserve_factor_ledger_export)
 
     p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],
@@ -2732,6 +2740,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_weekly_trc.add_argument("--inputs-manifest-sha256", required=True)
     p_weekly_trc.add_argument("--ledger-sha256", required=True)
     p_weekly_trc.add_argument("--trc-components-sha256", required=True)
+    p_weekly_trc.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_weekly_trc.set_defaults(func=cmd_weekly_trc_export)
 
     p_component_comparison = sub.add_parser(

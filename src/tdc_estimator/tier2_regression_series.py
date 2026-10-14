@@ -9,7 +9,7 @@ import subprocess
 import numpy as np
 import pandas as pd
 
-from .catalog import BANK_DEPOSITORY_TX_KEYS
+from .catalog import BANK_DEPOSITORY_TX_KEYS, DEFAULT_VINTAGE, MeasurementVintage
 
 
 BASE_COLUMNS = [
@@ -68,7 +68,15 @@ LEG_REGRESSION_COLUMNS = [
     "fed_tsy_coupon_interest_proxy", "mmf_rrp_adjustment_prop",
 ]
 LEG_TIER_COLUMNS = ["row_method_tier", "tier2_regression_bank_row_method_tier"]
-LEG_QUARTERS = pd.period_range("2002Q1", "2025Q4", freq="Q")
+LEG_START_QUARTER = "2002Q1"
+
+
+def leg_quarters(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> pd.PeriodIndex:
+    """Every quarter of the leg sample, 2002Q1 through the vintage endpoint."""
+    return pd.period_range(LEG_START_QUARTER, vintage.quarter_end, freq="Q")
+
+
+LEG_QUARTERS = leg_quarters()
 
 
 def require_clean_commit(root: Path) -> str:
@@ -91,10 +99,10 @@ def read_pinned_input(root: Path, path: Path, expected_hash: str, role: str) -> 
 
 
 def build_regression_leg_table(
-    quarterly: pd.DataFrame, regression: pd.DataFrame,
+    quarterly: pd.DataFrame, regression: pd.DataFrame, quarters: pd.PeriodIndex = LEG_QUARTERS,
 ) -> pd.DataFrame:
-    """Decompose the fixed 2002Q1–2025Q4 proxy without changing its inputs."""
-    expected = LEG_QUARTERS
+    """Decompose the proxy over a fixed quarter sample without changing its inputs."""
+    expected = quarters
     frames = []
     for label, source, columns in [
         ("quarterly", quarterly, LEG_QUARTERLY_COLUMNS),
@@ -112,7 +120,7 @@ def build_regression_leg_table(
             raise ValueError(f"{label}: duplicate quarters")
         frame = frame.loc[(frame.index >= expected[0]) & (frame.index <= expected[-1])].sort_index()
         if not frame.index.equals(expected):
-            raise ValueError(f"{label}: expected exactly 96 complete quarters")
+            raise ValueError(f"{label}: expected exactly {len(expected)} complete quarters")
         for column in columns:
             if column in LEG_TIER_COLUMNS:
                 if frame[column].isna().any() or frame[column].astype(str).str.strip().eq("").any():
@@ -162,7 +170,7 @@ def build_regression_leg_table(
 def write_regression_leg_table(
     *, root: Path, quarterly_path: Path, regression_path: Path,
     quarterly_sha256: str, regression_sha256: str,
-    out_path: Path, receipt_path: Path,
+    out_path: Path, receipt_path: Path, vintage: MeasurementVintage = DEFAULT_VINTAGE,
 ) -> dict:
     """Bind the additive diagnostic to committed code and explicit input hashes."""
     producer_commit = require_clean_commit(root)
@@ -177,13 +185,15 @@ def write_regression_leg_table(
     output_paths = [out_path.resolve(), receipt_path.resolve()]
     if len(set(output_paths)) != 2 or set(output_paths) & {quarterly_path.resolve(), regression_path.resolve()}:
         raise ValueError("Output paths must be distinct and cannot overwrite inputs")
-    frame = build_regression_leg_table(*frames)
+    quarters = leg_quarters(vintage)
+    frame = build_regression_leg_table(*frames, quarters)
     for role, source in inputs.items():
         frame[f"{role}_source_sha256"] = source["sha256"]
     table_bytes = frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
     receipt = {
         "schema_version": "regression_legs_v1", "producer_commit": producer_commit,
-        "units": "USD million", "sample": {"start": "2002Q1", "end": "2025Q4", "n": len(frame)},
+        "vintage": vintage.name,
+        "units": "USD million", "sample": {"start": str(quarters[0]), "end": str(quarters[-1]), "n": len(frame)},
         "inputs": inputs, "output": {"path": str(out_path.resolve().relative_to(root.resolve())),
         "sha256": hashlib.sha256(table_bytes).hexdigest()},
         "full_precision_reconciliation_tolerance": MODERN_SPLICE_TOLERANCE_MILLIONS,

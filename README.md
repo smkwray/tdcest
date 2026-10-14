@@ -149,6 +149,17 @@ hashes, printed gaps, method tiers and negative-quarter counts. This is descript
 accounting; allocation-dependent legs do not identify settlement routes or causal
 responses. Unknown source-resolution bounds remain explicitly unknown.
 
+### 7. Build a later measurement vintage
+
+A measurement vintage (`MEASUREMENT_VINTAGES` in `catalog.py`) moves only sample
+endpoints: request windows, sample checks and open-ended reporting eras. `v1` is the
+admitted default (quarterly through 2025Q4, weekly through 2025-12-31). A later
+vintage is built in its own ignored tree `data/refresh_<name>/`, used as `--root`, so
+admitted `data/processed` bytes are never rewritten. Acquire its fiscus inputs with
+`scripts/acquire_trc_inputs.py --root data/refresh_<name> --vintage <name>` and pass
+`--vintage <name>` to `regression-leg-export`, `trc-export`,
+`reserve-factor-ledger-export` and `weekly-trc-export`.
+
 ## Static site
 
 The public site lives under `site/` and is published from that directory.

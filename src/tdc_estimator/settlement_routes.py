@@ -16,6 +16,8 @@ import math
 
 import pandas as pd
 
+from .catalog import DEFAULT_VINTAGE, MeasurementVintage
+
 HOLDER_SECTORS = (
     "domestic_nonbank",
     "money_market_fund",
@@ -185,11 +187,14 @@ def route_for_claim(settlement_claim: str) -> SettlementRoute:
     return matches[0]
 
 
-def route_registry_frame() -> pd.DataFrame:
+def route_registry_frame(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> pd.DataFrame:
+    """Registry rows; routes measured through the admitted endpoint run to the vintage endpoint."""
     rows = []
     for route in load_settlement_routes().values():
         row = {name: getattr(route, name) for name in ROUTE_REGISTRY_FIELDS}
         row["holder_sector"] = "|".join(route.holder_sector)
+        if route.coverage_end == DEFAULT_VINTAGE.quarter_end:
+            row["coverage_end"] = vintage.quarter_end
         rows.append(row)
     return pd.DataFrame(rows, columns=ROUTE_REGISTRY_FIELDS)
 

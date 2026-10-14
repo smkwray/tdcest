@@ -33,11 +33,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .catalog import H41_LEDGER_REGISTRY, H41_LEDGER_START, H41_TABLE1_ROWS, H41Row
+from .catalog import (
+    DEFAULT_VINTAGE, H41_LEDGER_START, H41_TABLE1_ROWS, H41Row, MeasurementVintage, fiscus_registries,
+)
 from .config import project_paths
-from .tier2_regression_series import read_pinned_input, require_clean_commit
+from .tier2_regression_series import leg_quarters, read_pinned_input, require_clean_commit
 from .trc_export import TRC_OUTPUT_FILES, load_fiscus_inputs
-from .trc_reserve_component import TRC_QUARTERS, _difference, _numeric, last_wednesday_levels, z1_quarterly
+from .trc_reserve_component import _difference, _numeric, last_wednesday_levels, z1_quarterly
 
 LEDGER_SCHEMA_VERSION = "reserve_factor_ledger_v1"
 LEDGER_START = pd.Timestamp(H41_LEDGER_START)
@@ -61,8 +63,11 @@ COMPONENT_COLUMNS = [
 ]
 BRIDGE_COLUMNS = ["bridge_outcome", "bridge_outcome_term_deposits", "bridge_outcome_z1_flow_vs_level",
                   "bridge_outcome_unattributed", "bridge_cash", "bridge_securities", "rho"]
-ERAS = [("2003Q1", "2008Q3"), ("2008Q4", "2008Q4"), ("2009Q1", "2015Q3"), ("2015Q4", "2015Q4"),
-        ("2016Q1", "2025Q4"), ("2003Q1", "2025Q4")]
+def eras(quarter_end: str) -> list[tuple[str, str]]:
+    """Fixed reporting eras; the open-ended eras run to the measured endpoint."""
+    return [("2003Q1", "2008Q3"), ("2008Q4", "2008Q4"), ("2009Q1", "2015Q3"), ("2015Q4", "2015Q4"),
+            ("2016Q1", quarter_end), ("2003Q1", quarter_end)]
+
 LEDGER_OUTPUT_FILES = {
     "weekly": "reserve_factor_ledger_weekly_v1.csv",
     "quarterly": "reserve_factor_ledger_quarterly_v1.csv",
@@ -363,14 +368,14 @@ def build_quarterly_ledger(weekly: pd.DataFrame, levels: pd.DataFrame, rows: dic
     return out.reset_index(drop=True), stats
 
 
-def _components(components: pd.DataFrame) -> pd.DataFrame:
+def _components(components: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.DataFrame:
     missing = set(COMPONENT_COLUMNS) - set(components.columns)
     if missing:
         raise ValueError(f"TRC components: missing columns {sorted(missing)}")
     frame = components[COMPONENT_COLUMNS].copy()
     frame.index = pd.PeriodIndex(frame.pop("quarter"), freq="Q")
-    if not frame.index.equals(TRC_QUARTERS):
-        raise ValueError("TRC components: expected exactly the 2002Q1-2025Q4 quarters")
+    if not frame.index.equals(quarters):
+        raise ValueError(f"TRC components: expected exactly the {quarters[0]}-{quarters[-1]} quarters")
     clock = frame.pop("tga_clock")
     frame = frame.apply(pd.to_numeric, errors="raise")
     frame["tga_clock"] = clock
@@ -384,11 +389,11 @@ def _components(components: pd.DataFrame) -> pd.DataFrame:
 
 def build_bridges(
     quarterly: pd.DataFrame, components: pd.DataFrame, z1_level: pd.DataFrame, z1_flow: pd.DataFrame,
-    rows: dict[str, LedgerRow],
+    rows: dict[str, LedgerRow], quarters: pd.PeriodIndex,
 ) -> tuple[pd.DataFrame, dict]:
     """Row-by-row reconciliation of every admitted TRC variant with the H.4.1 ledger."""
-    comp = _components(components)
-    q = TRC_QUARTERS
+    q = quarters
+    comp = _components(components, q)
     ledger = quarterly.set_index(pd.PeriodIndex(quarterly["quarter"], freq="Q")).reindex(q)
     fl = z1_quarterly(z1_level, "z1_reserves_level")
     fu = z1_quarterly(z1_flow, "z1_reserves_transactions")
@@ -451,7 +456,7 @@ def build_bridges(
     early = pd.period_range("2003Q1", "2005Q4", freq="Q")
     stats = {
         "identity": worst,
-        "z1_level_to_h41_reserve_balance_median_ratio_2021_2025": ratio,
+        f"z1_level_to_h41_reserve_balance_median_ratio_2021_{q[-1].year}": ratio,
         "y_h_minus_admitted_delta_rb_h41_max_abs": float((base["y_h"] - comp["delta_rb_h41"]).loc[measured].abs().max()),
         "tga_change_minus_admitted_delta_tga_h41_max_abs": float(
             (-ledger[f"f_{CASH_KEYS[0]}"] - comp["delta_tga_h41"]).loc[measured].abs().max()),
@@ -461,12 +466,12 @@ def build_bridges(
     return bridges.reset_index(drop=True), stats
 
 
-def era_summary(bridges: pd.DataFrame) -> dict:
+def era_summary(bridges: pd.DataFrame, quarter_end: str) -> dict:
     """Fixed-window descriptions of the variant-invariant bridges and rho (USD million)."""
     one = bridges.loc[bridges["trc_variant"].eq("trc_preferred")].set_index(
         pd.PeriodIndex(bridges.loc[bridges["trc_variant"].eq("trc_preferred"), "quarter"], freq="Q"))
     out = {}
-    for start, end in ERAS:
+    for start, end in eras(quarter_end):
         window = one.loc[pd.Period(start, freq="Q"):pd.Period(end, freq="Q")]
         cells = {}
         for column in [*BRIDGE_COLUMNS, "y_z", "y_h"]:
@@ -490,16 +495,19 @@ class LedgerResult:
     stats: dict
 
 
-def build_reserve_factor_ledger(frames: dict[str, pd.DataFrame], components: pd.DataFrame) -> LedgerResult:
+def build_reserve_factor_ledger(
+    frames: dict[str, pd.DataFrame], components: pd.DataFrame, vintage: MeasurementVintage = DEFAULT_VINTAGE,
+) -> LedgerResult:
     rows = load_h41_rows()
     levels, status, coverage = h41_levels(frames, rows)
     weekly, weekly_stats = build_weekly_ledger(levels, status, rows)
     quarterly, quarterly_stats = build_quarterly_ledger(weekly, levels, rows)
     bridges, bridge_stats = build_bridges(
-        quarterly, components, frames["z1_reserves_level"], frames["z1_reserves_transactions"], rows)
+        quarterly, components, frames["z1_reserves_level"], frames["z1_reserves_transactions"], rows,
+        leg_quarters(vintage))
     stats = {
         "weekly_closure": weekly_stats, "quarterly": quarterly_stats, "bridges": bridge_stats,
-        "bridge_summary_by_era": era_summary(bridges), "coverage": coverage,
+        "bridge_summary_by_era": era_summary(bridges, vintage.quarter_end), "coverage": coverage,
         "weekly_sample": {"first": weekly["date"].iloc[0], "last": weekly["date"].iloc[-1], "n": int(len(weekly))},
     }
     return LedgerResult(weekly=weekly, quarterly=quarterly, bridges=bridges, stats=stats)
@@ -556,15 +564,19 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def write_reserve_factor_ledger_export(*, root: Path | str, inputs_manifest_sha256: str, trc_components_sha256: str) -> dict:
+def write_reserve_factor_ledger_export(
+    *, root: Path | str, inputs_manifest_sha256: str, trc_components_sha256: str,
+    vintage: MeasurementVintage = DEFAULT_VINTAGE,
+) -> dict:
     """Bind the ledger to a clean commit, the pinned fiscus manifest, and the admitted TRC components."""
+    registry = fiscus_registries(vintage)["h41-ledger"]
     paths = project_paths(root)
     root = paths.root
     producer_commit = require_clean_commit(root)
-    manifest_path = root / H41_LEDGER_REGISTRY.manifest
+    manifest_path = root / registry.manifest
     manifest_raw, manifest_record = read_pinned_input(root, manifest_path, inputs_manifest_sha256, "inputs_manifest")
     manifest = json.loads(manifest_raw)
-    frames, input_records = load_fiscus_inputs(root, manifest, H41_LEDGER_REGISTRY)
+    frames, input_records = load_fiscus_inputs(root, manifest, registry)
     components_path = paths.processed / TRC_OUTPUT_FILES["components"]
     components_raw, components_record = read_pinned_input(
         root, components_path, trc_components_sha256, "trc_quarterly_components_v1")
@@ -581,7 +593,7 @@ def write_reserve_factor_ledger_export(*, root: Path | str, inputs_manifest_sha2
     if {path.resolve() for path in output_paths.values()} & protected:
         raise ValueError("Output paths cannot overwrite inputs or admitted TRC outputs")
 
-    result = build_reserve_factor_ledger(frames, pd.read_csv(io.BytesIO(components_raw)))
+    result = build_reserve_factor_ledger(frames, pd.read_csv(io.BytesIO(components_raw)), vintage)
     payloads = {
         role: getattr(result, role).to_csv(index=False, lineterminator="\n").encode("utf-8")
         for role in ["weekly", "quarterly", "bridges"]
@@ -590,6 +602,7 @@ def write_reserve_factor_ledger_export(*, root: Path | str, inputs_manifest_sha2
     receipt = {
         "schema_version": LEDGER_SCHEMA_VERSION,
         "producer_commit": producer_commit,
+        "vintage": vintage.name,
         "units": "USD million",
         "inputs": {
             "inputs_manifest": {**manifest_record, "fiscus": manifest.get("fiscus", {}),

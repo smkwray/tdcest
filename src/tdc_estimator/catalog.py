@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -825,7 +826,36 @@ TREASURY_DATASETS: list[TreasuryDataset] = [
     ),
 ]
 
-TRC_WINDOW = ("2002-01-01", "2025-12-31")
+@dataclass(frozen=True)
+class MeasurementVintage:
+    """Endpoints of one hash-bound measurement vintage.
+
+    ``v1`` is the admitted default. A later vintage applies the same constructions to a
+    later endpoint and is built in its own ``--root`` tree; only request windows and
+    reporting eras move with it.
+    """
+
+    name: str
+    quarter_end: str  # last calendar quarter of the quarterly TDC/TRC series, e.g. "2025Q4"
+    weekly_end: str  # last H.4.1 Wednesday of the weekly core, e.g. "2025-12-31"
+
+    @property
+    def quarter_end_date(self) -> str:
+        year, quarter = int(self.quarter_end[:4]), int(self.quarter_end[-1])
+        return f"{year}-{3 * quarter:02d}-{calendar.monthrange(year, 3 * quarter)[1]:02d}"
+
+    @property
+    def weekly_quarter_end(self) -> str:
+        return f"{self.weekly_end[:4]}Q{(int(self.weekly_end[5:7]) - 1) // 3 + 1}"
+
+
+MEASUREMENT_VINTAGES = {vintage.name: vintage for vintage in (
+    MeasurementVintage("v1", "2025Q4", "2025-12-31"),
+    MeasurementVintage("2026q2", "2026Q2", "2026-09-30"),
+)}
+DEFAULT_VINTAGE = MEASUREMENT_VINTAGES["v1"]
+TRC_START = "2002-01-01"
+TRC_WINDOW = (TRC_START, DEFAULT_VINTAGE.quarter_end_date)
 
 
 def _window_argv(window: tuple[str, str | None]) -> tuple[str, ...]:
@@ -866,44 +896,53 @@ def _z1_input(
 # Treasury component of reserves (TRC) inputs. The DTS key is deliberately
 # distinct from `dts_operating_cash_balance` above, which names the Table II
 # deposits-and-withdrawals endpoint and is left unchanged.
-TRC_FISCUS_INPUTS: list[FiscusInput] = [
-    FiscusInput(
-        key="dts_operating_cash_balance_table_i",
-        dataset_id="fiscaldata.dts_operating_cash_balance",
-        argv=(
-            "fiscaldata-query", "fiscaldata.dts_operating_cash_balance",
-            "--param", "filter=record_date:gte:2005-10-01,record_date:lte:2025-12-31",
-            "--param", "page[size]=10000", "--max-pages", "100",
+def trc_fiscus_inputs(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> list[FiscusInput]:
+    window = (TRC_START, vintage.quarter_end_date)
+    return [
+        FiscusInput(
+            key="dts_operating_cash_balance_table_i",
+            dataset_id="fiscaldata.dts_operating_cash_balance",
+            argv=(
+                "fiscaldata-query", "fiscaldata.dts_operating_cash_balance",
+                "--param", f"filter=record_date:gte:2005-10-01,record_date:lte:{window[1]}",
+                "--param", "page[size]=10000", "--max-pages", "100",
+            ),
+            usd_million_per_unit=1.0,
+            clock="dts_business_day_close",
+            description="Daily Treasury Statement Table I operating cash balance by account type",
         ),
-        usd_million_per_unit=1.0,
-        clock="dts_business_day_close",
-        description="Daily Treasury Statement Table I operating cash balance by account type",
-    ),
-    _fred_input("h41_tga_wednesday", "WDTGAL", 1.0, "h41_wednesday_level",
-                "H.4.1 U.S. Treasury General Account, Wednesday level"),
-    _fred_input("h41_reserve_balances_wednesday", "WRBWFRBL", 1.0, "h41_wednesday_level",
-                "H.4.1 reserve balances with Federal Reserve Banks, Wednesday level"),
-    _fred_input("h41_rrp_others_wednesday", "WLRRAOL", 1.0, "h41_wednesday_level",
-                "H.4.1 reverse repurchase agreements with others, Wednesday level"),
-    _fred_input("h41_rrp_foreign_official_wednesday", "WLRRAFOIAL", 1.0, "h41_wednesday_level",
-                "H.4.1 reverse repurchase agreements with foreign official and international accounts, Wednesday level"),
-    _fred_input("h41_foreign_official_deposits_wednesday", "WDFOL", 1.0, "h41_wednesday_level",
-                "H.4.1 foreign official deposits with Federal Reserve Banks, Wednesday level"),
-    _fred_input("h41_custody_marketable_treasury_wednesday", "WMTSECL1", 1.0, "h41_wednesday_level",
-                "H.4.1 marketable Treasury securities held in custody for foreign official and international accounts, Wednesday level"),
-    _fred_input("h3_total_reserves_monthly", "TOTRESNS", 1000.0, "h3_monthly_average",
-                "H.3 total reserves of depository institutions, monthly average, billions"),
-    _z1_input("z1_reserves_transactions", "FU713113003.Q",
-              "Central bank; depository institution reserves, excluding FHLB deposits; liability, transactions"),
-    _z1_input("z1_sfp_transactions", "FU713123043.Q",
-              "Central bank; deposits in Treasury temporary supplementary financing account; liability, transactions"),
-    _z1_input("z1_us_chartered_reserves_transactions", "FU763013005.Q",
-              "U.S.-chartered depository institutions; depository institution reserves; asset, transactions"),
-]
-TRC_REGISTRY = FiscusRegistry(
-    name="trc", inputs=tuple(TRC_FISCUS_INPUTS), input_dir=Path("data/raw/fiscus"),
-    manifest=Path("data/raw/fiscus/trc_inputs_manifest.json"), schema_version="trc_fiscus_inputs_v1",
-)
+        _fred_input("h41_tga_wednesday", "WDTGAL", 1.0, "h41_wednesday_level",
+                    "H.4.1 U.S. Treasury General Account, Wednesday level", window=window),
+        _fred_input("h41_reserve_balances_wednesday", "WRBWFRBL", 1.0, "h41_wednesday_level",
+                    "H.4.1 reserve balances with Federal Reserve Banks, Wednesday level", window=window),
+        _fred_input("h41_rrp_others_wednesday", "WLRRAOL", 1.0, "h41_wednesday_level",
+                    "H.4.1 reverse repurchase agreements with others, Wednesday level", window=window),
+        _fred_input("h41_rrp_foreign_official_wednesday", "WLRRAFOIAL", 1.0, "h41_wednesday_level",
+                    "H.4.1 reverse repurchase agreements with foreign official and international accounts, Wednesday level", window=window),
+        _fred_input("h41_foreign_official_deposits_wednesday", "WDFOL", 1.0, "h41_wednesday_level",
+                    "H.4.1 foreign official deposits with Federal Reserve Banks, Wednesday level", window=window),
+        _fred_input("h41_custody_marketable_treasury_wednesday", "WMTSECL1", 1.0, "h41_wednesday_level",
+                    "H.4.1 marketable Treasury securities held in custody for foreign official and international accounts, Wednesday level", window=window),
+        _fred_input("h3_total_reserves_monthly", "TOTRESNS", 1000.0, "h3_monthly_average",
+                    "H.3 total reserves of depository institutions, monthly average, billions", window=window),
+        _z1_input("z1_reserves_transactions", "FU713113003.Q",
+                  "Central bank; depository institution reserves, excluding FHLB deposits; liability, transactions", window=window),
+        _z1_input("z1_sfp_transactions", "FU713123043.Q",
+                  "Central bank; deposits in Treasury temporary supplementary financing account; liability, transactions", window=window),
+        _z1_input("z1_us_chartered_reserves_transactions", "FU763013005.Q",
+                  "U.S.-chartered depository institutions; depository institution reserves; asset, transactions", window=window),
+    ]
+
+
+def trc_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusRegistry:
+    return FiscusRegistry(
+        name="trc", inputs=tuple(trc_fiscus_inputs(vintage)), input_dir=Path("data/raw/fiscus"),
+        manifest=Path("data/raw/fiscus/trc_inputs_manifest.json"), schema_version="trc_fiscus_inputs_v1",
+    )
+
+
+TRC_FISCUS_INPUTS = trc_fiscus_inputs()
+TRC_REGISTRY = trc_registry()
 
 
 @dataclass(frozen=True)
@@ -1021,7 +1060,6 @@ H41_LEDGER_REGISTRY = FiscusRegistry(
     manifest=Path("data/raw/fiscus/h41_ledger/inputs_manifest.json"), schema_version="h41_ledger_fiscus_inputs_v1",
 )
 # Weekly inputs retain event clocks; monthly fund positions never enter this registry.
-WEEKLY_TRC_WINDOW = ("2003-07-02", "2025-12-31")
 WEEKLY_TRC_OVERLAY = Path("config/fiscus_weekly_trc.yml")
 # Event crosswalk only where a dated Treasury statement independently names facility cash.
 # The DTS row must still match the amount/account/date; factor residuals stay candidate-only.
@@ -1030,42 +1068,55 @@ WEEKLY_TRC_INTERNAL_MATCHES = (
      "source_url": "https://home.treasury.gov/news/press-releases/sm1007",
      "meaning": "Treasury's May 12 statement identifies 37.5 billion transmitted the preceding day to the corporate-credit SPV"},
 )
-WEEKLY_TRC_REGISTRY = FiscusRegistry(
-    name="weekly-trc", input_dir=Path("data/raw/fiscus/weekly_trc"),
-    manifest=Path("data/raw/fiscus/weekly_trc/inputs_manifest.json"),
-    schema_version="weekly_trc_fiscus_inputs_v1",
-    inputs=(
-        FiscusInput("soma", "soma.treasury_holdings", ("soma-holdings",), 0.000001,
-                    "wednesday_asof_snapshot", "CUSIP-level SOMA par and inflation compensation",
-                    snapshot_window=WEEKLY_TRC_WINDOW),
-        FiscusInput("auctions", "fiscaldata.auctions_query", (
-            "fiscaldata-query", "fiscaldata.auctions_query", "--param",
-            "filter=issue_date:gte:1979-11-01,issue_date:lte:2025-12-31",
-            "--param", "page[size]=10000", "--max-pages", "100"),
-            0.000001, "issue_and_maturity_date", "Auction allotments and security schedules"),
-        FiscusInput("remittances", "fiscaldata.dts_deposits_withdrawals", (
-            "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
-            "filter=record_date:gte:2005-10-03,record_date:lte:2025-12-31,transaction_catg:eq:Federal Reserve Earnings",
-            "--param", "page[size]=10000", "--max-pages", "100"),
-            1.0, "dts_record_date", "DTS Table II Federal Reserve Earnings cash deposits"),
-        FiscusInput("internal_dts", "fiscaldata.dts_deposits_withdrawals", (
-            "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
-            "filter=record_date:gte:2020-01-01,record_date:lte:2025-12-31,transaction_catg:eq:ESF - Economic Recovery Programs",
-            "--param", "page[size]=10000", "--max-pages", "100"),
-            1.0, "dts_record_date", "Dated ESF cash candidates for Treasury-Fed facility matching"),
-        FiscusInput("frn", "fiscaldata.frn_daily_indexes", (
-            "fiscaldata-query", "fiscaldata.frn_daily_indexes", "--param",
-            "filter=record_date:lte:2025-12-31", "--param", "page[size]=10000",
-            "--max-pages", "100"), 0.000001, "daily_accrual_date", "FRN coupon rates by accrual day",
-            native_units="interest per USD 100 and field-specific rates"),
-        _fred_input("on_rrp", "RRPONTSYD", 1000.0, "business_day_take_up", "ON RRP daily take-up",
-                    window=("2003-06-25", "2025-12-31")),
-        FiscusInput("cpi", "fred.cpiaucns", ("get-series", "fred.cpiaucns", "--start", "1996-01-01", "--end", "2025-12-31"),
-                    1.0, "monthly_reference_cpi", "CPI-U NSA for TIPS index ratios", series_id="CPIAUCNS",
-                    native_units="index 1982-1984=100, not seasonally adjusted"),
-    ),
-)
+WEEKLY_TRC_START = "2003-07-02"
+
+
+def weekly_trc_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusRegistry:
+    end = vintage.weekly_end
+    return FiscusRegistry(
+        name="weekly-trc", input_dir=Path("data/raw/fiscus/weekly_trc"),
+        manifest=Path("data/raw/fiscus/weekly_trc/inputs_manifest.json"),
+        schema_version="weekly_trc_fiscus_inputs_v1",
+        inputs=(
+            FiscusInput("soma", "soma.treasury_holdings", ("soma-holdings",), 0.000001,
+                        "wednesday_asof_snapshot", "CUSIP-level SOMA par and inflation compensation",
+                        snapshot_window=(WEEKLY_TRC_START, end)),
+            FiscusInput("auctions", "fiscaldata.auctions_query", (
+                "fiscaldata-query", "fiscaldata.auctions_query", "--param",
+                f"filter=issue_date:gte:1979-11-01,issue_date:lte:{end}",
+                "--param", "page[size]=10000", "--max-pages", "100"),
+                0.000001, "issue_and_maturity_date", "Auction allotments and security schedules"),
+            FiscusInput("remittances", "fiscaldata.dts_deposits_withdrawals", (
+                "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
+                f"filter=record_date:gte:2005-10-03,record_date:lte:{end},transaction_catg:eq:Federal Reserve Earnings",
+                "--param", "page[size]=10000", "--max-pages", "100"),
+                1.0, "dts_record_date", "DTS Table II Federal Reserve Earnings cash deposits"),
+            FiscusInput("internal_dts", "fiscaldata.dts_deposits_withdrawals", (
+                "fiscaldata-query", "fiscaldata.dts_deposits_withdrawals", "--param",
+                f"filter=record_date:gte:2020-01-01,record_date:lte:{end},transaction_catg:eq:ESF - Economic Recovery Programs",
+                "--param", "page[size]=10000", "--max-pages", "100"),
+                1.0, "dts_record_date", "Dated ESF cash candidates for Treasury-Fed facility matching"),
+            FiscusInput("frn", "fiscaldata.frn_daily_indexes", (
+                "fiscaldata-query", "fiscaldata.frn_daily_indexes", "--param",
+                f"filter=record_date:lte:{end}", "--param", "page[size]=10000",
+                "--max-pages", "100"), 0.000001, "daily_accrual_date", "FRN coupon rates by accrual day",
+                native_units="interest per USD 100 and field-specific rates"),
+            _fred_input("on_rrp", "RRPONTSYD", 1000.0, "business_day_take_up", "ON RRP daily take-up",
+                        window=("2003-06-25", end)),
+            FiscusInput("cpi", "fred.cpiaucns", ("get-series", "fred.cpiaucns", "--start", "1996-01-01", "--end", end),
+                        1.0, "monthly_reference_cpi", "CPI-U NSA for TIPS index ratios", series_id="CPIAUCNS",
+                        native_units="index 1982-1984=100, not seasonally adjusted"),
+        ),
+    )
+
+
+WEEKLY_TRC_REGISTRY = weekly_trc_registry()
 FISCUS_REGISTRIES = {registry.name: registry for registry in (TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY)}
+
+
+def fiscus_registries(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict[str, FiscusRegistry]:
+    """Registries for one vintage: window-bound requests end at the vintage endpoint."""
+    return {**FISCUS_REGISTRIES, "trc": trc_registry(vintage), "weekly-trc": weekly_trc_registry(vintage)}
 
 BANK_DEPOSITORY_TX_KEYS = [
     "us_chartered_tsy_tx",

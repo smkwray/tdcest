@@ -3,6 +3,7 @@
 Run from the repository root with the package importable, for example
 
     PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger] [--fiscus-project ../fiscus] [--refresh]
+        [--root DATA_ROOT --vintage NAME]
 
 Every input comes from one registry in `tdc_estimator.catalog.FISCUS_REGISTRIES`
 (`trc` by default) through `uv run --project <fiscus> fiscus ...`. Payloads are
@@ -11,6 +12,10 @@ verified against the fiscus artifact SHA-256, and described in the registry's
 manifest together with `fiscus provenance`. FRED requests use the keyless public
 route (FRED_API_KEY is removed from the child environment) so the request
 identity does not depend on a private credential.
+
+``--vintage`` selects the request windows of a measurement vintage and ``--root``
+the data tree that receives its inputs and manifest (the repository root by
+default); fiscus itself always runs from the repository root.
 """
 
 from __future__ import annotations
@@ -24,7 +29,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from tdc_estimator.catalog import FISCUS_REGISTRIES, WEEKLY_TRC_OVERLAY
+from tdc_estimator.catalog import (
+    DEFAULT_VINTAGE, FISCUS_REGISTRIES, MEASUREMENT_VINTAGES, WEEKLY_TRC_OVERLAY, fiscus_registries,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,8 +63,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="bypass the fiscus latest pointer and re-read sources",
     )
+    parser.add_argument(
+        "--root",
+        default=".",
+        help="data tree that receives the inputs and manifest, relative to the repository root or absolute",
+    )
+    parser.add_argument(
+        "--vintage",
+        choices=sorted(MEASUREMENT_VINTAGES),
+        default=DEFAULT_VINTAGE.name,
+        help="measurement vintage whose endpoint closes the request windows",
+    )
     parser.add_argument("--snapshot-worker", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    args.data_root = (ROOT / args.root).resolve()
     if Path(args.fiscus_project).is_absolute():
         raise SystemExit("--fiscus-project must be relative to the repository root")
     env = {key: value for key, value in os.environ.items() if key != "FRED_API_KEY"}
@@ -66,8 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.snapshot_worker:
         return acquire_snapshots(args)
     fiscus = ["uv", "run", "--quiet", "--project", args.fiscus_project, "fiscus"]
-    registry = FISCUS_REGISTRIES[args.registry]
-    out_dir = ROOT / registry.input_dir
+    registry = fiscus_registries(MEASUREMENT_VINTAGES[args.vintage])[args.registry]
+    out_dir = args.data_root / registry.input_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = {}
@@ -100,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
                         args.registry,
                         "--snapshot-worker",
                         spec.key,
+                        "--root",
+                        str(args.data_root),
+                        "--vintage",
+                        args.vintage,
                         *(["--refresh"] if args.refresh else []),
                     ],
                     cwd=ROOT,
@@ -126,11 +149,11 @@ def main(argv: list[str] | None = None) -> int:
         artifact = response["artifact"]
         relative = registry.input_dir / f"{spec.key}.csv"
         run(
-            [*fiscus, "cache", "export", artifact["cache_key"], "--out", str(relative)],
+            [*fiscus, "cache", "export", artifact["cache_key"], "--out", str(args.data_root / relative)],
             cwd=ROOT,
             env=env,
         )
-        payload = (ROOT / relative).read_bytes()
+        payload = (args.data_root / relative).read_bytes()
         if (
             hashlib.sha256(payload).hexdigest() != artifact["sha256"]
             or len(payload) != artifact["byte_count"]
@@ -216,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     text = json.dumps(document, indent=2, sort_keys=True) + "\n"
     if "api_key" in text.lower():
         raise SystemExit("manifest would record a credential-bearing URL")
-    (ROOT / registry.manifest).write_text(text, encoding="utf-8")
+    (args.data_root / registry.manifest).write_text(text, encoding="utf-8")
     print(f"{registry.manifest}: {hashlib.sha256(text.encode('utf-8')).hexdigest()}")
     return 0
 
@@ -244,7 +267,7 @@ def acquire_snapshots(args) -> int:
             "retrieved_at_utc": datetime.now(UTC).isoformat(),
         }
 
-    registry = FISCUS_REGISTRIES[args.registry]
+    registry = fiscus_registries(MEASUREMENT_VINTAGES[args.vintage])[args.registry]
     spec = next(s for s in registry.inputs if s.key == args.snapshot_worker)
     start, end = map(date.fromisoformat, spec.snapshot_window)
     days = [start + timedelta(days=n) for n in range(0, (end - start).days + 1, 7)]
@@ -306,11 +329,11 @@ def acquire_snapshots(args) -> int:
     fields = sorted({key for row in all_rows for key in row})
     if not fields:
         raise ValueError("SOMA: no nonempty snapshots")
-    with (ROOT / relative).open("w", newline="") as handle:
+    with (args.data_root / relative).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(all_rows)
-    raw = (ROOT / relative).read_bytes()
+    raw = (args.data_root / relative).read_bytes()
     record = {
         "dataset_id": spec.dataset_id,
         "argv": list(spec.argv),

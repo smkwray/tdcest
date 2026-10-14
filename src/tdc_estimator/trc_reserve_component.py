@@ -19,13 +19,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .catalog import BANK_DEPOSITORY_TX_KEYS
+from .catalog import BANK_DEPOSITORY_TX_KEYS, DEFAULT_VINTAGE, MeasurementVintage
 from .gse_rrp_boundary import build_gse_rrp_boundary_check
 from .mmf_rrp import ON_RRP_OPERATION_START, mmf_on_rrp_route_adjustment
 from .settlement_routes import load_settlement_routes
-from .tier2_regression_series import LEG_CANONICAL_COLUMN, LEG_QUARTERS
+from .tier2_regression_series import LEG_CANONICAL_COLUMN, leg_quarters
 
-TRC_QUARTERS = LEG_QUARTERS
 TGA_SOURCE_TRANSITION = pd.Period("2006Q1", freq="Q")
 ON_RRP_MECHANISM_QUARTER = ON_RRP_OPERATION_START.to_period("Q")
 SFP_PROGRAM_START = pd.Timestamp("2008-09-17")
@@ -42,7 +41,14 @@ QUARTERLY_COLUMNS = [
     "date", "treasury_operating_cash_tx", "mmf_rrp_adjustment_lb", "mmf_rrp_adjustment_prop",
     "mmf_rrp_adjustment_ub", "gse_tsy_tx", "gse_tsy_level", "gse_on_rrp",
 ]
-PERIOD_WINDOWS = [("2003Q1", "2007Q4"), ("2008Q1", "2014Q4"), ("2015Q1", "2019Q4"), ("2020Q1", "2025Q4")]
+PERIOD_STARTS = ("2003Q1", "2008Q1", "2015Q1", "2020Q1")
+
+
+def period_windows(quarter_end: str) -> list[tuple[str, str]]:
+    """Reporting eras; the last era runs to the measured endpoint."""
+    ends = [str(pd.Period(start, freq="Q") - 1) for start in PERIOD_STARTS[1:]] + [quarter_end]
+    return list(zip(PERIOD_STARTS, ends))
+
 
 # DTS Table I account types, parsed era by era. The 2022-04-18 schema reports
 # the TGA closing balance in open_today_bal of the Closing Balance row with
@@ -192,11 +198,11 @@ def _require_frame(frame: pd.DataFrame, columns: list[str], label: str) -> pd.Da
     return frame[columns].copy()
 
 
-def _legs(legs: pd.DataFrame) -> pd.DataFrame:
+def _legs(legs: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.DataFrame:
     frame = _require_frame(legs, LEG_COLUMNS, "regression legs")
     frame.index = pd.PeriodIndex(frame.pop("quarter"), freq="Q")
-    if not frame.index.equals(TRC_QUARTERS):
-        raise ValueError("regression legs: expected exactly the 2002Q1-2025Q4 quarters")
+    if not frame.index.equals(quarters):
+        raise ValueError(f"regression legs: expected exactly the {quarters[0]}-{quarters[-1]} quarters")
     frame = frame.apply(pd.to_numeric, errors="raise")
     if not np.isfinite(frame.to_numpy(dtype=float)).all():
         raise ValueError("regression legs: nonfinite required values")
@@ -205,15 +211,15 @@ def _legs(legs: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _quarterly(quarterly: pd.DataFrame) -> pd.DataFrame:
+def _quarterly(quarterly: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.DataFrame:
     frame = _require_frame(quarterly, QUARTERLY_COLUMNS, "quarterly inputs")
     frame.index = _quarter_index(frame.pop("date"))
     if frame.index.has_duplicates:
         raise ValueError("quarterly inputs: duplicate quarters")
     frame = frame.apply(pd.to_numeric, errors="raise")
-    window = frame.loc[(frame.index >= TRC_QUARTERS[0] - 1) & (frame.index <= TRC_QUARTERS[-1])]
-    if not window.index.equals(pd.period_range(TRC_QUARTERS[0] - 1, TRC_QUARTERS[-1], freq="Q")):
-        raise ValueError("quarterly inputs: expected every quarter from 2001Q4 to 2025Q4")
+    window = frame.loc[(frame.index >= quarters[0] - 1) & (frame.index <= quarters[-1])]
+    if not window.index.equals(pd.period_range(quarters[0] - 1, quarters[-1], freq="Q")):
+        raise ValueError(f"quarterly inputs: expected every quarter from {quarters[0] - 1} to {quarters[-1]}")
     return window
 
 
@@ -226,7 +232,7 @@ def assemble_treasury_routes(
     *, legs: pd.DataFrame, quarterly: pd.DataFrame, dts_quarter: pd.DataFrame, tga_h41: pd.DataFrame,
 ) -> pd.DataFrame:
     """Default TRC rows: Treasury Fed-deposit leg, Fed Treasury bridge, MMF route."""
-    q = TRC_QUARTERS
+    q = legs.index
     out = pd.DataFrame(index=q)
     dts_first = dts_quarter.index.min()
     if dts_first >= TGA_SOURCE_TRANSITION:
@@ -289,14 +295,16 @@ def assemble_treasury_routes(
     return out
 
 
-def nondefault_route_bounds(*, quarterly: pd.DataFrame, custody: pd.DataFrame, fo_cash: pd.Series) -> pd.DataFrame:
+def nondefault_route_bounds(
+    *, quarterly: pd.DataFrame, custody: pd.DataFrame, fo_cash: pd.Series, quarters: pd.PeriodIndex,
+) -> pd.DataFrame:
     """GSE ON RRP and foreign-official direct-account route bounds (never defaults).
 
     The foreign-official bound is a heuristic opposite-sign overlap of the change
     in custody holdings and the change in foreign official Fed cash. Custody
     identifies ownership, not the settling account, so no point value is formed.
     """
-    q = TRC_QUARTERS
+    q = quarters
     out = pd.DataFrame(index=q)
     by_date = quarterly.copy()
     by_date.index = by_date.index.end_time.normalize()
@@ -358,7 +366,7 @@ def reserve_factor_diagnostics(
     Reads the assembled Treasury allocations and returns only new columns, so a
     reserve factor cannot become a Treasury classification.
     """
-    q = TRC_QUARTERS
+    q = routes.index
     out = pd.DataFrame(index=q)
     out["delta_rrp_others_h41"] = _difference(h41["h41_rrp_others_wednesday"]["level"], q)
     rrp = reserve_factor_remainder(out["delta_rrp_others_h41"], pd.DataFrame({
@@ -411,7 +419,7 @@ def reserve_factor_diagnostics(
     out["diag_trc_h41_upper"] = h41_core + routes["mmf_route_ub"]
     out["h41_status"] = np.where(out["delta_rb_h41"].isna(), "unavailable_no_opening_level", "nondefault_clock_diagnostic")
     stats = {
-        "h3_to_h41_reserve_level_median_ratio_2021_2025": ratio,
+        f"h3_to_h41_reserve_level_median_ratio_2021_{q[-1].year}": ratio,
         "dts_unclassified_account_nonzero_on_h41_diagnostic_dates": unclassified_on_wednesdays,
     }
     return out, stats
@@ -438,14 +446,16 @@ class TrcInputs:
     legs: pd.DataFrame
     quarterly: pd.DataFrame
     sources: dict[str, pd.DataFrame]
+    vintage: MeasurementVintage = DEFAULT_VINTAGE
 
 
 def build_trc_components(inputs: TrcInputs) -> tuple[pd.DataFrame, dict]:
     """Assemble the wide quarterly component table and cross-check statistics."""
-    legs = _legs(inputs.legs)
-    quarterly = _quarterly(inputs.quarterly)
+    q = leg_quarters(inputs.vintage)
+    legs = _legs(inputs.legs, q)
+    quarterly = _quarterly(inputs.quarterly, q)
     src = inputs.sources
-    if (legs["treasury_operating_cash_tx"] - quarterly["treasury_operating_cash_tx"].reindex(TRC_QUARTERS)).abs().max() != 0:
+    if (legs["treasury_operating_cash_tx"] - quarterly["treasury_operating_cash_tx"].reindex(q)).abs().max() != 0:
         raise ValueError("legs and quarterly inputs disagree on Z.1 Treasury operating cash")
     daily = parse_dts_table_i(src["dts_operating_cash_balance_table_i"])
     dts_q = dts_quarter_end(daily)
@@ -459,12 +469,11 @@ def build_trc_components(inputs: TrcInputs) -> tuple[pd.DataFrame, dict]:
     z1 = {key: z1_quarterly(src[key], key) for key in [
         "z1_reserves_transactions", "z1_sfp_transactions", "z1_us_chartered_reserves_transactions",
     ]}
-    q = TRC_QUARTERS
 
     out = assemble_treasury_routes(legs=legs, quarterly=quarterly, dts_quarter=dts_q, tga_h41=h41["h41_tga_wednesday"])
     out["delta_rb_z1"] = z1["z1_reserves_transactions"].reindex(q)
     if out["delta_rb_z1"].isna().any():
-        raise ValueError("Z.1 reserve outcome missing in the 2002Q1-2025Q4 shell")
+        raise ValueError(f"Z.1 reserve outcome missing in the {q[0]}-{q[-1]} shell")
     out["nontreasury_residual"] = out["delta_rb_z1"] - out["trc_preferred"]
     out["nontreasury_residual_lower"] = out["delta_rb_z1"] - out["trc_mmf_upper"]
     out["nontreasury_residual_upper"] = out["delta_rb_z1"] - out["trc_mmf_lower"]
@@ -492,7 +501,9 @@ def build_trc_components(inputs: TrcInputs) -> tuple[pd.DataFrame, dict]:
     out["z1_sfp_tx"] = z1["z1_sfp_transactions"].reindex(q)
 
     fo_cash = h41["h41_foreign_official_deposits_wednesday"]["level"] + h41["h41_rrp_foreign_official_wednesday"]["level"]
-    bounds = nondefault_route_bounds(quarterly=quarterly, custody=h41["h41_custody_marketable_treasury_wednesday"], fo_cash=fo_cash)
+    bounds = nondefault_route_bounds(
+        quarterly=quarterly, custody=h41["h41_custody_marketable_treasury_wednesday"], fo_cash=fo_cash, quarters=q,
+    )
     out = out.join(bounds)
     out["trc_route_bounded_lower"] = out["trc_mmf_lower"] + out["gse_route_lower"] + out["fo_route_lower"]
     out["trc_route_bounded_upper"] = out["trc_mmf_upper"] + out["gse_route_upper"] + out["fo_route_upper"]
@@ -501,17 +512,18 @@ def build_trc_components(inputs: TrcInputs) -> tuple[pd.DataFrame, dict]:
     out = out.join(diagnostics, validate="one_to_one")
     out["memo_us_chartered_reserves_z1"] = z1["z1_us_chartered_reserves_transactions"].reindex(q)
 
+    end = str(q[-1])
     stats = {
-        "tga_change_dts_vs_h41": _window_stats(_difference(dts_q["tga"], q), out["delta_tga_h41"], "2006Q1", "2025Q4"),
-        "reserve_change_z1_vs_h41_last_wednesday": _window_stats(out["delta_rb_z1"], out["delta_rb_h41"], "2003Q1", "2025Q4"),
-        "sfp_change_dts_vs_z1": _window_stats(out["delta_sfp"], out["z1_sfp_tx"], "2003Q1", "2025Q4"),
-        "z1_operating_cash_vs_dts_tga_sfp_ttl": _window_stats(out["z1_treasury_operating_cash_tx"], out["z1_treasury_operating_cash_tx"] - out["cash_partition_gap"], "2006Q1", "2025Q4"),
+        "tga_change_dts_vs_h41": _window_stats(_difference(dts_q["tga"], q), out["delta_tga_h41"], "2006Q1", end),
+        "reserve_change_z1_vs_h41_last_wednesday": _window_stats(out["delta_rb_z1"], out["delta_rb_h41"], "2003Q1", end),
+        "sfp_change_dts_vs_z1": _window_stats(out["delta_sfp"], out["z1_sfp_tx"], "2003Q1", end),
+        "z1_operating_cash_vs_dts_tga_sfp_ttl": _window_stats(out["z1_treasury_operating_cash_tx"], out["z1_treasury_operating_cash_tx"] - out["cash_partition_gap"], "2006Q1", end),
         "max_abs_wedge_residual_plus_cash_partition_gap": _finite((out["wedge_residual_u"] + out["cash_partition_gap"]).abs().max()),
         **diagnostic_stats,
         "custody_first_reported_quarter": bounds.attrs["custody_first_reported_quarter"],
         "dts_first_quarter": str(dts_q.index.min()),
         "correlation_z1_reserve_change_with_trc": {
-            series: {f"{lo}-{hi}": _finite(out.loc[lo:hi, "delta_rb_z1"].corr(out.loc[lo:hi, series])) for lo, hi in PERIOD_WINDOWS}
+            series: {f"{lo}-{hi}": _finite(out.loc[lo:hi, "delta_rb_z1"].corr(out.loc[lo:hi, series])) for lo, hi in period_windows(end)}
             for series in ["trc_preferred", "trc_core"]
         },
     }

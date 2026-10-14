@@ -9,7 +9,7 @@ import json
 
 import pandas as pd
 
-from .catalog import TRC_REGISTRY, FiscusRegistry
+from .catalog import DEFAULT_VINTAGE, TRC_REGISTRY, FiscusRegistry, MeasurementVintage, fiscus_registries
 from .config import project_paths
 from .mmf_rrp import MMF_ON_RRP_ROUTE_LIMITATION
 from .settlement_routes import route_registry_frame
@@ -58,6 +58,13 @@ BOUNDARIES = [
     "ON RRP and foreign-official remainder cells mix H.4.1 last-Wednesday factor changes with calendar-quarter route allocations",
     "The all-H.4.1 clock diagnostic moves only the reserve and Treasury Fed-deposit levels to last Wednesdays; Fed transaction, coupon, remittance, and MMF legs stay calendar-quarter flows",
 ]
+def clocks(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict:
+    return {**CLOCKS, "tga": {
+        "2003Q1-2005Q4": "H.4.1 WDTGAL last Wednesday on or before quarter end, both endpoints",
+        f"2006Q1-{vintage.quarter_end}": "DTS Table I final business day close, both endpoints",
+    }}
+
+
 CLOCKS = {
     "reserve_outcome": "Z.1 FU713113003 calendar-quarter transactions",
     "tga": {
@@ -109,8 +116,10 @@ def load_fiscus_inputs(
 
 def write_trc_export(
     *, root: Path | str, legs_sha256: str, quarterly_sha256: str, inputs_manifest_sha256: str,
+    vintage: MeasurementVintage = DEFAULT_VINTAGE,
 ) -> dict:
     """Bind the TRC export to a clean commit, pinned frozen inputs, and a pinned fiscus manifest."""
+    registry = fiscus_registries(vintage)["trc"]
     paths = project_paths(root)
     root = paths.root
     producer_commit = require_clean_commit(root)
@@ -120,7 +129,7 @@ def write_trc_export(
     quarterly_raw, quarterly_record = read_pinned_input(root, quarterly_path, quarterly_sha256, QUARTERLY_SOURCE_KEY)
     manifest_raw, manifest_record = read_pinned_input(root, manifest_path, inputs_manifest_sha256, "inputs_manifest")
     manifest = json.loads(manifest_raw)
-    frames, input_records = load_fiscus_inputs(root, manifest)
+    frames, input_records = load_fiscus_inputs(root, manifest, registry)
 
     output_paths = {role: paths.processed / name for role, name in TRC_OUTPUT_FILES.items()}
     inputs_on_disk = {legs_path.resolve(), quarterly_path.resolve(), manifest_path.resolve()} | {
@@ -131,13 +140,14 @@ def write_trc_export(
 
     components, stats = build_trc_components(TrcInputs(
         legs=pd.read_csv(io.BytesIO(legs_raw)), quarterly=pd.read_csv(io.BytesIO(quarterly_raw)), sources=frames,
+        vintage=vintage,
     ))
     source_hashes = {key: record["sha256"] for key, record in input_records.items()}
     source_hashes[LEGS_SOURCE_KEY] = legs_record["sha256"]
     source_hashes[QUARTERLY_SOURCE_KEY] = quarterly_record["sha256"]
     series = build_trc_series(components, source_hashes)
     payloads = {
-        "route_registry": route_registry_frame().to_csv(index=False, lineterminator="\n").encode("utf-8"),
+        "route_registry": route_registry_frame(vintage).to_csv(index=False, lineterminator="\n").encode("utf-8"),
         "components": components.to_csv(index=False, lineterminator="\n").encode("utf-8"),
         "series": series.to_csv(index=False, lineterminator="\n").encode("utf-8"),
     }
@@ -145,6 +155,7 @@ def write_trc_export(
     receipt = {
         "schema_version": TRC_SCHEMA_VERSION,
         "producer_commit": producer_commit,
+        "vintage": vintage.name,
         "units": "USD million",
         "sample": {"shell_start": components["quarter"].iloc[0], "shell_end": components["quarter"].iloc[-1],
                    "observed_trc_start": components.loc[components["trc_preferred"].notna(), "quarter"].iloc[0],
@@ -157,7 +168,7 @@ def write_trc_export(
         },
         "outputs": {role: {"path": str(output_paths[role].relative_to(root)), "sha256": _sha256(data)}
                     for role, data in payloads.items()},
-        "clocks": CLOCKS,
+        "clocks": clocks(vintage),
         "tga_source_transition": {
             "first_dts_change_quarter": str(TGA_SOURCE_TRANSITION),
             "first_dts_level_quarter": stats["dts_first_quarter"],

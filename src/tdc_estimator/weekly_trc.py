@@ -30,7 +30,9 @@ from pandas.tseries.holiday import (
     sunday_to_monday,
 )
 
-from .catalog import WEEKLY_TRC_REGISTRY, WEEKLY_TRC_INTERNAL_MATCHES
+from .catalog import (
+    DEFAULT_VINTAGE, WEEKLY_TRC_INTERNAL_MATCHES, WEEKLY_TRC_REGISTRY, MeasurementVintage, fiscus_registries,
+)
 from .mmf_rrp import ON_RRP_OPERATION_START
 from .reserve_factor_ledger import CASH_KEYS, RRP_OTHER_KEY, load_h41_rows
 from .tier2_regression_series import read_pinned_input, require_clean_commit
@@ -42,12 +44,15 @@ D = Decimal
 ZERO = D(0)
 MILLION = D(1000000)
 CENT_MILLION = D("0.00000001")
-ERAS = (
-    ("2006Q1", "2008Q3"),
-    ("2008Q4", "2008Q4"),
-    ("2009Q1", "2015Q4"),
-    ("2016Q1", "2025Q4"),
-)
+def eras(quarter_end):
+    """Reporting eras; the last runs to the final complete Wednesday quarter of the vintage."""
+    return (
+        ("2006Q1", "2008Q3"),
+        ("2008Q4", "2008Q4"),
+        ("2009Q1", "2015Q4"),
+        ("2016Q1", quarter_end),
+    )
+
 OUTPUTS = {
     "weekly": "trc_weekly_components_v1.csv",
     "quarterly": "trc_weekly_quarterly_v1.csv",
@@ -1102,7 +1107,7 @@ def total(values):
     )
 
 
-def build_weekly_trc(ledger, sources):
+def build_weekly_trc(ledger, sources, registry=WEEKLY_TRC_REGISTRY):
     """Use admitted ledger cash unchanged; unavailable inputs propagate through core and identity."""
     dates = pd.DatetimeIndex(pd.to_datetime(ledger.date, errors="raise"))
     if (
@@ -1113,8 +1118,8 @@ def build_weekly_trc(ledger, sources):
         raise ValueError("Ledger: expected consecutive unique Wednesdays")
     auctions = prepare_auctions(sources["auctions"])
     first, last = (
-        max(pd.Timestamp(WEEKLY_TRC_REGISTRY.inputs[0].snapshot_window[0]), dates[0]),
-        min(pd.Timestamp(WEEKLY_TRC_REGISTRY.inputs[0].snapshot_window[1]), dates[-1]),
+        max(pd.Timestamp(registry.inputs[0].snapshot_window[0]), dates[0]),
+        min(pd.Timestamp(registry.inputs[0].snapshot_window[1]), dates[-1]),
     )
     dates = dates[(dates >= first) & (dates <= last)]
     if dates.empty:
@@ -1147,7 +1152,7 @@ def build_weekly_trc(ledger, sources):
     internal_dts = sources.get("internal_dts")
     if internal_dts is not None:
         internal_dts = internal_dts.copy()
-        spec = next(s for s in WEEKLY_TRC_REGISTRY.inputs if s.key == "internal_dts")
+        spec = next(s for s in registry.inputs if s.key == "internal_dts")
         query = next(
             v.removeprefix("filter=") for v in spec.argv if v.startswith("filter=")
         )
@@ -1615,9 +1620,13 @@ def quarter_tables(weekly, components):
     return pd.DataFrame(quarterly)
 
 
-def describe_by_era(frame, columns, *, common=False):
+def summary_windows(quarter_end):
+    return (*eras(quarter_end), ("2006Q1", quarter_end), ("2003Q3", quarter_end))
+
+
+def describe_by_era(frame, columns, *, common=False, quarter_end=DEFAULT_VINTAGE.weekly_quarter_end):
     out = {}
-    for start, end in (*ERAS, ("2006Q1", "2025Q4"), ("2003Q3", "2025Q4")):
+    for start, end in summary_windows(quarter_end):
         window = frame.loc[frame.quarter.ge(start) & frame.quarter.le(end)]
         if common:
             window = window.loc[window[columns].notna().all(axis=1)]
@@ -1637,15 +1646,15 @@ def describe_by_era(frame, columns, *, common=False):
     return out
 
 
-def era_windows(frame):
-    for start, end in (*ERAS, ("2006Q1", "2025Q4"), ("2003Q3", "2025Q4")):
+def era_windows(frame, quarter_end=DEFAULT_VINTAGE.weekly_quarter_end):
+    for start, end in summary_windows(quarter_end):
         yield (
             start + "-" + end,
             frame.loc[frame.quarter.ge(start) & frame.quarter.le(end)],
         )
 
 
-def event_summary(changes):
+def event_summary(changes, quarter_end=DEFAULT_VINTAGE.weekly_quarter_end):
     frame = changes.assign(
         quarter=pd.to_datetime(changes.date).dt.to_period("Q").astype(str)
     )
@@ -1660,11 +1669,11 @@ def event_summary(changes):
                 window.classification_status.str.startswith("unclassifiable")
             ].groupby("event_type")
         }
-        for era, window in era_windows(frame)
+        for era, window in era_windows(frame, quarter_end)
     }
 
 
-def internal_summary(weekly):
+def internal_summary(weekly, quarter_end=DEFAULT_VINTAGE.weekly_quarter_end):
     return {
         era: {
             key: {
@@ -1680,7 +1689,7 @@ def internal_summary(weekly):
             }
             for key in INTERNAL_FACTORS
         }
-        for era, window in era_windows(weekly)
+        for era, window in era_windows(weekly, quarter_end)
     }
 
 
@@ -1729,7 +1738,7 @@ def tips_crosscheck(auctions, cpi_frame):
     )
 
 
-def auction_field_coverage(frame):
+def auction_field_coverage(frame, quarter_end=DEFAULT_VINTAGE.weekly_quarter_end):
     frame = frame.assign(
         quarter=pd.to_datetime(frame.issue_date).dt.to_period("Q").astype(str)
     )
@@ -1752,7 +1761,7 @@ def auction_field_coverage(frame):
             }
             for kind, g in window.groupby("security_type")
         }
-        for era, window in era_windows(frame)
+        for era, window in era_windows(frame, quarter_end)
     }
 
 
@@ -1919,8 +1928,10 @@ def column_contracts(tables):
 
 
 def write_weekly_trc_export(
-    *, root, inputs_manifest_sha256, ledger_sha256, trc_components_sha256
+    *, root, inputs_manifest_sha256, ledger_sha256, trc_components_sha256, vintage: MeasurementVintage = DEFAULT_VINTAGE,
 ):
+    registry = fiscus_registries(vintage)["weekly-trc"]
+    quarter_end = vintage.weekly_quarter_end
     root = Path(root).resolve()
     commit = require_clean_commit(root)
     protected_paths = [
@@ -1933,12 +1944,12 @@ def write_weekly_trc_export(
     }
     manifest_raw, manifest_record = read_pinned_input(
         root,
-        root / WEEKLY_TRC_REGISTRY.manifest,
+        root / registry.manifest,
         inputs_manifest_sha256,
         "weekly_inputs_manifest",
     )
     manifest = json.loads(manifest_raw)
-    sources, records = load_fiscus_inputs(root, manifest, WEEKLY_TRC_REGISTRY)
+    sources, records = load_fiscus_inputs(root, manifest, registry)
     # Use the existing Table II loader on the fiscus export, then strict cash-row selection.
     sources["remittances"] = extract_dts_operating_cash_balance(
         root / records["remittances"]["file"]
@@ -1956,7 +1967,7 @@ def write_weekly_trc_export(
         "admitted_quarterly_components",
     )
     weekly, identity, changes, daily = build_weekly_trc(
-        pd.read_csv(io.BytesIO(ledger_raw), dtype=str), sources
+        pd.read_csv(io.BytesIO(ledger_raw), dtype=str), sources, registry
     )
     quarterly = quarter_tables(weekly, pd.read_csv(io.BytesIO(comp_raw), dtype=str))
     tables = {
@@ -1991,6 +2002,7 @@ def write_weekly_trc_export(
     receipt = {
         "schema_version": "trc_weekly_v1",
         "producer_commit": commit,
+        "vintage": vintage.name,
         "units": "USD million",
         "inputs": {
             "manifest": manifest_record,
@@ -2041,10 +2053,10 @@ def write_weekly_trc_export(
             )
         ),
         "quarterly_reconciliation_by_era": describe_by_era(
-            quarterly, differences, common=True
+            quarterly, differences, common=True, quarter_end=quarter_end
         ),
         "valuation_bridge_by_era": describe_by_era(
-            quarterly, ["bridge_all_securities_premium_discount"]
+            quarterly, ["bridge_all_securities_premium_discount"], quarter_end=quarter_end
         ),
         "weekly_summary_by_era": describe_by_era(
             weekly,
@@ -2064,6 +2076,7 @@ def write_weekly_trc_export(
                 "route_forward",
                 "route_reverse",
             ],
+            quarter_end=quarter_end,
         ),
         "unavailable_quarters": quarterly.loc[
             quarterly.trc_core.isna(), ["quarter", "unavailable_reasons"]
@@ -2073,8 +2086,8 @@ def write_weekly_trc_export(
             "first": weekly.loc[weekly.trc_core.notna(), "date"].min(),
             "last": weekly.loc[weekly.trc_core.notna(), "date"].max(),
         },
-        "unclassifiable_by_event_and_era": event_summary(changes),
-        "internal_postings_by_status_and_era": internal_summary(weekly),
+        "unclassifiable_by_event_and_era": event_summary(changes, quarter_end),
+        "internal_postings_by_status_and_era": internal_summary(weekly, quarter_end),
         "internal_cash_candidates_by_status_and_era": {
             era: {
                 str(status): {
@@ -2088,7 +2101,7 @@ def write_weekly_trc_export(
                 }
                 for status, g in window.groupby("j_facility_dts_cash_status")
             }
-            for era, window in era_windows(weekly)
+            for era, window in era_windows(weekly, quarter_end)
         },
         "snapshot_substitutions": [
             r
@@ -2107,7 +2120,7 @@ def write_weekly_trc_export(
             .value_counts()
             .items()
         },
-        "auction_field_coverage_by_era": auction_field_coverage(sources["auctions"]),
+        "auction_field_coverage_by_era": auction_field_coverage(sources["auctions"], quarter_end),
         "frn_feed_semantics": frn_feed_semantics(sources["frn"]),
         "admitted_outputs_before": before,
         "admitted_outputs_after": after,

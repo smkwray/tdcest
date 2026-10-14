@@ -41,6 +41,9 @@ data/figures/*
 data/site/*
 !data/site/.gitkeep
 
+# Versioned measurement refresh roots (raw, processed, receipts); each is a full --root tree.
+data/refresh_*/
+
 # Plans
 *.plan.md
 plan.md

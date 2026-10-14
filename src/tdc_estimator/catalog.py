@@ -1065,7 +1065,182 @@ WEEKLY_TRC_REGISTRY = FiscusRegistry(
                     native_units="index 1982-1984=100, not seasonally adjusted"),
     ),
 )
-FISCUS_REGISTRIES = {registry.name: registry for registry in (TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY)}
+
+
+# Bank balance-sheet composition: a descriptive illustration of non-Treasury deposit
+# postings. Z.1 table S.122.1 (formerly F.111/L.111), U.S.-chartered depository institutions.
+@dataclass(frozen=True)
+class BankZ1Line:
+    """One S.122.1 line: transactions ``FU<code>.Q`` and level ``<level_prefix><code>.Q``, USD million.
+
+    ``column`` is the output column the line feeds. Every published top-level asset
+    line feeds exactly one asset category, so categories close on total financial assets.
+    """
+
+    code: str
+    level_prefix: str
+    label: str
+    column: str
+
+
+@dataclass(frozen=True)
+class BankColumn:
+    key: str
+    label: str
+    side: str  # asset_category, asset_total, liability
+    definition: str
+
+
+BANK_Z1_START = "2001-10-01"  # the 2001Q4 level anchors the 2002Q1 level change
+BANK_Z1_FIRST_QUARTER = "2002Q1"
+BANK_Z1_END_QUARTER = "2026Q2"
+BANK_H8_BASE_MONTH = "2025-09"
+BANK_H8_MONTH = "2026-09"
+BANK_Z1_COLUMNS: tuple[BankColumn, ...] = (
+    BankColumn("reserves", "Reserves at the Federal Reserve", "asset_category",
+               "Depository institution reserves held at Federal Reserve Banks"),
+    BankColumn("treasury", "Treasury securities", "asset_category", "Marketable Treasury securities"),
+    BankColumn("agency_gse", "Agency- and GSE-backed securities", "asset_category",
+               "Agency- and GSE-issued residential and commercial MBS pass-throughs, CMOs and other structured MBS, "
+               "and agency and GSE debt"),
+    BankColumn("municipal", "Municipal securities", "asset_category",
+               "Securities of states and political subdivisions only; bank loans to state and local governments "
+               "are in depository institution loans n.e.c. FRED BOGZ1FU763062000Q (municipal securities and loans) "
+               "is a different concept that overlaps those loans and is not used"),
+    BankColumn("corporate_foreign_bonds", "Corporate and foreign bonds", "asset_category",
+               "Not pure corporate bonds: includes private-label residential and commercial MBS and CMOs, "
+               "asset-backed securities, and foreign bonds"),
+    BankColumn("mortgages", "Mortgages", "asset_category",
+               "Total mortgages: one-to-four-family residential, multifamily, commercial, and farm"),
+    BankColumn("consumer_credit", "Consumer credit", "asset_category",
+               "Credit card and other revolving credit, auto, student, and other consumer loans; Z.1 code "
+               "763066005 (FRED keeps the pre-2025Q2 id BOGZ1FU763066000Q for the same series)"),
+    BankColumn("di_loans_nec", "Depository institution loans n.e.c.", "asset_category",
+               "Bank loans not elsewhere classified. Z.1 instrument table F4.2 lists the borrowers: nonfinancial "
+               "corporate and noncorporate business (C&I and other business loans), households and nonprofits "
+               "(other than mortgages and consumer credit), state and local governments, domestic nondepository "
+               "financial institutions, and the rest of the world"),
+    BankColumn("other_loans_advances", "Other loans and advances", "asset_category", "Other loans and advances"),
+    BankColumn("fed_funds_repo", "Federal funds sold and reverse repos", "asset_category",
+               "Federal funds sold and security repurchase agreements; asset"),
+    BankColumn("all_other_assets", "All other financial assets", "asset_category",
+               "Sum of the remaining published S.122.1 asset lines: interbank claims other than reserves, vault "
+               "cash, deposits at Federal Home Loan Banks, open market paper, equities and fund shares, life "
+               "insurance reserves, direct investment abroad, and miscellaneous assets"),
+    BankColumn("total_financial_assets", "Total financial assets", "asset_total",
+               "U.S.-chartered depository institutions including IBFs; total financial assets"),
+    BankColumn("deposits", "Total currency and deposits", "liability",
+               "Liability to all holder sectors: interbank liabilities plus checkable deposits plus time and "
+               "savings deposits. The thesis deposit outcome is the level change of BOGZ1FL764100005Q"),
+    BankColumn("checkable_deposits", "Checkable deposits", "liability", "Checkable deposits; liability"),
+    BankColumn("time_savings_deposits", "Time and savings deposits", "liability",
+               "Total time and savings deposits including IBFs; liability"),
+    BankColumn("interbank_liabilities", "Interbank liabilities", "liability",
+               "Federal Reserve float and loans from the Federal Reserve, and amounts due to U.S. and foreign banks"),
+    BankColumn("total_liabilities", "Total liabilities", "liability", "Total liabilities including IBFs, excluding equity"),
+)
+_ALL_OTHER = "all_other_assets"
+BANK_Z1_LINES: tuple[BankZ1Line, ...] = (
+    BankZ1Line("764090005", "FL", "Total financial assets", "total_financial_assets"),
+    BankZ1Line("763013005", "FL", "Depository institution reserves", "reserves"),
+    BankZ1Line("763061100", "LM", "Treasury securities", "treasury"),
+    BankZ1Line("763061705", "LM", "Agency- and GSE-backed securities", "agency_gse"),
+    BankZ1Line("763062005", "LM", "Municipal securities", "municipal"),
+    BankZ1Line("763063005", "LM", "Corporate and foreign bonds", "corporate_foreign_bonds"),
+    BankZ1Line("763065005", "FL", "Total mortgages", "mortgages"),
+    BankZ1Line("763066005", "FL", "Consumer credit", "consumer_credit"),
+    BankZ1Line("763068005", "FL", "Depository institution loans n.e.c.", "di_loans_nec"),
+    BankZ1Line("763069005", "FL", "Other loans and advances", "other_loans_advances"),
+    BankZ1Line("762050005", "FL", "Federal funds and security repurchase agreements", "fed_funds_repo"),
+    BankZ1Line("754112205", "FL", "Interbank transactions due from foreign banking offices in the U.S.", _ALL_OTHER),
+    BankZ1Line("764016005", "FL", "Interbank transactions with banks in foreign countries", _ALL_OTHER),
+    BankZ1Line("763025000", "FL", "Vault cash", _ALL_OTHER),
+    BankZ1Line("403197033", "FL", "Deposits at Federal Home Loan Banks", _ALL_OTHER),
+    BankZ1Line("763069175", "FL", "Open market paper", _ALL_OTHER),
+    BankZ1Line("763064103", "LM", "Corporate equities", _ALL_OTHER),
+    BankZ1Line("763092100", "LM", "U.S. direct investment abroad: equity", _ALL_OTHER),
+    BankZ1Line("763094905", "FL", "Miscellaneous other equity", _ALL_OTHER),
+    BankZ1Line("763064203", "LM", "Mutual fund shares", _ALL_OTHER),
+    BankZ1Line("763064703", "LM", "Hedge fund shares", _ALL_OTHER),
+    BankZ1Line("763040005", "FL", "Life insurance reserves", _ALL_OTHER),
+    BankZ1Line("763092305", "LM", "U.S. direct investment abroad: intercompany debt", _ALL_OTHER),
+    BankZ1Line("763090005", "FL", "Total miscellaneous assets", _ALL_OTHER),
+    BankZ1Line("764100005", "FL", "Total currency and deposits; liability", "deposits"),
+    BankZ1Line("763127005", "FL", "Checkable deposits; liability", "checkable_deposits"),
+    BankZ1Line("763130005", "FL", "Total time and savings deposits; liability", "time_savings_deposits"),
+    BankZ1Line("764110005", "FL", "Interbank transactions; liability", "interbank_liabilities"),
+    BankZ1Line("764190005", "FL", "Total liabilities", "total_liabilities"),
+)
+
+
+@dataclass(frozen=True)
+class H8Line:
+    """One H.8 Table 4 line: domestically chartered commercial banks, seasonally adjusted monthly level.
+
+    ``parent`` places the line in the published hierarchy; a parent equals the sum of its children.
+    """
+
+    key: str
+    series_id: str
+    line: int
+    label: str
+    parent: str | None
+    usd_million_per_unit: float = 1000.0
+
+
+BANK_H8_LINES: tuple[H8Line, ...] = (
+    H8Line("securities", "SBCDCBM027SBOG", 2, "Securities in bank credit", None),
+    H8Line("treasury_agency", "TASDCBM027SBOG", 3, "Treasury and agency securities", "securities"),
+    H8Line("treasury_agency_mbs", "TMBDCBM027SBOG", 4, "Treasury and agency securities: MBS (agency MBS)",
+           "treasury_agency"),
+    H8Line("treasury_agency_non_mbs", "TNMDCBM027SBOG", 5, "Treasury and agency securities: non-MBS",
+           "treasury_agency"),
+    H8Line("other_securities", "OSEDCBM027SBOG", 6, "Other securities", "securities"),
+    H8Line("other_securities_mbs", "OMBDCBM027SBOG", 7, "Other securities: MBS (non-agency MBS)", "other_securities"),
+    H8Line("other_securities_non_mbs", "ONMDCBM027SBOG", 8, "Other securities: non-MBS", "other_securities"),
+    H8Line("loans_leases", "LLBDCBM027SBOG", 9, "Loans and leases in bank credit", None),
+    H8Line("ci_loans", "CILDCBM027SBOG", 10, "Commercial and industrial loans", "loans_leases"),
+    H8Line("real_estate", "RELDCBM027SBOG", 11, "Real estate loans", "loans_leases"),
+    H8Line("residential_re", "RREDCBM027SBOG", 12, "Residential real estate loans", "real_estate"),
+    H8Line("home_equity_revolving", "RHEDCBM027SBOG", 13, "Revolving home equity loans", "residential_re"),
+    H8Line("closed_end_residential", "CRLDCBM027SBOG", 14, "Closed-end residential loans (first and junior liens)",
+           "residential_re"),
+    H8Line("commercial_re", "CREDCBM027SBOG", 15, "Commercial real estate loans", "real_estate"),
+    H8Line("construction_land", "CLDDCBM027SBOG", 16, "Construction and land development loans", "commercial_re"),
+    H8Line("farmland", "SBFDCBM027SBOG", 17, "Secured by farmland", "commercial_re"),
+    H8Line("multifamily", "SMPDCBM027SBOG", 18, "Secured by multifamily properties", "commercial_re"),
+    H8Line("nonfarm_nonresidential", "SNFDCBM027SBOG", 19, "Secured by nonfarm nonresidential properties",
+           "commercial_re"),
+    H8Line("consumer", "CLSDCBM027SBOG", 20, "Consumer loans", "loans_leases"),
+    H8Line("credit_cards", "CCLDCBM027SBOG", 21, "Credit cards and other revolving plans", "consumer"),
+    H8Line("other_consumer", "OCLDCBM027SBOG", 22, "Other consumer loans", "consumer"),
+    H8Line("auto", "CARDCBM027SBOG", 23, "Automobile loans", "other_consumer"),
+    H8Line("all_other_consumer", "B2245NDMAM", 24, "All other consumer loans", "other_consumer",
+           usd_million_per_unit=1.0),
+    H8Line("all_other_loans_leases", "AOLDCBM027SBOG", 25, "All other loans and leases", "loans_leases"),
+    H8Line("ndfi_loans", "LNFDCBM027SBOG", 26, "Loans to nondepository financial institutions",
+           "all_other_loans_leases"),
+    H8Line("loans_nec", "B2310NDMAM", 27, "All loans not elsewhere classified", "all_other_loans_leases",
+           usd_million_per_unit=1.0),
+    H8Line("deposits", "DPSDCBM027SBOG", 34, "Deposits", None),
+)
+BANK_COMPOSITION_REGISTRY = FiscusRegistry(
+    name="bank-composition", input_dir=Path("data/raw/fiscus/bank_composition"),
+    manifest=Path("data/raw/fiscus/bank_composition/inputs_manifest.json"),
+    schema_version="bank_composition_fiscus_inputs_v1",
+    inputs=(
+        *(_z1_input(f"z1_fu{line.code}", f"FU{line.code}.Q", f"S.122.1 {line.label}; transactions",
+                    window=(BANK_Z1_START, None)) for line in BANK_Z1_LINES),
+        *(_z1_input(f"z1_{line.level_prefix.lower()}{line.code}", f"{line.level_prefix}{line.code}.Q",
+                    f"S.122.1 {line.label}; level", window=(BANK_Z1_START, None),
+                    clock="z1_calendar_quarter_end_level") for line in BANK_Z1_LINES),
+        *(_fred_input(f"h8_{line.key}", line.series_id, line.usd_million_per_unit, "h8_monthly_average_of_wednesdays",
+                      f"H.8 Table 4 line {line.line}: {line.label}, domestically chartered commercial banks, SA",
+                      window=(f"{BANK_H8_BASE_MONTH}-01", None)) for line in BANK_H8_LINES),
+    ),
+)
+FISCUS_REGISTRIES = {registry.name: registry for registry in (
+    TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY)}
 
 BANK_DEPOSITORY_TX_KEYS = [
     "us_chartered_tsy_tx",

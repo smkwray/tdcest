@@ -91,6 +91,7 @@ from .tier2_regression_backcast import write_tier2_regression_backcast
 from .tier2_regression_series import write_tier2_regression_series, write_regression_leg_table
 from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
 from .reserve_factor_ledger import write_reserve_factor_ledger_export
+from .bank_composition import write_bank_composition_export
 from .trc_export import write_trc_export
 from .weekly_trc import write_weekly_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
@@ -1360,6 +1361,12 @@ def cmd_reserve_factor_ledger_export(args: argparse.Namespace) -> int:
         inputs_manifest_sha256=args.inputs_manifest_sha256,
         trc_components_sha256=args.trc_components_sha256,
     )
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_bank_composition_export(args: argparse.Namespace) -> int:
+    receipt = write_bank_composition_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256)
     print(json.dumps(receipt, indent=2))
     return 0
 
@@ -2726,6 +2733,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_ledger.add_argument("--inputs-manifest-sha256", required=True)
     p_ledger.add_argument("--trc-components-sha256", required=True)
     p_ledger.set_defaults(func=cmd_reserve_factor_ledger_export)
+
+    p_bank = sub.add_parser(
+        "bank-composition-export", parents=[root_parent],
+        help="Export descriptive U.S.-chartered bank balance-sheet composition tables (Z.1 S.122.1, H.8 Table 4).",
+    )
+    p_bank.add_argument("--inputs-manifest-sha256", required=True)
+    p_bank.set_defaults(func=cmd_bank_composition_export)
 
     p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],
                                  help="Export cash-corrected weekly core proxy and signed route scenarios on the H.4.1 Wednesday clock.")

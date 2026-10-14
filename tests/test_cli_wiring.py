@@ -70,6 +70,7 @@ def test_build_parser_exposes_expected_commands():
         "regression-leg-export",
         "trc-export",
         "reserve-factor-ledger-export",
+        "bank-composition-export",
         "weekly-trc-export",
         "tdc-empirical-anchor",
         "ratewall-du-ru-methodology",

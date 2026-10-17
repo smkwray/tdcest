@@ -127,8 +127,13 @@ def dts_level(quarter, fn):
 
 def fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
     wednesdays = pd.date_range("2002-12-18", "2025-12-31", freq="W-WED")
-    rb = lambda d: (20000 if d < pd.Timestamp("2008-10-01") else 1_500_000) + _wiggle(d, 17, 5000)
-    h41 = lambda fn: pd.DataFrame({"date": wednesdays.strftime("%Y-%m-%d"), "value": [str(int(fn(d))) for d in wednesdays]})
+
+    def rb(d):
+        return (20000 if d < pd.Timestamp("2008-10-01") else 1_500_000) + _wiggle(d, 17, 5000)
+
+    def h41(fn):
+        return pd.DataFrame({"date": wednesdays.strftime("%Y-%m-%d"), "value": [str(int(fn(d))) for d in wednesdays]})
+
     months = pd.date_range("2002-01-01", "2025-12-01", freq="MS")
     sources = {
         "dts_operating_cash_balance_table_i": dts_frame(),

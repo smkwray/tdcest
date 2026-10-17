@@ -58,15 +58,12 @@ def build_downstream_deposit_effect_use_case_review(
     receipt = fiscal_receipt_boundary_review.copy() if fiscal_receipt_boundary_review is not None else pd.DataFrame()
     goals = project_goal_status_review.copy() if project_goal_status_review is not None else pd.DataFrame()
 
-    tier3_bank = _get_row(contract, "artifact_key", "tdc_tier3_fiscal_corrected_bank_only_ru_flow")
     tier2_bank = _get_row(contract, "artifact_key", "tdc_tier2_interest_corrected_bank_only_ru_flow")
     bank_hist = _get_row(contract, "artifact_key", "bank_receipt_historical_default_view")
     row_mrv = _get_row(contract, "artifact_key", "row_mrv_primary_nondefault_pilot")
     broad_tier3 = _get_row(contract, "artifact_key", "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow")
     monetary_dep = _get_row(contract, "artifact_key", "monetary_depository_crosscheck")
-    monetary_bank = _get_row(contract, "artifact_key", "monetary_bank_target_stress_test")
 
-    gap_live = _get_row(gap, "gap_key", "latest_live_tier2_to_tier3_bank_only")
     gap_hist = _get_row(gap, "gap_key", "latest_historical_bank_receipt_overlay")
     gap_perimeter = _get_row(gap, "gap_key", "latest_live_bank_to_broad_depository_tier3")
     gap_interest = _get_row(gap, "gap_key", "latest_live_base_to_tier2_bank_only")

@@ -624,7 +624,8 @@ def extract_publication16_table51_row(path: Path | str, *, tax_year: int | None 
 
     all_col = _cell_column(_find_cell(cells, normalized_label=TABLE51_LABELS["all_industries"]))
     finance_col = _cell_column(_find_cell(cells, normalized_label=TABLE51_LABELS["finance_and_insurance"]))
-    management_col = _cell_column(_find_cell(cells, normalized_label=TABLE51_LABELS["management_holding_companies"]))
+    # Validate the required header even though its column is not extracted.
+    _cell_column(_find_cell(cells, normalized_label=TABLE51_LABELS["management_holding_companies"]))
     commercial_banking_col = _cell_column(_find_cell(cells, normalized_label=TABLE51_LABELS["commercial_banking"]))
     try:
         depository_ref = _find_cell(cells, normalized_label=TABLE51_LABELS["depository_credit_intermediation"])

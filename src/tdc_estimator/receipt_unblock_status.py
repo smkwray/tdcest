@@ -135,8 +135,6 @@ def build_receipt_unblock_status(
                 }
             )
 
-    mrv_checklist = row_mrv_promotion_checklist.copy() if row_mrv_promotion_checklist is not None else pd.DataFrame()
-    mrv_source_map = row_mrv_source_map.copy() if row_mrv_source_map is not None else pd.DataFrame()
     mrv_stop_gate = row_mrv_stop_gate.copy() if row_mrv_stop_gate is not None else pd.DataFrame()
     review = receipt_promotion_review.copy() if receipt_promotion_review is not None else pd.DataFrame()
 

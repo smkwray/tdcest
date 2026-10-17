@@ -299,7 +299,7 @@ const METHOD_PLAIN_FORMULAS = {
 
 const REPO_URL = "https://github.com/smkwray/tdcest";
 const LICENSE_NAME = "MIT";
-const AUTHOR_NAME = "Shane Wray";
+const AUTHOR_NAME = "smkwray";
 
 const formatMillions = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "n/a";

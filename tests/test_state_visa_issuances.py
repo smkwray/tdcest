@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from zipfile import ZipFile
 
-import pandas as pd
 
 from tdc_estimator.state_visa_issuances import (
     _sum_issuance_column,

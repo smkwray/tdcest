@@ -43,7 +43,6 @@ def build_workstream_end_state_map(
 
     receipt = receipt_unblock_status.copy() if receipt_unblock_status is not None else pd.DataFrame()
     bank_gate = bank_receipt_stop_gate.copy() if bank_receipt_stop_gate is not None else pd.DataFrame()
-    row_gate = row_mrv_stop_gate.copy() if row_mrv_stop_gate is not None else pd.DataFrame()
     monetary_pref = monetary_target_preference_review.copy() if monetary_target_preference_review is not None else pd.DataFrame()
     monetary_stop = monetary_bank_liquid_stop_gate.copy() if monetary_bank_liquid_stop_gate is not None else pd.DataFrame()
     fiscal_quality = fiscal_source_quality.copy() if fiscal_source_quality is not None else pd.DataFrame()
@@ -53,7 +52,6 @@ def build_workstream_end_state_map(
     row_mrv = _get_row(receipt, "branch_key", "row_mrv_cbsp_primary")
     row_secondary = _get_row(receipt, "branch_key", "row_secondary_state_visa")
     bank_gate_summary = _get_row(bank_gate, "check_name", "overall_stop_decision")
-    row_gate_summary = _get_row(row_gate, "check_name", "overall_stop_decision")
     monetary_pref_summary = pd.Series(dtype="object")
     if not monetary_pref.empty:
         monetary_pref_summary = monetary_pref.iloc[-1]

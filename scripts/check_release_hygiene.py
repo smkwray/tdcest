@@ -80,6 +80,8 @@ def main() -> int:
             continue
         if any(rel.startswith(prefix) for prefix in DISALLOWED_TRACKED_PREFIXES):
             failures.append(f"tracked generated/internal path: {rel}")
+        if any(part in LOCAL_STATE_NAMES for part in Path(rel).parts):
+            failures.append(f"tracked env/cache path: {rel}")
 
     for rel in tracked:
         if rel in TEXT_MARKER_ALLOWLIST:
@@ -91,14 +93,6 @@ def main() -> int:
         for marker in TEXT_MARKERS:
             if marker in text:
                 failures.append(f"tracked text marker {marker!r}: {rel}")
-
-    for path in ROOT.rglob("*"):
-        if path == ROOT:
-            continue
-        if ".git" in path.parts:
-            continue
-        if path.name in LOCAL_STATE_NAMES and path.exists():
-            failures.append(f"repo-local env/cache path exists: {path.relative_to(ROOT)}")
 
     if failures:
         print("Release hygiene check failed:")

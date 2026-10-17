@@ -135,7 +135,6 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
     loans_and_leases_bank_credit = 6200 + np.cumsum(rng.normal(28, 10, m))
     treasury_agency_non_mbs_bank_securities = 1200 + np.cumsum(rng.normal(2, 8, m))
     securities_in_bank_credit = treasury_agency_non_mbs_bank_securities + 900 + np.cumsum(rng.normal(4, 6, m))
-    bank_credit = loans_and_leases_bank_credit + securities_in_bank_credit
     _write_series(raw_dir / "fred__m2.csv", monthly, m2)
     _write_series(raw_dir / "fred__currency.csv", monthly, currency)
     _write_series(raw_dir / "fred__retail_money_market_funds.csv", monthly, retail_money_market_funds)

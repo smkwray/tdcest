@@ -110,10 +110,12 @@ def test_historical_parity_rejects_denominator_change():
     frame = pd.DataFrame([dict(date=d, sector_group=s, component_key=c, **{k: 1.0 for k in PARITY_COLUMNS})
         for d in DATES for s in SECTOR_GROUPS for c in ["coupon_accrual", "bill_amortized_discount", "frn_accrued_interest"]])
     assert assert_baseline_parity(frame, frame)["rows"] == 144
-    changed = frame.copy(); changed.loc[0, "denominator_raw_weight_mil"] = 2
+    changed = frame.copy()
+    changed.loc[0, "denominator_raw_weight_mil"] = 2
     with pytest.raises(ValueError, match="denominator_raw_weight"):
         assert_baseline_parity(frame, changed)
-    missing = frame.copy(); missing.loc[0, "fed_exact_component_mil"] = np.nan
+    missing = frame.copy()
+    missing.loc[0, "fed_exact_component_mil"] = np.nan
     assert assert_baseline_parity(missing, missing)["matched_missing_cells"]["fed_exact_component_mil"] == 1
     with pytest.raises(ValueError, match="missingness differs"):
         assert_baseline_parity(frame, missing)

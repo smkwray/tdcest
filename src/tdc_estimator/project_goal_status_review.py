@@ -51,7 +51,6 @@ def build_project_goal_status_review(
     corr = corrections.copy() if corrections is not None else pd.DataFrame()
 
     bank_receipts = _get_row(receipt, "branch_key", "bank_table51_current_window")
-    bank_hist = _get_row(receipt, "branch_key", "bank_table51_historical_window")
     row_receipts = _get_row(receipt, "branch_key", "row_mrv_cbsp_primary")
     bank_hist_push = _get_row(workstreams, "workstream_key", "bank_receipt_historical_window")
     row_mrv_push = _get_row(workstreams, "workstream_key", "row_mrv_primary_pilot")
@@ -60,7 +59,6 @@ def build_project_goal_status_review(
     monetary_stop_summary = _get_row(monetary_stop, "check_name", "overall_stop_decision")
 
     tier2_live = "tdc_tier2_interest_corrected_bank_only_ru_flow" in est.columns
-    tier3_live = "tdc_tier3_fiscal_corrected_bank_only_ru_flow" in est.columns
     bank_outlay_live = "tier3_bank_noninterest_outlay_correction" in corr.columns
     row_outlay_live = "tier3_row_noninterest_outlay_correction" in corr.columns
     bank_coupon_live = "tier2_bank_coupon_correction" in corr.columns

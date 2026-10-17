@@ -147,7 +147,6 @@ def build_downstream_estimator_contract(
     work_fiscal = _get_row(workstreams, "workstream_key", "fiscal_reconciliation_shell")
     work_monetary = _get_row(workstreams, "workstream_key", "monetary_branch")
     latest_hist = _get_row(research, "comparison_key", "latest_historical_bank_window")
-    latest_live = _get_row(research, "comparison_key", "latest_live_defaults")
     latest_mrv = mrv_summary.iloc[0] if not mrv_summary.empty else pd.Series(dtype="object")
     latest_monetary = (
         monetary.sort_values("latest_quarter").iloc[-1]

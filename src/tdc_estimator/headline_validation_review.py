@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -59,7 +58,6 @@ def _headline_decision(review: pd.DataFrame, *, coupon_gate_failed: bool) -> tup
     mean_abs_gap = float(review["tier3_minus_tier1_mil"].abs().mean())
     mean_coupon_share = float(review["coupon_share_of_abs_gap_pct"].dropna().mean())
     receipt_max_abs = float(review["receipt_correction_total_mil"].fillna(0.0).abs().max())
-    latest = review.iloc[-1]
 
     if mean_abs_gap > 0 and receipt_max_abs <= 0.05 * mean_abs_gap and mean_coupon_share >= 75.0:
         return (

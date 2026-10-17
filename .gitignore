@@ -3,6 +3,7 @@ CLAUDE.md
 AGENTS.md
 .worktrees/
 dist/
+build/
 output/
 .playwright-cli/
 .playwright-mcp/
@@ -48,3 +49,11 @@ data/refresh_*/
 *.plan.md
 plan.md
 plans/
+
+# Private configuration and local session state
+.env.*
+.private-denylist
+.*-private-denylist
+.codex/
+.claude/
+.cursor/

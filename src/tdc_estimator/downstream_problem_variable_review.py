@@ -74,7 +74,6 @@ def build_downstream_problem_variable_review(
 
     row_coupon = _latest_quality_row(quality, "rest of the world")
     fed_coupon = _latest_quality_row(quality, "Exact SOMA-based Treasury coupon-interest correction")
-    bank_coupon = _latest_quality_row(quality, "default bank perimeter")
     row_outlay = _latest_quality_row(quality, "Current default narrow ROW noninterest-outlay correction")
     bank_outlay = _latest_quality_row(quality, "Current default bank noninterest-outlay correction")
 

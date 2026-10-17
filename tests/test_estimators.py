@@ -72,10 +72,6 @@ def test_base_estimator_formula_and_credit_union_ladder():
         expected_tier2_broad_np[0] - 0.2,
         expected_tier2_broad_np[1] - 0.25,
     )
-    expected_tier2_domestic = (
-        expected_tier1_domestic[0] - 0.7,
-        expected_tier1_domestic[1] - 0.9,
-    )
     expected_tier2_component_bank_only = (
         expected_tier1_bank_only[0] - 0.8 - 1.2,
         expected_tier1_bank_only[1] - 1.0 - 1.5,

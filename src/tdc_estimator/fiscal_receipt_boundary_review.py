@@ -77,11 +77,9 @@ def build_fiscal_receipt_boundary_review(
         row_mrv_nondefault_evidence_summary.copy() if row_mrv_nondefault_evidence_summary is not None else pd.DataFrame()
     )
 
-    bank_hist = _get_row(receipt, "branch_key", "bank_table51_historical_window")
     bank_current = _get_row(receipt, "branch_key", "bank_table51_current_window")
     row_mrv = _get_row(receipt, "branch_key", "row_mrv_cbsp_primary")
     latest_hist = _get_row(research, "comparison_key", "latest_historical_bank_window")
-    latest_live = _get_row(research, "comparison_key", "latest_live_defaults")
     hist_gap = _get_row(gap, "gap_key", "latest_historical_bank_receipt_overlay")
     mrv_state = mrv_summary.iloc[0] if not mrv_summary.empty else pd.Series(dtype="object")
     historical_default = pd.to_numeric(latest_hist.get("tier3_bank_only_mil"), errors="coerce")

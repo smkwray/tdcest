@@ -55,19 +55,10 @@ def build_downstream_ingest_manifest(
     downstream_deposit_effect_series_panel: pd.DataFrame | None,
     downstream_deposit_effect_comparison_panel: pd.DataFrame | None,
 ) -> pd.DataFrame:
-    contract = downstream_estimator_contract.copy() if downstream_estimator_contract is not None else pd.DataFrame()
     use_cases = (
         downstream_deposit_effect_use_case_review.copy()
         if downstream_deposit_effect_use_case_review is not None
         else pd.DataFrame()
-    )
-    problems = (
-        downstream_problem_variable_review.copy()
-        if downstream_problem_variable_review is not None
-        else pd.DataFrame()
-    )
-    receipt_boundary = (
-        fiscal_receipt_boundary_review.copy() if fiscal_receipt_boundary_review is not None else pd.DataFrame()
     )
     goals = project_goal_status_review.copy() if project_goal_status_review is not None else pd.DataFrame()
     unblock = receipt_unblock_status.copy() if receipt_unblock_status is not None else pd.DataFrame()
@@ -89,9 +80,6 @@ def build_downstream_ingest_manifest(
     bank_branch = _get_row(unblock, "branch_key", "bank_table51_current_window")
     current_headline = _get_row(use_cases, "use_case_key", "current_quarter_bank_only_headline")
     historical_backtest = _get_row(use_cases, "use_case_key", "historical_bank_receipt_backtest")
-    row_sensitivity = _get_row(use_cases, "use_case_key", "current_row_receipt_sensitivity")
-    perimeter_use = _get_row(use_cases, "use_case_key", "deposit_perimeter_comparison")
-    monetary_use = _get_row(use_cases, "use_case_key", "monetary_crosscheck_and_problem_variable_audit")
 
     latest_series_date = (
         pd.to_datetime(series_panel["date"], errors="coerce").max()

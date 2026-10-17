@@ -5,7 +5,6 @@ import pandas as pd
 from .catalog import (
     BANK_DEPOSITORY_LEVEL_KEYS,
     BANK_DEPOSITORY_TX_KEYS,
-    CU_COMPONENT_LEVEL_KEYS,
     CU_COMPONENT_TX_KEYS,
 )
 

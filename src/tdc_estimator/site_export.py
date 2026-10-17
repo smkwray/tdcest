@@ -229,20 +229,10 @@ def export_site_bundle(
 
     latest_date = estimates.index.max()
     latest_methods = {}
-    latest_components = {}
-    latest_corrections = {}
     if pd.notna(latest_date):
         latest_methods = {
             col: round_if_number(estimates.loc[latest_date, col], 3)
             for col in estimates.columns
-        }
-        latest_components = {
-            col: round_if_number(components.loc[latest_date, col], 3)
-            for col in components.columns
-        }
-        latest_corrections = {
-            col: round_if_number(corrections.loc[latest_date, col], 3)
-            for col in corrections.columns
         }
 
     summary_payload = {

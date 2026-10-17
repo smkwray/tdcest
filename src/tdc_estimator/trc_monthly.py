@@ -74,6 +74,9 @@ def build_monthly(weekly: pd.DataFrame, fund_month: pd.DataFrame) -> pd.DataFram
     out.loc[~complete, ["trc_core", "trc_par_sensitivity"]] = np.nan
     if not out["weeks"].between(4, 5).all():
         raise ValueError("every month must hold four or five Wednesdays")
+    levels = out[["reserve_balances_start", "reserve_balances_end", "delta_reserve_balances"]]
+    if not np.isfinite(levels.to_numpy(dtype=float)).all():
+        raise ValueError(f"missing reserve levels or changes in {[str(m) for m in levels.index[~np.isfinite(levels.to_numpy(dtype=float)).all(axis=1)]]}")
     level_gap = (out["reserve_balances_end"] - out["reserve_balances_start"] - out["delta_reserve_balances"]).abs()
     if level_gap.max() > 1e-6:
         raise ValueError(f"weekly reserve changes do not sum to the monthly level change (max gap {level_gap.max()})")
@@ -84,7 +87,16 @@ def build_monthly(weekly: pd.DataFrame, fund_month: pd.DataFrame) -> pd.DataFram
     for key in ROUTES:
         column = f"mmf_route_{key}"
         out.loc[~active, column] = 0.0
+    filed = out.index[active & out["mmf_route_prop"].notna()]
+    if len(filed):
+        interior = active & (out.index <= filed.max()) & out["mmf_route_prop"].isna()
+        if interior.any():
+            raise ValueError(f"money-fund route missing inside the filed span: {[str(m) for m in out.index[interior]]}")
     out.loc[active & out["mmf_route_prop"].isna(), "mmf_route_status"] = "unavailable_after_last_filed_month"
+    # Same convention as the quarterly producer: a missing lower bound with zero central and upper values is zero.
+    implied = active & out["mmf_route_lb"].isna() & out["mmf_route_prop"].eq(0.0) & out["mmf_route_ub"].eq(0.0)
+    out.loc[implied, "mmf_route_lb"] = 0.0
+    out.loc[implied, "mmf_route_status"] = "observed_one_sided_lb_implied_by_zero_ub"
     out["trc_preferred"] = out["trc_core"] + out["mmf_route_prop"]
     out["trc_mmf_lower"] = out["trc_core"] + out["mmf_route_lb"]
     out["trc_mmf_upper"] = out["trc_core"] + out["mmf_route_ub"]
@@ -94,16 +106,20 @@ def build_monthly(weekly: pd.DataFrame, fund_month: pd.DataFrame) -> pd.DataFram
                                     end_wednesday=lambda f: f["end_wednesday"].dt.date.astype(str))
 
 
-def quarterly_route_check(monthly: pd.DataFrame, quarterly: pd.DataFrame) -> float:
-    """Monthly route terms summed by calendar quarter must equal the quarterly preferred-TRC route term."""
+def quarterly_route_check(monthly: pd.DataFrame, quarterly: pd.DataFrame) -> dict:
+    """Every quarter with three filed months must have a finite quarterly route term equal to their sum."""
     m = monthly.set_index(pd.PeriodIndex(monthly["month"], freq="M"))["mmf_route_prop"].dropna()
+    counts = pd.Series(m.index.asfreq("Q")).value_counts()
+    expected = sorted(counts.index[counts == 3])
     by_quarter = m.groupby(m.index.asfreq("Q")).sum()
     q = quarterly.set_index(pd.PeriodIndex(quarterly["quarter"], freq="Q"))["mmf_route_prop"]
-    full = [p for p in by_quarter.index if (m.index.asfreq("Q") == p).sum() == 3 and p in q.index]
-    gap = float((by_quarter.loc[full] - q.loc[full]).abs().max())
-    if not full or gap > 1e-6:
+    absent = [str(p) for p in expected if p not in q.index or not np.isfinite(q.loc[p])]
+    if not expected or absent:
+        raise ValueError(f"quarterly route term missing for quarters with three filed months: {absent}")
+    gap = float((by_quarter.loc[expected] - q.loc[expected]).abs().max())
+    if gap > 1e-6:
         raise ValueError(f"monthly route terms do not reproduce the quarterly route term (max gap {gap})")
-    return gap
+    return {"quarters_reconciled": len(expected), "first": str(expected[0]), "last": str(expected[-1]), "max_gap": gap}
 
 
 def export(processed: Path, out_dir: Path) -> dict:
@@ -129,8 +145,9 @@ def export(processed: Path, out_dir: Path) -> dict:
         "clock": "last Wednesday to last Wednesday; money-fund route on the calendar month (N-MFP month-end)",
         "inputs": {name: {"sha256": _sha256(path), "bytes": path.stat().st_size} for name, path in inputs.items()},
         "outputs": {OUTPUT: {"sha256": _sha256(target), "bytes": target.stat().st_size, "rows": len(monthly)}},
-        "checks": {"weekly_reserve_sum_equals_level_change": True,
-                   "monthly_route_sums_reproduce_quarterly_route_max_gap": gap},
+        "checks": {"reserve_levels_finite_and_weekly_changes_sum_to_level_change": True,
+                   "no_missing_route_inside_filed_span": True,
+                   "monthly_route_sums_reproduce_quarterly_route": gap},
         "coverage": {"first_month": monthly["month"].iloc[0], "last_month": monthly["month"].iloc[-1],
                      "first_month_with_core": monthly.loc[monthly["trc_core"].notna(), "month"].iloc[0],
                      "last_month_with_route": monthly.loc[monthly["mmf_route_prop"].notna(), "month"].iloc[-1]},

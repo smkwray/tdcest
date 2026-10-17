@@ -60,10 +60,15 @@ def test_route_is_zero_before_on_rrp_missing_after_filings_and_added_to_core():
 
 def test_monthly_routes_must_reproduce_the_quarterly_route():
     m = tm.build_monthly(weekly(periods=40), fund_month())
-    good = pd.DataFrame({"quarter": ["2013Q4"], "mmf_route_prop": [3 * (2 + 3 + 4)]})
-    assert tm.quarterly_route_check(m, good) == pytest.approx(0.0)
+    # Q3: July and August are structural zeros, September (month index 1) is 3; Q4 is 3 * (2 + 3 + 4).
+    good = pd.DataFrame({"quarter": ["2013Q3", "2013Q4"], "mmf_route_prop": [3.0, 27.0]})
+    assert tm.quarterly_route_check(m, good)["max_gap"] == pytest.approx(0.0)
     with pytest.raises(ValueError, match="reproduce"):
         tm.quarterly_route_check(m, good.assign(mmf_route_prop=1.0))
+    with pytest.raises(ValueError, match="missing"):
+        tm.quarterly_route_check(m, good.assign(mmf_route_prop=np.nan))
+    with pytest.raises(ValueError, match="missing"):
+        tm.quarterly_route_check(m, good.iloc[:1])
 
 
 def test_duplicate_fund_months_and_gaps_are_refused():
@@ -71,3 +76,24 @@ def test_duplicate_fund_months_and_gaps_are_refused():
         tm.monthly_routes(pd.concat([fund_month(), fund_month().iloc[:1]]))
     with pytest.raises(ValueError, match="consecutive"):
         tm.build_monthly(weekly().drop(index=5), fund_month())
+
+
+def test_interior_route_gaps_and_missing_reserve_levels_are_refused():
+    """Review round 1: a missing filed month or a missing reserve level must fail, not pass the checks."""
+    gap = fund_month()
+    gap = gap[~gap["date"].str.startswith("2013-11")]
+    with pytest.raises(ValueError, match="inside the filed span"):
+        tm.build_monthly(weekly(periods=40), gap)
+    w = weekly(periods=40)
+    november = pd.to_datetime(w["date"]).dt.strftime("%Y-%m").eq("2013-11")
+    w.loc[november, ["delta_reserve_balances", "reserve_balances_start", "reserve_balances_end"]] = np.nan
+    with pytest.raises(ValueError, match="missing reserve"):
+        tm.build_monthly(w, fund_month())
+
+
+def test_missing_lower_bound_with_zero_route_is_zero():
+    fm = fund_month()
+    fm.loc[fm["date"].str.startswith("2013-09"), "mmf_rrp_adjustment_lb"] = np.nan
+    fm.loc[fm["date"].str.startswith("2013-09"), ["mmf_rrp_adjustment_prop", "mmf_rrp_adjustment_ub"]] = 0.0
+    m = tm.build_monthly(weekly(periods=40), fm).set_index("month")
+    assert m.loc["2013-09", "mmf_route_lb"] == 0.0 and m.loc["2013-09", "mmf_route_status"].endswith("implied_by_zero_ub")

@@ -86,13 +86,6 @@ ncua-credit-union-deposits:
 fdic-savings-institution-deposits:
 	$(PYTHON) scripts/build_fdic_savings_institution_deposits.py
 
-site-stage:
-	mkdir -p site/data
-	cp data/site/bundle.json site/data/bundle.json
-
-site-serve: site-stage
-	python3 -m http.server 8123
-
 release-hygiene:
 	$(PYTHON) -B scripts/check_release_hygiene.py
 

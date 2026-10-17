@@ -7,8 +7,7 @@ build/
 output/
 .playwright-cli/
 .playwright-mcp/
-site/data/*
-!site/data/bundle.json
+site/
 examples/demo_build/
 docs/frontend_agent_prompt.md
 docs/holder_maturity_project.md

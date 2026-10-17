@@ -1,6 +1,6 @@
 # Output schema
 
-The `tdc site-export` command writes a static-site-ready bundle to `site/`, including both `site/bundle.json` and `site/data/bundle.json` for the committed Pages shell.
+The output contracts cover quarterly estimates, source metadata, and local JSON bundles. Generated bundles remain local and ignored.
 
 ## Regeneration scope
 
@@ -16,7 +16,7 @@ Important boundary:
 
 ### `bundle.json`
 
-Single-file site payload including:
+Single-file JSON payload including:
 
 - `bundle_format`
 - `generated_at_utc`
@@ -29,7 +29,7 @@ Single-file site payload including:
 - `references`
 - `research`
 
-The current site bundle is `tdc_site_bundle_v4`. In addition to the core time-series payload, it now carries curated research/status tables for the static site, including:
+The bundle schema is `tdc_site_bundle_v4`. In addition to the core time-series payload, it carries research/status tables, including:
 
 - `receipt_unblock_status`
 - `receipt_account_crosswalk`
@@ -1513,12 +1513,3 @@ Key fields:
 - `tdc_tier2_regression_depository_institution_np_cu_ru_flow`
 - `tier2_regression_bank_row_method_tier`
 - `tier2_regression_di_method_tier`
-
-## Intended front-end usage
-
-The website should treat `tdc_base_bank_only_ru_flow` as the default selected method.
-
-It should also expose a high-level deposit-concept choice:
-
-- **Bank-only** → `tdc_base_bank_only_ru_flow`
-- **Broad depository** → `tdc_base_broad_depository_np_cu_ru_flow`

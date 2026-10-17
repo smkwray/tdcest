@@ -1,6 +1,6 @@
 # Treasury Deposit Component
 
-[Results site](https://smkwray.github.io/tdcest/) · [Methodology](docs/methodology.md) · [Output schema](docs/output_schema.md)
+[Methodology](docs/methodology.md) · [Output schema](docs/output_schema.md)
 
 TDCest constructs public-data proxies for the **Treasury Deposit Component (TDC)**: deposit-settlement flows attributable to Treasury cash operations and Treasury-security transactions. It combines the Federal Reserve's Financial Accounts, Treasury cash and interest data, and sector holdings information in a quarterly measurement pipeline. It also provides separate Treasury component of reserves (TRC) diagnostics.
 
@@ -53,7 +53,7 @@ This runs `scripts/build_all.py --required-only`. The public FRED graph endpoint
 "$HOME/venvs/tdcest/bin/python" scripts/build_all.py --include-treasury-support
 ```
 
-A build creates local measurement outputs. The bundled site snapshot is a separate release artifact; its coverage and provenance must be read from the bundle itself.
+A build creates local measurement outputs with their own coverage and provenance.
 
 ## Outputs
 
@@ -61,10 +61,9 @@ A build creates local measurement outputs. The bundled site snapshot is a separa
 |---|---|
 | `data/processed/tdc_downstream_handoff_bundle.json` | Entry point for local downstream analysis: estimator roles, boundaries, series and comparison snapshots |
 | `data/processed/tdc_tier2_regression_series.csv` | Long-history quarterly proxy with source and method labels |
-| `site/data/bundle.json` | Explicitly tracked snapshot consumed by the static site |
 | `examples/demo_build/` | Synthetic demonstration outputs |
 
-Raw downloads, processed tables, reports, caches, environments and demo outputs are ignored. The tracked site bundle is an intentional release exception. `tdc site-export` creates a local bundle; `make site-stage` copies it into the tracked site directory. View the existing snapshot with `python3 -m http.server 8123` and open `/site/`.
+Raw downloads, processed tables, reports, caches, environments and demo outputs are local and ignored.
 
 For a hash-bound treatment-leg decomposition, `tdc regression-leg-export --quarterly-sha256 HASH --regression-sha256 HASH` reads existing inputs from a clean committed checkout and writes a CSV plus receipt. It rejects changed inputs and reconciliation failures. The resulting accounting legs do not identify settlement routes or causal responses.
 
@@ -72,7 +71,7 @@ For a hash-bound treatment-leg decomposition, `tdc regression-leg-export --quart
 
 `tdc trc-export`, `tdc reserve-factor-ledger-export`, and `tdc weekly-trc-export` construct separate reserve-side accounting diagnostics. The weekly construction is a cash-corrected Wednesday proxy with explicit missing-data and unpriced-secondary-trade boundaries, plus route sensitivities. There is no preferred weekly series. See [weekly TRC conventions](docs/weekly_trc.md).
 
-A measurement vintage changes sample endpoints without selecting a new method. The configured default `v1` ends at 2025Q4 for quarterly exports and 2025-12-31 for weekly exports. Later vintages use a separate ignored root, such as `data/refresh_<name>/`, and an explicit `--vintage`; they do not overwrite the default inputs or establish that a bundled snapshot is current.
+A measurement vintage changes sample endpoints without selecting a new method. The configured default `v1` ends at 2025Q4 for quarterly exports and 2025-12-31 for weekly exports. Later vintages use a separate ignored root, such as `data/refresh_<name>/`, and an explicit `--vintage`; they do not overwrite the default inputs.
 
 ## Documentation
 
@@ -82,4 +81,4 @@ A measurement vintage changes sample endpoints without selecting a new method. T
 - [Interest-allocation contract](docs/wamest_interest_output_contract.md)
 - [Local development](docs/local_development.md)
 
-Source code is under `src/tdc_estimator/`, command entry points under `scripts/`, and the static frontend under `site/`. See [LICENSE](LICENSE) for reuse terms.
+Source code is under `src/tdc_estimator/` and command entry points under `scripts/`. See [LICENSE](LICENSE) for reuse terms.

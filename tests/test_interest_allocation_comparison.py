@@ -1,7 +1,10 @@
+import subprocess
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from tdc_estimator import interest_allocation_comparison
 from tdc_estimator.fed_coupon import (
     estimate_quarterly_fed_coupon_interest_from_soma_snapshots,
 )
@@ -169,7 +172,17 @@ def test_fed_partition_preserves_snapshot_grid_and_original_aggregate():
         partition_fed_schedule(raw, fed.assign(fed_tsy_coupon_interest_proxy=0))
 
 
-def test_uncommitted_producer_rejected_before_read_or_destination(tmp_path):
+def test_uncommitted_producer_rejected_before_read_or_destination(tmp_path, monkeypatch):
+    module = tmp_path / "src" / "tdc_estimator" / "interest_allocation_comparison.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("# Committed fixture producer.\n")
+    for args in (["init", "-q"], ["add", "src"], ["commit", "-qm", "Fixture producer"]):
+        subprocess.run(
+            ["git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+             "-c", "core.hooksPath=/dev/null", *args],
+            cwd=tmp_path, check=True,
+        )
+    monkeypatch.setattr(interest_allocation_comparison, "__file__", str(module))
     output = tmp_path / "output"
     with pytest.raises(ValueError, match="committed producer"):
         run(tmp_path / "missing-plan.json", output, "invalid")

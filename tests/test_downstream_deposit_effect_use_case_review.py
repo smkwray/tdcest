@@ -18,9 +18,15 @@ def test_downstream_deposit_effect_use_case_review_maps_core_questions() -> None
             },
             {
                 "artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
-                "default_classification": "headline_default",
+                "default_classification": "ladder_row",
                 "latest_reference_date": "2025-12-31",
                 "latest_value_millions": 42.0,
+            },
+            {
+                "artifact_key": "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow",
+                "default_classification": "headline_default",
+                "latest_reference_date": "2025-12-31",
+                "latest_value_millions": 39.0,
             },
             {
                 "artifact_key": "bank_receipt_historical_default_view",
@@ -128,14 +134,16 @@ def test_downstream_deposit_effect_use_case_review_maps_core_questions() -> None
     )
 
     keys = set(frame["use_case_key"])
-    assert "current_quarter_bank_only_headline" in keys
+    assert "current_quarter_headline" in keys
     assert "historical_bank_receipt_backtest" in keys
     assert "current_row_receipt_sensitivity" in keys
     assert "deposit_perimeter_comparison" in keys
     assert "monetary_crosscheck_and_problem_variable_audit" in keys
 
-    live = frame.loc[frame["use_case_key"].eq("current_quarter_bank_only_headline")].iloc[0]
-    assert live["primary_artifact_key"] == "tdc_tier2_interest_corrected_bank_only_ru_flow"
+    live = frame.loc[frame["use_case_key"].eq("current_quarter_headline")].iloc[0]
+    assert live["primary_artifact_key"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
+    assert live["primary_role"] == "headline_default"
+    assert live["primary_latest_value_millions"] == 39.0
     assert live["comparison_artifact_key"] == "tdc_tier3_fiscal_corrected_bank_only_ru_flow"
     assert live["readiness_status"] == "headline_default_tier3_diagnostic_only"
     assert live["dominant_problem_variable_family"] == "interest_cleanup"

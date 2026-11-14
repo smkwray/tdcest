@@ -32,6 +32,16 @@ def _from_date(series: pd.Series, start: str) -> pd.Series:
     return out
 
 
+# The one headline series. It exists only when component-anchored interest support
+# covers banks, the rest of the world and credit unions and the MMF/ON RRP support is
+# present; it is never filled from the H.15 coupon-only rows.
+CANONICAL_TIER2_METHOD = "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
+CANONICAL_TIER2_REQUIREMENT = (
+    "component-anchored Treasury interest support for banks, the rest of the world and credit unions, "
+    "plus the MMF fund-month support file"
+)
+
+
 def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     remit = quarterly["fed_remit_or_deferred"] if "fed_remit_or_deferred" in quarterly.columns else pd.Series(dtype="float64")
     tx_start = (
@@ -295,10 +305,6 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
                     estimates[f"tdc_tier2_mmf_rrp_{suffix}_depository_institution_np_cu_ru_flow"] = estimates[
                         f"tdc_tier2_h15_mmf_rrp_{suffix}_depository_institution_np_cu_ru_flow"
                     ]
-                    if suffix == "prop":
-                        estimates["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"] = estimates[
-                            "tdc_tier2_h15_mmf_rrp_prop_depository_institution_np_cu_ru_flow"
-                        ]
                 estimates[f"tdc_tier2_mmf_rrp_{suffix}_bank_only_ru_flow"] = estimates[
                     f"tdc_tier2_h15_mmf_rrp_{suffix}_bank_only_ru_flow"
                 ]
@@ -433,7 +439,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
                         f"tdc_tier2_component_anchored_mmf_rrp_{suffix}_depository_institution_np_cu_ru_flow"
                     ]
                     if suffix == "prop":
-                        estimates["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"] = estimates[
+                        estimates[CANONICAL_TIER2_METHOD] = estimates[
                             "tdc_tier2_component_anchored_mmf_rrp_prop_depository_institution_np_cu_ru_flow"
                         ]
                 estimates[f"tdc_tier2_mmf_rrp_{suffix}_bank_only_ru_flow"] = estimates[
@@ -776,21 +782,18 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         "tdc_base_broad_depository_np_cu_ru_flow"
     ]
 
+    canonical_available = CANONICAL_TIER2_METHOD in estimates.columns
     metadata = {
-        "preferred_method": "tdc_base_bank_only_ru_flow",
-        "canonical_tier2_method": (
-            "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
-            if "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow" in estimates.columns
-            else "tdc_tier2_interest_corrected_bank_only_ru_flow"
+        "preferred_method": CANONICAL_TIER2_METHOD if canonical_available else None,
+        "canonical_tier2_method": CANONICAL_TIER2_METHOD if canonical_available else None,
+        "canonical_tier2_status": (
+            "available"
+            if canonical_available
+            else f"unavailable: requires {CANONICAL_TIER2_REQUIREMENT}"
         ),
-        "preferred_methods_by_deposit_concept": {
+        "ladder_inputs_by_deposit_concept": {
             "bank_only": "tdc_base_bank_only_ru_flow",
             "broad_depository": "tdc_base_broad_depository_np_cu_ru_flow",
-            "canonical_tier2": (
-                "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
-                if "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow" in estimates.columns
-                else "tdc_tier2_interest_corrected_bank_only_ru_flow"
-            ),
         },
         "available_methods": list(estimates.columns),
         "estimator_ladder": {

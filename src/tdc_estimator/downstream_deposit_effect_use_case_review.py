@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from .estimators import CANONICAL_TIER2_METHOD
+
+
 
 USE_CASE_COLUMNS = [
     "use_case_key",
@@ -58,7 +61,7 @@ def build_downstream_deposit_effect_use_case_review(
     receipt = fiscal_receipt_boundary_review.copy() if fiscal_receipt_boundary_review is not None else pd.DataFrame()
     goals = project_goal_status_review.copy() if project_goal_status_review is not None else pd.DataFrame()
 
-    tier2_bank = _get_row(contract, "artifact_key", "tdc_tier2_interest_corrected_bank_only_ru_flow")
+    canonical = _get_row(contract, "artifact_key", CANONICAL_TIER2_METHOD)
     bank_hist = _get_row(contract, "artifact_key", "bank_receipt_historical_default_view")
     row_mrv = _get_row(contract, "artifact_key", "row_mrv_primary_nondefault_pilot")
     broad_tier3 = _get_row(contract, "artifact_key", "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow")
@@ -78,22 +81,22 @@ def build_downstream_deposit_effect_use_case_review(
 
     rows = [
         {
-            "use_case_key": "current_quarter_bank_only_headline",
-            "target_question": "Best current-quarter bank-only TDC for downstream deposit-effect analysis.",
-            "primary_artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
-            "primary_role": str(tier2_bank.get("default_classification", "headline_default")),
+            "use_case_key": "current_quarter_headline",
+            "target_question": "Best current-quarter TDC for downstream deposit-effect analysis.",
+            "primary_artifact_key": CANONICAL_TIER2_METHOD,
+            "primary_role": str(canonical.get("default_classification", "headline_default")),
             "comparison_artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
             "readiness_status": "headline_default_tier3_diagnostic_only",
-            "primary_latest_reference_date": pd.to_datetime(tier2_bank.get("latest_reference_date"), errors="coerce"),
-            "primary_latest_value_millions": pd.to_numeric(tier2_bank.get("latest_value_millions"), errors="coerce"),
+            "primary_latest_reference_date": pd.to_datetime(canonical.get("latest_reference_date"), errors="coerce"),
+            "primary_latest_value_millions": pd.to_numeric(canonical.get("latest_value_millions"), errors="coerce"),
             "dominant_problem_variable_key": str(gap_interest.get("dominant_component_key", "n/a")),
             "dominant_problem_variable_family": str(gap_interest.get("dominant_component_family", "n/a")),
             "binding_boundary": (
                 f"bank_live_default_receipt_cell={bank_live_cell.get('binding_blocker', 'n/a')}; "
                 f"row_live_default_receipt_cell={row_live_cell.get('binding_blocker', 'n/a')}"
             ),
-            "fallback_artifacts": "tdc_base_bank_only_ru_flow;tdc_tier3_fiscal_corrected_bank_only_ru_flow;tdc_fiscal_receipt_boundary_review",
-            "recommended_reading": "Use Tier 2 as the corrected headline; read Tier 3 as a partial fiscal-shell diagnostic beside the receipt boundary review.",
+            "fallback_artifacts": "tdc_tier2_interest_corrected_bank_only_ru_flow;tdc_base_bank_only_ru_flow;tdc_tier3_fiscal_corrected_bank_only_ru_flow;tdc_fiscal_receipt_boundary_review",
+            "recommended_reading": "Use the canonical Tier 2 row as the headline; read Tier 3 as a partial fiscal-shell diagnostic beside the receipt boundary review.",
             "summary_note": str(
                 fiscal_goal.get(
                     "summary_note",

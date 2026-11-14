@@ -9,6 +9,7 @@ def test_downstream_estimator_contract_builds_key_rows():
     index = pd.to_datetime(["2025-12-31"])
     estimates = pd.DataFrame(
         {
+            "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow": [78.0],
             "tdc_base_bank_only_ru_flow": [100.0],
             "tdc_tier2_interest_corrected_bank_only_ru_flow": [80.0],
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow": [75.0],
@@ -140,8 +141,14 @@ def test_downstream_estimator_contract_builds_key_rows():
     assert contract["latest_reference_date"].astype(str).str.contains("T").sum() == 0
     tier2 = contract.loc[contract["artifact_key"].eq("tdc_tier2_interest_corrected_bank_only_ru_flow")].iloc[0]
     tier3 = contract.loc[contract["artifact_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[0]
-    assert tier2["default_classification"] == "headline_default"
+    assert tier2["default_classification"] == "ladder_row"
     assert tier3["default_classification"] == "diagnostic_outlay_only_partial_shell"
+    # One headline: every consumer pointer resolves to the canonical row.
+    headline = contract.loc[contract["default_classification"].eq("headline_default")]
+    assert headline["artifact_key"].tolist() == ["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"]
+    assert headline["current_role"].tolist() == ["canonical_headline"]
+    assert headline["deposit_scope"].tolist() == ["depository_institution"]
+    assert headline["latest_value_millions"].tolist() == [78.0]
     assert tier3["current_role"] == "partial_fiscal_shell_diagnostic"
 
 

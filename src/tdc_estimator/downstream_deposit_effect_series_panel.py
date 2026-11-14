@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .estimators import CANONICAL_TIER2_METHOD
+
 
 PANEL_COLUMNS = [
     "date",
@@ -112,11 +114,22 @@ def build_downstream_deposit_effect_series_panel(
 
     base_specs = [
         (
+            CANONICAL_TIER2_METHOD,
+            "estimator_series",
+            "current_quarter_headline",
+            "canonical_headline",
+            "headline_default",
+            "depository_institution",
+            False,
+            False,
+            "Canonical Tier 2 headline for current-quarter downstream deposit-effect work.",
+        ),
+        (
             "tdc_base_bank_only_ru_flow",
             "estimator_series",
-            "current_quarter_bank_only_headline",
-            "headline_anchor",
-            "headline_default",
+            "ladder_comparison",
+            "ladder_input",
+            "ladder_input",
             "bank_only",
             False,
             False,
@@ -125,13 +138,13 @@ def build_downstream_deposit_effect_series_panel(
         (
             "tdc_tier2_interest_corrected_bank_only_ru_flow",
             "estimator_series",
-            "current_quarter_bank_only_headline",
-            "working_corrected_headline",
-            "headline_default",
+            "ladder_comparison",
+            "bank_only_ladder_row",
+            "ladder_row",
             "bank_only",
             False,
             False,
-            "Tier 2 corrected headline used for current-quarter downstream deposit-effect work.",
+            "Bank-only interest-corrected ladder row without the MMF/ON RRP adjustment.",
         ),
         (
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow",

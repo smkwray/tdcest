@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from .estimators import CANONICAL_TIER2_METHOD
+
 
 CONTRACT_COLUMNS = [
     "artifact_key",
@@ -159,16 +161,22 @@ def build_downstream_estimator_contract(
 
     for key, role, default_classification, best_use in [
         (
+            CANONICAL_TIER2_METHOD,
+            "canonical_headline",
+            "headline_default",
+            "Canonical quarterly TDC: component-anchored Tier 2 interest correction on the depository-institution perimeter plus the proportional MMF/ON RRP adjustment. Use this row as the headline.",
+        ),
+        (
             "tdc_base_bank_only_ru_flow",
-            "headline_estimator",
-            "base_headline_default",
-            "Base bank-only TDC estimate and anchor for raw-vs-corrected comparisons.",
+            "ladder_input",
+            "ladder_input",
+            "Uncorrected bank-only baseline and anchor for raw-versus-corrected comparisons.",
         ),
         (
             "tdc_tier2_interest_corrected_bank_only_ru_flow",
-            "working_corrected_headline",
-            "headline_default",
-            "Primary corrected bank-only TDC estimate for downstream deposit-effect work.",
+            "bank_only_ladder_row",
+            "ladder_row",
+            "Bank-only Tier 2 interest-corrected row without the MMF/ON RRP adjustment; a perimeter and adjustment comparison for the canonical row.",
         ),
         (
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
@@ -180,12 +188,14 @@ def build_downstream_estimator_contract(
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow",
             "broad_depository_partial_shell_diagnostic",
             "diagnostic_broad_depository_partial_shell",
-            "Broad-depository perimeter comparison around the partial fiscal shell; keep Tier 2 as the corrected headline anchor.",
+            "Broad-depository perimeter comparison around the partial fiscal shell; keep the canonical Tier 2 row as the headline.",
         ),
     ]:
         latest_date, latest_value = _latest_value(estimates, key)
         classification = default_classification
         binding_blocker = "none" if "tdc_tier3_fiscal_corrected" not in key else "receipt_side_completion"
+        if key == CANONICAL_TIER2_METHOD and latest_value is None:
+            binding_blocker = "component_interest_support_missing"
         main_known_boundary = (
             "Receipt-side default corrections remain missing/not measured; bank current quarters stay nondefault and MRV stays nondefault, so this is a partial shell."
             if "tdc_tier3_fiscal_corrected" in key
@@ -197,14 +207,17 @@ def build_downstream_estimator_contract(
             else "Maintain as comparison anchor."
         )
         summary_note = method_descriptions.get(key, "")
-        if key == "tdc_base_bank_only_ru_flow":
-            summary_note = "Base bank-only anchor for raw ladder comparisons; Tier 2 is the working corrected headline."
+        if key == CANONICAL_TIER2_METHOD:
+            summary_note = "Canonical headline. Empty in quarters that component-anchored interest support does not reach."
+        elif key == "tdc_base_bank_only_ru_flow":
+            summary_note = "Base bank-only anchor for raw ladder comparisons; the canonical Tier 2 row is the headline."
         elif key == "tdc_tier2_interest_corrected_bank_only_ru_flow":
-            summary_note = "Working corrected headline. Coupon-cleaned bank-only TDC remains the default downstream anchor while Tier 3 receipts are unresolved."
+            summary_note = "Bank-only interest-corrected ladder row; excludes the MMF/ON RRP adjustment and credit unions."
         elif "tdc_tier3_fiscal_corrected" in key:
             summary_note = "Tier 3 partial fiscal shell. Outlays and Mint are wired, but bank and ROW receipts remain missing/not measured default cells, so this is diagnostic only."
 
         if coupon_gate["failed"] and key in {
+            CANONICAL_TIER2_METHOD,
             "tdc_tier2_interest_corrected_bank_only_ru_flow",
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow",
@@ -226,7 +239,11 @@ def build_downstream_estimator_contract(
                 "artifact_family": "estimator_series",
                 "current_role": role,
                 "default_classification": classification,
-                "deposit_scope": "bank_only" if "broad_depository" not in key else "broad_depository",
+                "deposit_scope": (
+                    "depository_institution"
+                    if "depository_institution" in key
+                    else ("broad_depository" if "broad_depository" in key else "bank_only")
+                ),
                 "counterparty_scope": "bank_plus_row_transaction_flow",
                 "time_scope": "transaction_era_quarterly",
                 "latest_reference_date": latest_date,
@@ -234,7 +251,7 @@ def build_downstream_estimator_contract(
                 "strongest_supporting_surface": "tdc_estimates.csv",
                 "core_equation_or_claim": method_formulas.get(key, method_descriptions.get(key, "")),
                 "best_downstream_use": best_use,
-                "comparison_anchor": "Use Tier 2 as the corrected headline anchor; compare Tier 3 partial-shell and historical receipt overlays to isolate where fiscal assumptions move TDC.",
+                "comparison_anchor": "Use the canonical Tier 2 row as the headline; compare Tier 3 partial-shell and historical receipt overlays to isolate where fiscal assumptions move TDC.",
                 "binding_blocker": binding_blocker,
                 "main_known_boundary": main_known_boundary,
                 "next_finite_push": next_finite_push,

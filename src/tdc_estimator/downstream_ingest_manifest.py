@@ -78,7 +78,7 @@ def build_downstream_ingest_manifest(
     fiscal_goal = _get_row(goals, "goal_key", "fiscal_flow_tdc_equation")
     row_branch = _get_row(unblock, "branch_key", "row_mrv_cbsp_primary")
     bank_branch = _get_row(unblock, "branch_key", "bank_table51_current_window")
-    current_headline = _get_row(use_cases, "use_case_key", "current_quarter_bank_only_headline")
+    current_headline = _get_row(use_cases, "use_case_key", "current_quarter_headline")
     historical_backtest = _get_row(use_cases, "use_case_key", "historical_bank_receipt_backtest")
 
     latest_series_date = (

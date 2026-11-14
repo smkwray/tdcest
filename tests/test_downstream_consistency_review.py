@@ -8,8 +8,8 @@ from tdc_estimator.downstream_consistency_review import build_downstream_consist
 def test_downstream_consistency_review_passes_when_contract_and_panels_align() -> None:
     bundle = {
         "summary": {
-            "current_bank_headline_latest_date": "2025-12-31",
-            "current_bank_headline_latest_value_millions": -40.0,
+            "canonical_headline_latest_date": "2025-12-31",
+            "canonical_headline_latest_value_millions": -61.0,
             "historical_bank_overlay_latest_date": "2024-12-31",
             "historical_bank_overlay_latest_value_millions": 103.0,
             "row_mrv_latest_date": "2025-09-30",
@@ -56,6 +56,11 @@ def test_downstream_consistency_review_passes_when_contract_and_panels_align() -
     contract = pd.DataFrame(
         [
             {
+                "artifact_key": "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow",
+                "latest_reference_date": "2025-12-31",
+                "latest_value_millions": -61.0,
+            },
+            {
                 "artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
                 "latest_reference_date": "2025-12-31",
                 "latest_value_millions": -40.0,
@@ -85,8 +90,8 @@ def test_downstream_consistency_review_passes_when_contract_and_panels_align() -
     use_cases = pd.DataFrame(
         [
             {
-                "use_case_key": "current_quarter_bank_only_headline",
-                "primary_artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
+                "use_case_key": "current_quarter_headline",
+                "primary_artifact_key": "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow",
                 "comparison_artifact_key": "tdc_tier2_interest_corrected_bank_only_ru_flow",
             },
             {

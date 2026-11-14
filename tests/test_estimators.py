@@ -232,9 +232,13 @@ def test_base_estimator_formula_and_credit_union_ladder():
     assert round(corrections.loc[idx[1], "tdc_tier3_bank_only_delta_from_tier2"], 6) == -0.58
     assert round(components.loc[idx[0], "credit_unions_total_tsy_tx_reconstructed"], 6) == 3.9
     assert round(components.loc[idx[1], "credit_unions_total_tsy_tx_reconstructed"], 6) == 5.4
-    assert meta["preferred_method"] == "tdc_base_bank_only_ru_flow"
+    assert meta["preferred_method"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
     assert meta["canonical_tier2_method"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
-    assert meta["preferred_methods_by_deposit_concept"]["canonical_tier2"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
+    assert meta["canonical_tier2_status"] == "available"
+    assert meta["ladder_inputs_by_deposit_concept"] == {
+        "bank_only": "tdc_base_bank_only_ru_flow",
+        "broad_depository": "tdc_base_broad_depository_np_cu_ru_flow",
+    }
     assert meta["cash_term"]["transaction_series_key"] == "treasury_operating_cash_tx"
     assert meta["cash_term"]["diagnostic_only_series"] == ["tga_weekly"]
     assert "Tax and Loan" in meta["cash_term"]["historical_treatment"]
@@ -375,3 +379,39 @@ def test_transaction_history_starts_2002q1_when_mts_remittance_backfill_is_avail
 
     assert round(estimates.loc[idx[0], "tdc_base_bank_only_ru_flow"], 6) == 58.5
     assert meta["historical_backfill"]["transaction_history_starts"] == "2002-03-31"
+
+
+def test_canonical_row_is_never_filled_from_h15_coupon_only_rows():
+    # Without component-anchored interest support the H.15 path still builds its
+    # coupon-only DI + MMF rows, but those omit bill discount and FRN interest. The
+    # canonical row and the headline pointers must stay empty rather than relabel them.
+    idx = pd.to_datetime(["2024-03-31", "2024-06-30"])
+    quarterly = pd.DataFrame(
+        {
+            "fed_tsy_tx": [10.0, 12.0],
+            "us_chartered_tsy_tx": [20.0, 25.0],
+            "foreign_offices_tsy_tx": [1.0, 2.0],
+            "affiliated_areas_tsy_tx": [0.5, 0.5],
+            "np_credit_unions_tsy_tx": [3.0, 4.0],
+            "corp_credit_unions_tsy_tx": [0.8, 1.2],
+            "ncua_capitalization_deposit_tx": [0.1, 0.2],
+            "row_tsy_tx": [30.0, 28.0],
+            "treasury_operating_cash_tx": [5.0, -8.0],
+            "fed_remit_or_deferred": [2.0, 0.0],
+            "fed_tsy_coupon_interest_proxy": [1.5, 2.0],
+            "bank_tsy_coupon_interest_proxy": [0.7, 0.9],
+            "row_tsy_coupon_interest_proxy": [1.1, 1.3],
+            "credit_union_tsy_coupon_interest_proxy": [0.2, 0.25],
+            "mmf_rrp_adjustment_lb": [0.5, 0.7],
+            "mmf_rrp_adjustment_prop": [1.0, 1.4],
+            "mmf_rrp_adjustment_ub": [1.8, 2.1],
+        },
+        index=idx,
+    )
+    estimates, _, _, meta = compute_estimates(quarterly)
+
+    assert "tdc_tier2_h15_mmf_rrp_prop_depository_institution_np_cu_ru_flow" in estimates.columns
+    assert "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow" not in estimates.columns
+    assert meta["preferred_method"] is None
+    assert meta["canonical_tier2_method"] is None
+    assert meta["canonical_tier2_status"].startswith("unavailable: requires component-anchored")

@@ -5,6 +5,9 @@ from typing import Any
 
 import pandas as pd
 
+from .estimators import CANONICAL_TIER2_METHOD
+
+
 from .utils import utc_now_iso, write_json
 
 
@@ -103,7 +106,7 @@ def build_downstream_handoff_bundle(
     latest_series = _latest_by_key(downstream_deposit_effect_series_panel, "series_key")
     latest_comparisons = _latest_by_key(downstream_deposit_effect_comparison_panel, "comparison_key")
 
-    current_headline = contract.get("tdc_tier3_fiscal_corrected_bank_only_ru_flow", {})
+    current_headline = contract.get(CANONICAL_TIER2_METHOD, {})
     historical_bank = contract.get("bank_receipt_historical_default_view", {})
     row_mrv_series = latest_series.get("row_mrv_primary_nondefault_pilot_series", {})
 
@@ -125,8 +128,9 @@ def build_downstream_handoff_bundle(
             "row_receipts_status": goals.get("row_receipts", {}).get("current_status"),
             "fiscal_flow_status": goals.get("fiscal_flow_tdc_equation", {}).get("current_status"),
             "monetary_status": goals.get("monetary_disaggregated_tdc_equation", {}).get("current_status"),
-            "current_bank_headline_latest_date": _normalize_date_scalar(current_headline.get("latest_reference_date")),
-            "current_bank_headline_latest_value_millions": current_headline.get("latest_value_millions"),
+            "canonical_headline_key": CANONICAL_TIER2_METHOD,
+            "canonical_headline_latest_date": _normalize_date_scalar(current_headline.get("latest_reference_date")),
+            "canonical_headline_latest_value_millions": current_headline.get("latest_value_millions"),
             "historical_bank_overlay_latest_date": _normalize_date_scalar(historical_bank.get("latest_reference_date")),
             "historical_bank_overlay_latest_value_millions": historical_bank.get("latest_value_millions"),
             "row_mrv_latest_date": _normalize_date_scalar(row_mrv_series.get("latest_nonzero_date")),
@@ -216,7 +220,7 @@ def render_downstream_handoff_bundle_markdown(bundle: dict[str, Any]) -> str:
         f"- `row_receipts_status`: {summary.get('row_receipts_status', 'n/a')}",
         f"- `fiscal_flow_status`: {summary.get('fiscal_flow_status', 'n/a')}",
         f"- `monetary_status`: {summary.get('monetary_status', 'n/a')}",
-        f"- `current_bank_headline_latest`: {summary.get('current_bank_headline_latest_date', 'n/a')} / {summary.get('current_bank_headline_latest_value_millions', 'n/a')}",
+        f"- `canonical_headline_latest` (`{summary.get('canonical_headline_key', 'n/a')}`): {summary.get('canonical_headline_latest_date', 'n/a')} / {summary.get('canonical_headline_latest_value_millions', 'n/a')}",
         f"- `historical_bank_overlay_latest`: {summary.get('historical_bank_overlay_latest_date', 'n/a')} / {summary.get('historical_bank_overlay_latest_value_millions', 'n/a')}",
         f"- `row_mrv_latest`: {summary.get('row_mrv_latest_date', 'n/a')} / {summary.get('row_mrv_latest_value_millions', 'n/a')}",
         "",

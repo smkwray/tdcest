@@ -241,7 +241,8 @@ def export_site_bundle(
         "available_methods": list(estimates.columns),
         "latest_methods": latest_methods,
         "preferred_method": method_meta.get("preferred_method"),
-        "preferred_methods_by_deposit_concept": method_meta.get("preferred_methods_by_deposit_concept", {}),
+        "canonical_tier2_status": method_meta.get("canonical_tier2_status"),
+        "ladder_inputs_by_deposit_concept": method_meta.get("ladder_inputs_by_deposit_concept", {}),
         "credit_union_policy": method_meta.get("credit_union_policy", {}),
     }
 

@@ -5,6 +5,9 @@ from typing import Any
 
 import pandas as pd
 
+from .estimators import CANONICAL_TIER2_METHOD
+
+
 
 REVIEW_COLUMNS = [
     "check_key",
@@ -152,11 +155,11 @@ def build_downstream_consistency_review(
     )
     workstreams = workstream_end_state_map.copy() if workstream_end_state_map is not None else pd.DataFrame()
 
-    current_contract = _get_row(contract, "artifact_key", "tdc_tier3_fiscal_corrected_bank_only_ru_flow")
+    current_contract = _get_row(contract, "artifact_key", CANONICAL_TIER2_METHOD)
     historical_contract = _get_row(contract, "artifact_key", "bank_receipt_historical_default_view")
     row_mrv_contract = _get_row(contract, "artifact_key", "row_mrv_primary_nondefault_pilot")
     row_use_case = _get_row(use_cases, "use_case_key", "current_row_receipt_sensitivity")
-    current_use_case = _get_row(use_cases, "use_case_key", "current_quarter_bank_only_headline")
+    current_use_case = _get_row(use_cases, "use_case_key", "current_quarter_headline")
 
     latest_mrv_series = pd.Series(dtype="object")
     if not series_panel.empty and "series_key" in series_panel.columns:
@@ -200,15 +203,15 @@ def build_downstream_consistency_review(
             "check_key": "handoff_current_headline_date",
             "check_group": "handoff_vs_contract",
             "status": "pass"
-            if _norm_date(summary.get("current_bank_headline_latest_date"))
+            if _norm_date(summary.get("canonical_headline_latest_date"))
             == _norm_date(current_contract.get("latest_reference_date"))
             else "fail",
             "lhs_source": "tdc_downstream_handoff_bundle.summary",
             "rhs_source": "tdc_downstream_estimator_contract",
-            "lhs_value": summary.get("current_bank_headline_latest_date"),
+            "lhs_value": summary.get("canonical_headline_latest_date"),
             "rhs_value": current_contract.get("latest_reference_date"),
             "comparison_basis": "normalized date equality",
-            "summary_note": "Handoff summary should match the contract on current bank headline date.",
+            "summary_note": "Handoff summary should match the contract on the canonical headline date.",
         }
     )
     rows.append(
@@ -216,14 +219,14 @@ def build_downstream_consistency_review(
             "check_key": "handoff_current_headline_value",
             "check_group": "handoff_vs_contract",
             "status": "pass"
-            if _equal_num(summary.get("current_bank_headline_latest_value_millions"), current_contract.get("latest_value_millions"))
+            if _equal_num(summary.get("canonical_headline_latest_value_millions"), current_contract.get("latest_value_millions"))
             else "fail",
             "lhs_source": "tdc_downstream_handoff_bundle.summary",
             "rhs_source": "tdc_downstream_estimator_contract",
-            "lhs_value": summary.get("current_bank_headline_latest_value_millions"),
+            "lhs_value": summary.get("canonical_headline_latest_value_millions"),
             "rhs_value": current_contract.get("latest_value_millions"),
             "comparison_basis": "numeric equality",
-            "summary_note": "Handoff summary should match the contract on current bank headline value.",
+            "summary_note": "Handoff summary should match the contract on the canonical headline value.",
         }
     )
     rows.append(

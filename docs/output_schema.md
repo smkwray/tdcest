@@ -19,7 +19,7 @@ The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and on
 | `tdc_tier2_h15_*`, `tdc_tier2_component_anchored_fed_extension_*` | Tier 2 sensitivities |
 | `tdc_tier3_*` | Tier 3 diagnostics |
 
-`method_meta.json` holds the description and formula of every column, the preferred and canonical method names (`preferred_method`, `canonical_tier2_method`), the estimator ladder and the correction inputs. The companion files `tdc_components.csv` and `tdc_corrections.csv` hold the inputs and the signed corrections; see [column conventions](#column-conventions).
+`method_meta.json` holds the description and formula of every column, the estimator ladder and the correction inputs. `preferred_method` and `canonical_tier2_method` both name the canonical Tier 2 row; when its support is missing they are null and `canonical_tier2_status` gives the reason. `ladder_inputs_by_deposit_concept` names the bank-only and broad-depository baseline rows. The companion files `tdc_components.csv` and `tdc_corrections.csv` hold the inputs and the signed corrections; see [column conventions](#column-conventions).
 
 ### `quarterly_inputs.csv`
 
@@ -618,10 +618,10 @@ Short markdown note summarizing the latest available delta row for each tracked 
 
 Single-file handoff package for downstream projects. Its top-level keys are `bundle_format`, `generated_at_utc`, `distribution_scope`, `summary`, `goal_status`, `receipt_unblock_status`, `estimator_contract`, `use_cases`, `receipt_boundaries`, `backend_closeout_review`, `backend_release_check`, `problem_variables`, `series_panel` and `comparison_panel`. Together they carry:
 
-- summary status for bank receipts, ROW receipts, fiscal-flow status, and monetary status
+- the canonical headline key with its latest date and value (`canonical_headline_key`, `canonical_headline_latest_date`, `canonical_headline_latest_value_millions`), and summary status for bank receipts, ROW receipts, fiscal flow and monetary cross-checks
 - keyed goal-status rows
 - keyed receipt-unblock rows
-- keyed estimator-contract rows
+- keyed estimator-contract rows; only the canonical Tier 2 row is classified `headline_default`, and the bank-only baseline and bank-only Tier 2 rows are ladder rows
 - keyed downstream use-case rows
 - keyed fiscal receipt-boundary rows
 - latest-by-series and latest-by-comparison panel snapshots
@@ -1309,7 +1309,8 @@ Top-level summary including:
 - `latest_corrections`
 - `available_methods`
 - `preferred_method`
-- `preferred_methods_by_deposit_concept`
+- `canonical_tier2_status`
+- `ladder_inputs_by_deposit_concept`
 - `credit_union_policy`
 
 ### `metadata`

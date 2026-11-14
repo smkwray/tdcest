@@ -23,6 +23,11 @@ def test_downstream_handoff_bundle_keys_core_backend_surfaces() -> None:
     contract = pd.DataFrame(
         [
             {
+                "artifact_key": "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow",
+                "latest_reference_date": "2025-12-31",
+                "latest_value_millions": -61.8,
+            },
+            {
                 "artifact_key": "tdc_tier3_fiscal_corrected_bank_only_ru_flow",
                 "latest_reference_date": "2025-12-31",
                 "latest_value_millions": -40.0,
@@ -40,7 +45,7 @@ def test_downstream_handoff_bundle_keys_core_backend_surfaces() -> None:
         ]
     )
     use_cases = pd.DataFrame(
-        [{"use_case_key": "current_quarter_bank_only_headline", "target_question": "Best current-quarter bank-only TDC?"}]
+        [{"use_case_key": "current_quarter_headline", "target_question": "Best current-quarter TDC?"}]
     )
     problem_variables = pd.DataFrame(
         [
@@ -104,7 +109,11 @@ def test_downstream_handoff_bundle_keys_core_backend_surfaces() -> None:
     assert bundle["distribution_scope"]["partial_pack_status"] == "snapshot_only_unless_explicitly_marked_full_repo"
     assert bundle["summary"]["bank_receipts_status"] == "historical_default_only_current_nondefault"
     assert "tdc_tier3_fiscal_corrected_bank_only_ru_flow" in bundle["estimator_contract"]
-    assert "current_quarter_bank_only_headline" in bundle["use_cases"]
+    assert "current_quarter_headline" in bundle["use_cases"]
+    # The bundle's headline is the canonical row, not the Tier 3 partial-shell diagnostic.
+    assert bundle["summary"]["canonical_headline_key"] == "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"
+    assert bundle["summary"]["canonical_headline_latest_date"] == "2025-12-31"
+    assert bundle["summary"]["canonical_headline_latest_value_millions"] == -61.8
     assert "row_live_default_receipt_cell" in bundle["receipt_boundaries"]
     assert "backend_closeout_review" in bundle
     assert "backend_release_check" in bundle

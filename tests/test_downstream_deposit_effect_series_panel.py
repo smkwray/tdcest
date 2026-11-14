@@ -11,6 +11,7 @@ def test_downstream_deposit_effect_series_panel_builds_live_historical_and_nonde
     index = pd.to_datetime(["2025-09-30", "2025-12-31"])
     estimates = pd.DataFrame(
         {
+            "tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow": [7.8, 8.4],
             "tdc_base_bank_only_ru_flow": [10.0, 11.0],
             "tdc_tier2_interest_corrected_bank_only_ru_flow": [8.0, 9.0],
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow": [7.0, 6.0],
@@ -60,8 +61,10 @@ def test_downstream_deposit_effect_series_panel_builds_live_historical_and_nonde
     assert "tdc_tier3_bank_only_plus_historical_bank_receipt_candidate" in keys
     assert "row_mrv_primary_nondefault_pilot_series" in keys
 
+    headline = frame.loc[frame["default_classification"].eq("headline_default"), "series_key"].unique().tolist()
+    assert headline == ["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"]
     tier2_row = frame.loc[frame["series_key"].eq("tdc_tier2_interest_corrected_bank_only_ru_flow")].iloc[-1]
-    assert tier2_row["default_classification"] == "headline_default"
+    assert tier2_row["default_classification"] == "ladder_row"
 
     tier3_row = frame.loc[frame["series_key"].eq("tdc_tier3_fiscal_corrected_bank_only_ru_flow")].iloc[-1]
     assert tier3_row["use_case_key"] == "tier3_partial_shell_diagnostic"

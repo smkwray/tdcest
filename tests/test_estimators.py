@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from tdc_estimator.estimators import compute_estimates
 
@@ -415,3 +416,31 @@ def test_canonical_row_is_never_filled_from_h15_coupon_only_rows():
     assert meta["preferred_method"] is None
     assert meta["canonical_tier2_method"] is None
     assert meta["canonical_tier2_status"].startswith("unavailable: requires component-anchored")
+
+
+def test_decomposition_proxy_puts_h8_billions_on_the_z1_million_scale():
+    # M2, currency and bank credit come from H.8/H.6 in USD billions; the Z.1 bank Treasury
+    # levels are USD millions. Mixing them made the proxy track bank Treasury holdings alone.
+    idx = pd.to_datetime(["2024-03-31", "2024-06-30"])
+    quarterly = pd.DataFrame(
+        {
+            "fed_tsy_tx": [0.0, 0.0],
+            "us_chartered_tsy_tx": [0.0, 0.0],
+            "foreign_offices_tsy_tx": [0.0, 0.0],
+            "affiliated_areas_tsy_tx": [0.0, 0.0],
+            "row_tsy_tx": [0.0, 0.0],
+            "treasury_operating_cash_tx": [0.0, 0.0],
+            "fed_remit_or_deferred": [0.0, 0.0],
+            "m2": [21000.0, 21100.0],
+            "currency": [2300.0, 2310.0],
+            "bank_credit": [17500.0, 17560.0],
+            "us_chartered_tsy_level": [3_900_000.0, 3_930_000.0],
+            "foreign_offices_tsy_level": [100_000.0, 101_000.0],
+            "affiliated_areas_tsy_level": [5_000.0, 5_000.0],
+        },
+        index=idx,
+    )
+    estimates, _, _, _ = compute_estimates(quarterly)
+
+    # (100 - 10 - (60 - 31)) billion = 61 billion = 61,000 million.
+    assert estimates.loc[idx[1], "tdc_decomposition_proxy_bank_centric"] == pytest.approx(61_000.0)

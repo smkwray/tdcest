@@ -32,6 +32,9 @@ def _from_date(series: pd.Series, start: str) -> pd.Series:
     return out
 
 
+# H.8 and money-stock series (M2SL, CURRCIR, TOTBKCR) are published in USD billions.
+H8_USD_MILLION_PER_BILLION = 1000.0
+
 # The one headline series. It exists only when component-anchored interest support
 # covers banks, the rest of the world and credit unions and the MMF/ON RRP support is
 # present; it is never filled from the H.15 coupon-only rows.
@@ -646,12 +649,10 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         )
 
     if _has_all(quarterly, ["m2", "currency", "bank_credit", *BANK_DEPOSITORY_LEVEL_KEYS]):
-        bank_non_tsy = quarterly["bank_credit"] - _sum_columns(quarterly, BANK_DEPOSITORY_LEVEL_KEYS)
-        estimates["tdc_decomposition_proxy_bank_centric"] = (
-            quarterly["m2"].diff()
-            - quarterly["currency"].diff()
-            - bank_non_tsy.diff()
-        )
+        # M2SL, CURRCIR and TOTBKCR are published in USD billions; Z.1 levels are USD millions.
+        m2, currency, bank_credit = (quarterly[key] * H8_USD_MILLION_PER_BILLION for key in ("m2", "currency", "bank_credit"))
+        bank_non_tsy = bank_credit - _sum_columns(quarterly, BANK_DEPOSITORY_LEVEL_KEYS)
+        estimates["tdc_decomposition_proxy_bank_centric"] = m2.diff() - currency.diff() - bank_non_tsy.diff()
 
     historical_start = "1990-03-31"
     if "tdc_level_bank_only_sensitivity" in estimates.columns:
@@ -898,7 +899,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "tdc_broad_depository_extended_1990": "Broad-depository extended series = Broad-depository headline when available; otherwise Broad-depository level-change sensitivity.",
             "tdc_level_bank_only_sensitivity": "Bank-only level-change sensitivity = Change in Federal Reserve Treasury holdings + Change in Bank-sector Treasury holdings + Change in Rest-of-world Treasury holdings - Change in Treasury operating cash + Positive Federal Reserve remittances.",
             "tdc_level_broad_depository_np_cu_sensitivity": "Broad-depository level-change sensitivity = Bank-only level-change sensitivity + Change in natural-person credit-union Treasury holdings.",
-            "tdc_decomposition_proxy_bank_centric": "Bank-centric decomposition proxy = Change in M2 - Change in currency - Change in non-Treasury bank assets.",
+            "tdc_decomposition_proxy_bank_centric": "Bank-centric decomposition proxy = Change in M2 - Change in currency - Change in non-Treasury bank assets, with the H.8 and money-stock series converted from USD billions to USD millions.",
             "tdc_base_bank_only_ru_flow_4q": "Bank-only headline, four-quarter sum = Rolling four-quarter sum of the bank-only headline.",
             "tdc_base_bank_only_ru_flow_cum": "Bank-only headline, cumulative = Cumulative sum of the bank-only headline.",
         },

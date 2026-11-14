@@ -17,23 +17,21 @@ DEFAULT_BANK_SECTOR_KEYS = [
 ]
 DEFAULT_CREDIT_UNION_SECTOR_KEYS = ["credit_unions_marketable_proxy"]
 DEFAULT_ROW_SECTOR_KEYS = ["foreigners_total"]
+# Release and normalized WAMEST outputs only; test fixtures and toy examples never resolve.
 DEFAULT_WAMEST_SECTOR_MATURITY_CANDIDATES = [
     Path("outputs/full_coverage_release/canonical_sector_maturity.csv"),
     Path("data/processed/sector_effective_maturity_full.csv"),
     Path("outputs/public_preview/sector_effective_maturity.csv"),
-    Path("tests/fixtures/report_sector_effective_maturity.csv"),
 ]
 DEFAULT_WAMEST_SECTOR_PANEL_CANDIDATES = [
     Path("outputs/full_coverage_release/z1_series_auto_full.csv"),
     Path("data/interim/z1_sector_panel_full.csv"),
     Path("data/external/normalized/z1_series_fred.csv"),
-    Path("data/examples/toy_sector_panel_ready.csv"),
 ]
 DEFAULT_WAMEST_CURVE_CANDIDATES = [
     Path("data/external/normalized/h15_curves_auto_nominal_treasury_constant_maturity.csv"),
     Path("data/external/normalized/h15_curves_fed.csv"),
     Path("data/external/normalized/h15_curves_fred.csv"),
-    Path("data/examples/toy_h15_curves.csv"),
 ]
 TREASURY_INTEREST_GROSS_LABEL = "Total--Interest on Treasury Debt Securities (Gross)"
 DEFAULT_FED_SECTOR_KEYS = ("fed",)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import pytest
+
 import tdc_estimator.cli as cli
 
 
@@ -573,3 +575,26 @@ def test_ofr_mmf_support_never_replaces_the_sec_estimator_input(monkeypatch, tmp
 
     assert written == [raw / cli.OFR_MMF_AGGREGATE_SUPPORT_FILE] * 3
     assert sec_input.read_text(encoding="utf-8") == "date,fund_id\n2024-01-31,S000000001\n"
+
+
+def test_wamest_path_resolution_never_falls_back_to_fixtures_or_toy_examples(tmp_path: Path):
+    # WAMEST ships toy examples and test fixtures. A sparse checkout used to resolve to them,
+    # producing coupon proxies from synthetic holdings without any error.
+    from tdc_estimator.fed_coupon import resolve_wamest_soma_path
+    from tdc_estimator.sector_coupon import resolve_wamest_artifact_paths
+
+    for relative in [
+        "tests/fixtures/report_sector_effective_maturity.csv",
+        "data/examples/toy_sector_panel_ready.csv",
+        "data/examples/toy_h15_curves.csv",
+        "tests/fixtures/nyfed_soma_tsy_2026-03-18.csv",
+        "data/examples/toy_soma_holdings.csv",
+    ]:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("date,value\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        resolve_wamest_artifact_paths(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        resolve_wamest_soma_path(tmp_path)

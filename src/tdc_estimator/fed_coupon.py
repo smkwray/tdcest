@@ -8,8 +8,6 @@ import pandas as pd
 
 DEFAULT_WAMEST_SOMA_CANDIDATES = [
     Path("data/external/normalized/soma_holdings_fed.csv"),
-    Path("tests/fixtures/nyfed_soma_tsy_2026-03-18.csv"),
-    Path("data/examples/toy_soma_holdings.csv"),
 ]
 
 

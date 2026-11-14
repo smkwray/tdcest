@@ -1,10 +1,6 @@
-# MMF/RRP Adjustment
+# MMF/ON RRP adjustment
 
-This note defines the money-market-fund reverse-repo adjustment for the Tier 2 TDC ladder.
-
-## Status
-
-The preferred MMF/RRP adjustment now uses the SEC Form N-MFP fund-month support file. The OFR aggregate bridge remains a fallback and source-comparison check.
+This note defines the money-market-fund (MMF) adjustment for Federal Reserve overnight reverse repo (ON RRP) funding in the Tier 2 ladder. The preferred adjustment uses SEC Form N-MFP fund-month filings; the Office of Financial Research (OFR) aggregate data are a fallback and a source comparison.
 
 ## Motivation
 
@@ -16,7 +12,7 @@ min(max(0, change in MMF Treasury bills), max(0, -change in ON RRP))
 
 captures the basic direction, but it is too coarse for a preferred estimator because total ON RRP is not MMF-only and quarterly netting can miss within-quarter rotations.
 
-## Fund-Month Adjustment
+## Fund-month adjustment
 
 For fund `i` in month `m`, the normalized support file supplies:
 
@@ -38,13 +34,15 @@ Then it emits:
 
 ```text
 upper = min(treasury_increase, rrp_runoff)
-prop  = rrp_runoff * treasury_increase / (treasury_increase + other_uses)
+prop  = min(upper, rrp_runoff * treasury_increase / (treasury_increase + other_uses))
 lower = min(treasury_increase, max(0, rrp_runoff - other_uses))
 ```
 
+Fed RRP positions are set to zero before the ON RRP facility began (September 2013), and a missing Fed RRP observation is treated as no runoff.
+
 The same lower/proportional/upper family is also emitted for bills-only Treasury increases as a robustness check.
 
-## Estimator Rows
+## Estimator rows
 
 When `data/raw/support__mmf_fund_month.csv` is present, the pipeline writes:
 
@@ -54,17 +52,15 @@ When `data/raw/support__mmf_fund_month.csv` is present, the pipeline writes:
 - `tdc_mmf_rrp_source_comparison.csv`, when the OFR aggregate fallback file is present
 - `tdc_mmf_rrp_source_comparison.md`, when the OFR aggregate fallback file is present
 
-The quarterly adjustment columns are merged into `quarterly_inputs.csv`, and `compute_estimates` emits candidate Tier 2 rows:
+The quarterly adjustment columns are merged into `quarterly_inputs.csv`, and the estimator adds each of them to the Tier 2 rows:
 
-- `tdc_tier2_mmf_rrp_prop_bank_only_ru_flow`
-- `tdc_tier2_mmf_rrp_lb_bank_only_ru_flow`
-- `tdc_tier2_mmf_rrp_ub_bank_only_ru_flow`
-- `tdc_tier2_mmf_rrp_prop_broad_depository_np_cu_ru_flow`
-- `tdc_tier2_mmf_rrp_prop_depository_institution_np_cu_ru_flow`, when the credit-union interest proxy is present.
+- `tdc_tier2_mmf_rrp_{lb,prop,ub}_bank_only_ru_flow`
+- `tdc_tier2_mmf_rrp_{lb,prop,ub}_broad_depository_np_cu_ru_flow`
+- `tdc_tier2_mmf_rrp_{lb,prop,ub}_depository_institution_np_cu_ru_flow`, when credit-union interest support is present
 
-The preferred candidate is the proportional adjustment. The lower and upper rows are bounds.
+These rows build on the component-anchored Tier 2 rows when component support is present, and on the H.15 rows otherwise; explicitly named `tdc_tier2_component_anchored_mmf_rrp_*` and `tdc_tier2_h15_mmf_rrp_*` rows are also written. The canonical Tier 2 row uses the proportional adjustment. The lower and upper rows are bounds.
 
-## Input Contract
+## Input contract
 
 The raw fund-month support file should be normalized before use. Accepted column names are intentionally flexible, but the clean preferred names are:
 
@@ -80,9 +76,9 @@ nav
 
 If `treasury_total` is present, it is used directly. Otherwise total Treasury securities are `treasury_bills + treasury_other`.
 
-## OFR Aggregate Bridge
+## OFR aggregate bridge
 
-The command below writes the current aggregate OFR MMF dataset into the support-file shape:
+The command below writes the OFR aggregate MMF dataset into the support-file shape:
 
 ```bash
 tdc mmf-rrp-support
@@ -101,9 +97,9 @@ The aggregate bridge maps:
 - `MMF-MMF_OA_TOT-M` to `non_treasury_non_fed_rrp_assets`
 - `MMF-MMF_TOT-M` to `nav`
 
-This aggregate bridge is enough to run a candidate monthly MMF/RRP correction. It is not a substitute for a final fund-level N-MFP allocation, but it is materially better than quarterly total ON RRP netting.
+The aggregate bridge supports a monthly adjustment. It cannot allocate purchases fund by fund, but it avoids the coarser netting of quarterly total ON RRP.
 
-## SEC Form N-MFP Fund-Level Bridge
+## SEC Form N-MFP fund-level bridge
 
 The fund-level command normalizes official SEC Form N-MFP ZIP files into the same support-file shape:
 
@@ -123,10 +119,10 @@ The parser uses:
 - `NMFP_SERIESLEVELINFO.tsv` for NAV, cash, portfolio securities, other assets, and feeder/master flags
 - `NMFP_SCHPORTFOLIOSECURITIES.tsv` for Treasury securities and Federal Reserve repo holdings
 
-For duplicate fund-month filings, the latest filing or amendment is retained. Feeder funds are excluded to avoid feeder/master double counting, while master portfolios are retained; this matches the OFR aggregate scale closely in current files. Treasury totals are summed from `U.S. Treasury Debt` holdings, Treasury bills are identified from Treasury-bill security titles, and Fed RRP is identified from repurchase-agreement rows whose issuer/title names the Federal Reserve or FRBNY.
+For each fund and report date, the filing with the latest filing date is kept. Two different filings on that same latest date stop the build rather than being resolved arbitrarily, so the result does not depend on archive order. Feeder funds are excluded to avoid double counting with their master portfolios, which are kept; with this rule, totals closely match the OFR aggregate scale. Treasury totals are summed from `U.S. Treasury Debt` holdings. Treasury bills are identified by bill CUSIP prefixes (`912796`, `912797`) or bill security titles. Fed RRP is identified from repurchase-agreement rows whose issuer or title names the Federal Reserve or FRBNY.
 
 When both the SEC fund-level file and OFR aggregate fallback are present, the pipeline writes a source-comparison artifact. That comparison is not an alternate estimator; it documents why the SEC fund-level proportional allocation is preferred and shows where aggregate netting materially changes the MMF/RRP adjustment.
 
-## Boundary Rule
+## Boundary rule
 
 This adjustment is specific to MMF Treasury acquisition funded by MMF Fed RRP runoff. GSE RRP runoff and broker/dealer Treasury inventory should remain separate diagnostics unless their funding source is identified tightly enough to support estimator inclusion.

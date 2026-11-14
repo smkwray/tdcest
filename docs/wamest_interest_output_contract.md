@@ -1,16 +1,12 @@
 # WAMEST Interest Output Contract
 
-This contract defines the `wamest` files that `tdcest` uses to move Tier 2
-interest corrections from raw WAMEST/H.15 intensity proxies toward
-component-anchored holder allocations.
-
-The contract is intentionally owned here first because `tdcest` is the estimator
-that consumes the outputs. `wamest` can implement the files after the component
-keys and validation gates are stable.
+This contract defines the [WAMEST](https://github.com/smkwray/wamest) files that
+TDCest reads to allocate Treasury interest components across holder sectors for
+the component-anchored Tier 2 rows. TDCest, as the consumer, defines the contract.
 
 ## Contract Files
 
-`tdcest` will look for these files under a `wamest` checkout:
+TDCest looks for these files under a WAMEST checkout:
 
 - `outputs/full_coverage_release/sector_interest_allocation_weights.csv`
 - `outputs/full_coverage_release/sector_component_bucket_weights.csv`
@@ -126,8 +122,9 @@ Purpose: benchmark WAMEST/H.15-style proxy methods against exact SOMA component
 interest. This is the relevant backtest for `tdcest`; maturity error alone is
 not enough.
 
-## Fallback Rule
+## Fallback rule
 
-If these contract files are absent, `tdcest` may continue using the current
-WAMEST maturity/coupon-share/H.15 path as a live stopgap. Absence of the contract
-files must not be treated as evidence that the old method is final.
+If these contract files are absent, Tier 2 uses the WAMEST maturity,
+coupon-share and H.15 path instead. Rows built that way are H.15 approximations,
+not component-anchored estimates, and the absence of the contract files is not
+evidence that the H.15 method is adequate.

@@ -3,14 +3,14 @@
 This document separates:
 
 - **theoretical TDC accounting identities**
-- **implemented repo estimators**
+- **implemented estimators**
 - **bounded or diagnostic measurement surfaces**
 
-The theoretical equations describe what TDC **is**. The repo estimates are narrower public-data approximations that map parts of that theory into measurement.
+The theoretical equations describe what TDC **is**. The estimates are narrower public-data approximations that map parts of that theory into measurement.
 
 ## Theoretical Identities
 
-These are informational and conceptual. They should not be read as claims that every term is directly measured in the live repo.
+These are informational and conceptual. They should not be read as claims that every term is directly measured.
 
 ### 1. DU-Facing Definition
 
@@ -55,7 +55,7 @@ DA^{F}_{t} = \max(0, DA^{F}_{t-1} - E^{F}_{t})
 Plain English:
 - Negative Fed earnings do not imply Treasury pays the Fed.
 - They build a deferred asset and suppress future remittances until that deferred asset has been worked off.
-- In the live estimator, Fed remittances are measured from MTS Table 4 Treasury cash receipts when that support file is present; H.4.1/FRED remittances-due levels are retained only as a fallback/comparison source.
+- In the estimator, Fed remittances are measured from MTS Table 4 Treasury cash receipts when that support file is present; H.4.1/FRED remittances-due levels are retained only as a fallback/comparison source.
 
 ### 4. Residual Deposit-Decomposition Version
 
@@ -73,9 +73,9 @@ Plain English:
 - This is the residual or monetary-disaggregated framing.
 - Start from deposit change, subtract major non-Treasury drivers, and treat the remainder as the Treasury contribution.
 
-## Implemented Repo Equations
+## Implemented Equations
 
-These are the live measurement approximations currently used by `tdcest`.
+These are the measurement approximations the code implements.
 
 ### Bank-Only Baseline
 
@@ -91,9 +91,9 @@ These are the live measurement approximations currently used by `tdcest`.
 
 This is the Tier 0 bank-only baseline, not the final corrected measurement row.
 
-Current construction note:
+Construction notes:
 - `Remit^{+}_{Fed,t}` is the quarter-sum of MTS Table 4 net receipts for Federal Reserve earnings deposits when `support__fed_remit_mts.csv` exists
-- without that support file, the repo falls back to positive-only H.4.1/FRED weekly remittances-due levels
+- without that support file, the pipeline falls back to positive-only H.4.1/FRED weekly remittances-due levels
 
 ### Broad-Depository Natural-Person Credit-Union Alternative
 
@@ -106,7 +106,7 @@ Current construction note:
 
 This is the main broader-perimeter comparison, not the preferred headline.
 
-### Tier 2 Interest-Corrected Approximation
+### Tier 2 H.15 Coupon-Intensity Sensitivity
 
 ```math
 \Delta D^{Tier2,bank}_{TDC,t}
@@ -117,16 +117,14 @@ This is the main broader-perimeter comparison, not the preferred headline.
 - Coupon^{ROW}_{t}
 ```
 
-This removes coupon-interest distortions from the base transaction ladder.
+This removes coupon interest paid to the Fed, banks and the rest of the world from the baseline. It is the `tdc_tier2_h15_*` sensitivity family; the default Tier 2 rows use the component-anchored allocation below.
 
-Current construction note:
-- the Fed coupon term is exact SOMA-based from the first full public SOMA quarter onward; when the support file is built with `--wamest-root`, earlier quarters use a WAMEST/H.15 Fed coupon-intensity backcast
-- the bank and ROW coupon terms are built from `wamest` sector coupon-intensity weights
-- the default live support files use those raw quarter-end weights directly
-- a research-only cash-anchored variant can rescale the non-Fed weights to the observed non-Fed Treasury interest pool after subtracting the exact Fed coupon term
-- otherwise the repo falls back to the raw quarter-end maturity/curve approximation
+Construction notes:
+- the Fed coupon term follows SOMA holdings from the first full public SOMA quarter onward; when the support file is built with `--wamest-root`, earlier quarters use a WAMEST/H.15 Fed coupon-intensity backcast
+- the bank and ROW coupon terms use WAMEST sector coupon-intensity weights at quarter end: level × coupon share × the H.15 curve rate at the sector's coupon maturity, divided by four
+- a research-only variant rescales the non-Fed weights to the observed non-Fed Treasury interest pool after subtracting the Fed coupon term
 
-### Tier 2 MMF/RRP Candidate
+### Tier 2 MMF/ON RRP Adjustment
 
 ```math
 \Delta D^{Tier2+MMF,bank}_{TDC,t}
@@ -135,15 +133,18 @@ Current construction note:
 + A^{MMF,RRP}_{t}
 ```
 
-The preferred candidate uses the fund-month proportional adjustment:
+The preferred adjustment is the fund-month proportional share, capped at the upper bound below:
 
 ```math
 A^{MMF,RRP}_{t}
 =
 \sum_{m \in t}\sum_i
+\min\left(
 R^{-}_{i,m}
 \cdot
-\frac{T^{+}_{i,m}}{T^{+}_{i,m}+U^{other}_{i,m}}
+\frac{T^{+}_{i,m}}{T^{+}_{i,m}+U^{other}_{i,m}},\;
+A^{UB}_{i,m}
+\right)
 ```
 
 where:
@@ -164,7 +165,7 @@ U^{other}_{i,m}
 \max(0,-\Delta NAV_{i,m})
 ```
 
-The repo also emits lower and upper bounds:
+Lower and upper bounds are also published:
 
 ```math
 A^{UB}_{i,m}=\min(T^{+}_{i,m},R^{-}_{i,m})
@@ -174,12 +175,12 @@ A^{UB}_{i,m}=\min(T^{+}_{i,m},R^{-}_{i,m})
 A^{LB}_{i,m}=\min(T^{+}_{i,m},\max(0,R^{-}_{i,m}-U^{other}_{i,m}))
 ```
 
-Current construction note:
-- the proportional adjustment feeds the canonical Tier 2 row when paired with the component-anchored depository-institution estimator
-- the raw input is `data/raw/support__mmf_fund_month.csv`
+Construction notes:
+- the proportional adjustment enters the canonical Tier 2 row
+- the input is `data/raw/support__mmf_fund_month.csv`
 - the preferred Treasury definition is total Treasury securities, with bills-only rows kept as robustness checks
 
-### Depository-Institution Credit-Union Candidate
+### Depository-Institution Perimeter
 
 ```math
 \Delta D^{Tier2,DI}_{TDC,t}
@@ -189,9 +190,9 @@ Current construction note:
 Coupon^{CU}_{t}
 ```
 
-This candidate includes natural-person credit-union Treasury transactions and subtracts a separate credit-union Treasury coupon-interest proxy when `support__credit_union_tsy_coupon_interest_proxy.csv` is present. The default proxy is built from `wamest` sector maturity estimates and the `credit_unions_marketable_proxy` level series, reconstructing computed full-history sectors from WAMEST inventory dependencies when the prebuilt full sector panel is absent.
+This row includes natural-person credit-union Treasury transactions and subtracts a separate credit-union Treasury coupon-interest proxy when `support__credit_union_tsy_coupon_interest_proxy.csv` is present. The default proxy is built from `wamest` sector maturity estimates and the `credit_unions_marketable_proxy` level series, reconstructing computed full-history sectors from WAMEST inventory dependencies when the prebuilt full sector panel is absent.
 
-### Tier 2 Component-Anchored Candidate
+### Tier 2 Component-Anchored Rows
 
 ```math
 \Delta D^{Tier2,component}_{TDC,t}
@@ -215,9 +216,9 @@ For the depository-institution row:
 I^{component,CU}_{t}
 ```
 
-The component inputs are `support__bank_tier2_component_interest_proxy.csv`, `support__row_tier2_component_interest_proxy.csv`, and `support__credit_union_tier2_component_interest_proxy.csv`. They are exported from `tier2_interest_component_candidate.csv` and allocate official Treasury coupon-accrual, bill-discount, and FRN interest pools using source-constrained sector weights. When these support files are present, they feed the canonical Tier 2 interest-corrected rows; the legacy WAMEST/H.15 coupon-intensity rows remain available under explicit `tdc_tier2_h15_*` sensitivity names.
+The component inputs are `support__bank_tier2_component_interest_proxy.csv`, `support__row_tier2_component_interest_proxy.csv`, and `support__credit_union_tier2_component_interest_proxy.csv`. They are exported from `tier2_interest_component_candidate.csv` and allocate official Treasury coupon-accrual, bill-discount, and FRN interest pools using source-constrained sector weights. When these support files are present, they feed the default Tier 2 interest-corrected rows; the WAMEST/H.15 coupon-intensity rows remain available as `tdc_tier2_h15_*` sensitivities.
 
-The nondefault Fed-extension variants additionally subtract:
+The nondefault Fed-extension variants also subtract:
 
 ```math
 FedExt_t = BillDisc^{Fed}_t + FRN^{Fed}_t
@@ -237,21 +238,21 @@ BillDisc^{Banks}_{t}
 BillDisc^{ROW}_{t}
 ```
 
-The bill-discount proxies are built from WAMEST sector bill shares and levels, Treasury bill WAM support, and the Treasury curve. They test whether using broader "Treasury-security interest correction" language changes the Tier 2 read materially beyond the implemented coupon correction.
+The bill-discount proxies are built from WAMEST sector bill shares and levels, Treasury bill WAM support, and the Treasury curve. They test whether correcting for bill-discount interest, not just coupon interest, materially changes the H.15 Tier 2 rows.
 
-The validation benchmark is Treasury FiscalData `interest_expense`, filtered to public-issue `Treasury Bills` / `AMORTIZED DISCOUNT` and summed from monthly dollars to calendar-quarter millions. That aggregate benchmark does not allocate bill discount by holder; it is used to check whether the WAMEST-backed bank, ROW, and credit-union sector proxies are plausible fractions of total Treasury bill discount before promoting the robust row to a headline canonical estimator.
+The validation benchmark is Treasury FiscalData `interest_expense`, filtered to public-issue `Treasury Bills` / `AMORTIZED DISCOUNT` and summed from monthly dollars to calendar-quarter millions. That aggregate benchmark does not allocate bill discount by holder; it checks whether the WAMEST-backed bank, ROW, and credit-union sector proxies are plausible fractions of total Treasury bill discount.
 
 ### Canonical Tier 2 Policy Target
 
 ```math
 \Delta D^{Tier2,canonical}_{TDC,t}
 =
-\Delta D^{Tier2+BillDisc,DI}_{TDC,t}
+\Delta D^{Tier2,component,DI}_{TDC,t}
 +
-MMF^{RRP,prop}_{t}
+A^{MMF,RRP}_{t}
 ```
 
-The explicit canonical Tier 2 series key is `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow`. It is an alias for the depository-institution Treasury-flow row with Fed, bank, ROW, and credit-union coupon corrections; bank, ROW, and credit-union bill-discount corrections; and the preferred proportional MMF/RRP source-of-funds adjustment. In `method_meta.json`, this appears as `canonical_tier2_method`.
+The canonical Tier 2 series key is `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow`: the component-anchored depository-institution row (Fed coupon correction and bank, ROW and credit-union component interest corrections) plus the proportional MMF/ON RRP adjustment. In `method_meta.json`, it appears as `canonical_tier2_method`.
 
 ### Tier 3 Fiscal-Corrected Approximation
 
@@ -266,12 +267,7 @@ The explicit canonical Tier 2 series key is `tdc_tier2_canonical_depository_inst
 + CashFactor_{t}
 ```
 
-This is a partial fiscal-flow shell, not the main live corrected estimate.
-
-Important caveat:
-- current bank receipt corrections are still nondefault for current quarters
-- current ROW receipt corrections remain nondefault
-- so this remains a **partial** fiscal-flow implementation below the canonical Tier 2 row
+This is a partial fiscal-flow reconciliation, not a corrected estimate. Bank receipt corrections for recent quarters and rest-of-world receipt corrections are nondefault, so Tier 3 remains a diagnostic below the canonical Tier 2 row.
 
 ## Bounded And Diagnostic Surfaces
 
@@ -284,7 +280,7 @@ Important caveat:
 + \Delta Receipt^{Bank,Table5.1}_{t}
 ```
 
-This is the strongest bank-receipt result in the repo, but only inside the age-eligible historical window.
+It applies only in quarters where the published IRS bank-minor shares are recent enough.
 
 ### MRV ROW Pilot
 
@@ -292,7 +288,7 @@ This is the strongest bank-receipt result in the repo, but only inside the age-e
 \Delta Receipt^{ROW,MRV}_{t} \subset \Delta D^{Tier3,bank}_{TDC,t}
 ```
 
-This is the only serious recurring ROW receipt candidate currently carried forward. It remains nondefault.
+The State Department machine-readable visa fee line is the leading recurring rest-of-world receipt candidate. It is not part of any default row.
 
 ### Monetary Cross-Check
 
@@ -309,7 +305,7 @@ This is diagnostic only. It is useful as a cross-check, not as the headline esti
 
 ## Treasury Component of Reserves (TRC)
 
-TRC is an additive, opt-in companion to TDC. It reads the frozen TDC leg table and never rewrites it.
+TRC is an opt-in companion to TDC. It reads the TDC leg table under a pinned hash and never rewrites it.
 
 ### Theory
 
@@ -348,11 +344,11 @@ TDC^{DU}_q-TRC^{RB}_q=\sum_{e\in\mathcal T_q}\left(\lambda^{DU}_e-\mu^{RB}_e\rig
 \widehat{TRC}^{pref}_q=\widehat{TRC}^{core}_q+A^{MMF,RRP,prop}_q
 ```
 
-Current construction note:
+Construction notes:
 - USD million on the Z.1 calendar quarter; the reserve outcome is Z.1 `FU713113003`
 - `ΔTGA` uses the last H.4.1 `WDTGAL` Wednesday on or before quarter end for changes through 2005Q4 and the DTS Table I final-business-day close for changes from 2006Q1; both endpoints of every change sit on one clock, and each row records its clock
 - `ΔSFP` is the DTS supplementary financing account, a structural zero before the program and after the line closes at a zero balance; Treasury Tax and Loan balances are commercial-bank claims and stay out of the cash leg, so Z.1 Treasury operating cash is not used here
-- the Fed terms are the frozen leg-table `fed_tsy_tx`, actual MTS cash remittances, and the SOMA coupon proxy
+- the Fed terms are the leg-table `fed_tsy_tx`, actual MTS cash remittances, and the SOMA coupon proxy
 - the MMF/ON RRP term carries lower, proportional, and upper companions; it is definitionally zero before the ON RRP mechanism and one-sided after it, so the preferred row is labeled `partial_one_sided_route_coverage`
 - all four 2002 rows are unavailable because no H.4.1 TGA level precedes 2002-12-18
 
@@ -392,7 +388,7 @@ N^{RB}_{FO,q}=-\Delta\left(D^{FO}_q+RRP^{FO}_q\right)-\Gamma^{T}_{FO,q}
 
 ### H.4.1 Reserve-Factor Ledger And Bridges
 
-The opt-in `tdc reserve-factor-ledger-export` command builds an independent H.4.1 Table 1 ledger on the Wednesday clock and reconciles it with the admitted TRC rows above, which it reads under a pinned hash and never rewrites.
+The opt-in `tdc reserve-factor-ledger-export` command builds an independent H.4.1 Table 1 ledger on the Wednesday clock and reconciles it with the quarterly TRC rows above, which it reads under a pinned hash and never rewrites.
 
 ```math
 \Delta RB^{H}_w=\sum_{k\in S}\Delta A_{k,w}-\sum_{k\in A}\Delta L_{k,w}+\rho^{H}_w,
@@ -409,7 +405,7 @@ Plain English:
 - `S^H` is the change in Table 1 "U.S. Treasury securities" held outright: bills, nominal notes and bonds, inflation-indexed notes and bonds, and inflation compensation; premiums and discounts cover all securities held outright and remain separate factors
 - quarters telescope between the last Wednesdays of adjacent quarters, the same dating as the all-H.4.1 TRC diagnostic
 
-For each admitted TRC row `x = C^M + B + Γ` (core, preferred, lower, upper) and the Z.1 outcome `y^Z`:
+For each quarterly TRC row `x = C^M + B + Γ` (core, preferred, lower, upper) and the Z.1 outcome `y^Z`:
 
 ```math
 y^{Z}_q-x_q=\sum_{k\notin\{TGA,SFP,TS,RRP^{o}\}}F^{H}_{k,q}+N^{RRP,o}_q+\left(y^{Z}_q-y^{H}_q\right)+\left(C^{H}_q-C^{M}_q\right)+\left(S^{H}_q-B_q\right)+\rho^{H}_q,
@@ -427,7 +423,7 @@ N^{RRP,o}_q=-\Delta RRP^{o}_q-\Gamma_q
 Use the equations in this order:
 
 1. theoretical identities to explain what TDC is
-2. implemented equations to explain what the repo actually measures
+2. implemented equations to explain what TDCest measures
 3. bounded and diagnostic surfaces to explain what is still historical-only, nondefault, or cross-check-only
 
 For the machine-readable mapping between theory and measurement, see:

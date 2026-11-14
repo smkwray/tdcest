@@ -1,13 +1,12 @@
-"""Long-history DS^T_DU expense-equivalent row (plan B5, owner-required).
+"""Long-history DS^T_DU expense-equivalent row.
 
-Era ladder (identity note / freeze-bless ingest section Q3):
+Era ladder:
 - 2022Q1+            certified_modern_component_identity (exact overwrite from the
                      expense panel; equality asserted, never re-derived here)
 - 2010Q2-2021Q4      analysis_component_identity (expense panel rows as built)
-- 2002Q1-2010Q1      backcast_bounded_ratio_expense_equivalent - the blessed
-                     RUNNER-UP design (bounded ratio), used with an explicit
-                     method exception because the recommended dynamic-share
-                     state-space model is not yet built. Construction:
+- 2002Q1-2010Q1      backcast_bounded_ratio_expense_equivalent - a bounded-ratio
+                     design, recorded as a method exception because a
+                     dynamic-share state-space model is not built. Construction:
                      pool_hat = long-history gross-interest proxy x step-held
                      pool/gross ratio calibrated on the earliest observed window;
                      complement_hat = pool_hat - Fed coupon proxy - RU legs from

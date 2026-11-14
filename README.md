@@ -1,84 +1,125 @@
-# Treasury Deposit Component
+# TDCest
 
-[Methodology](docs/methodology.md) · [Output schema](docs/output_schema.md)
+TDCest estimates the **Treasury Deposit Component (TDC)**: the part of quarterly U.S. deposit change linked to Treasury cash operations and Treasury-security transactions. It also builds a reserve-side counterpart, the **Treasury component of reserves (TRC)**, at quarterly, monthly and weekly frequency.
 
-TDCest constructs public-data proxies for the **Treasury Deposit Component (TDC)**: deposit-settlement flows attributable to Treasury cash operations and Treasury-security transactions. It combines the Federal Reserve's Financial Accounts, Treasury cash and interest data, and sector holdings information in a quarterly measurement pipeline. It also provides separate Treasury component of reserves (TRC) diagnostics.
+Every input is public. The main sources are the Federal Reserve's Financial Accounts of the United States (Z.1) and H.4.1 release, Treasury cash and debt data, System Open Market Account (SOMA) holdings, SEC Form N-MFP money-market-fund filings, and Treasury holder-maturity estimates from [WAMEST](https://github.com/smkwray/wamest).
 
-## What the estimates mean
+[Methodology](docs/methodology.md) · [Equations](docs/equations.md) · [Data sources](docs/data_sources.md) · [Output schema](docs/output_schema.md)
 
-The accounting object and the measured proxy are different. For an exact flow measured on the same clock and deposit perimeter, the accounting identity is deposit change = Treasury-attributed flow + all other deposit flows. Public data do not observe every settlement route, so TDCest's proxy can differ from that exact flow. A regression coefficient on the proxy is a conditional association; it is not the accounting coefficient, a causal effect, or a deposit-retention share.
+## What the estimates measure
 
-The headline deposit perimeter is bank-only. A wider comparison includes natural-person credit unions. Sector labels describe the data inputs; settlement incidence follows the deposit claim credited or debited, rather than the holder's legal-sector label alone. Treasury transactions are marketable-security focused, so the proxy does not cover every Treasury liability or settlement channel.
+Deposit change equals the Treasury-attributed flow plus all other deposit flows, provided both are measured on the same clock and the same deposit perimeter. Public data do not show every settlement route, so TDCest publishes a **proxy** for the Treasury-attributed flow. Three limits apply:
+
+- The proxy can differ from the exact flow. A regression coefficient on the proxy is a conditional association. It is not the accounting coefficient, a causal effect, or a deposit-retention share.
+- Sector labels describe the data inputs. Settlement incidence follows the deposit account that is credited or debited, not the holder's legal sector alone.
+- The proxy covers marketable Treasury securities. It does not cover every Treasury liability or settlement channel.
 
 ## Measurement ladder
 
-| Output | Construction and role |
-|---|---|
-| Uncorrected baseline | Treasury transaction flows, operating cash and positive Federal Reserve remittances |
-| Federal Reserve coupon correction | Removes the estimated coupon-interest distortion from the baseline |
-| Tier 2 component-anchored proxy | Allocates separate Treasury interest components and applies the preferred proportional money-market-fund / overnight reverse-repurchase adjustment |
-| Long-history regression series | Extends the quarterly proxy using explicitly graded source and method support |
-| Receipt and perimeter comparisons | Historical bank-receipt overlays, incomplete foreign-receipt sensitivities, and the wider credit-union perimeter |
-| Tier 3 fiscal and monetary diagnostics | Reconciliation and sensitivity checks with unresolved components explicitly labeled |
+The baseline, in USD millions per quarter, is
 
-Money-market funds (MMFs) and the Federal Reserve's overnight reverse-repurchase facility (ON RRP) require a source-of-funds adjustment. Its proportional allocation is a measurement assumption, with alternative routes retained as sensitivities. Receipt-side gaps remain visible and do not become zero corrections by default.
+```
+TDC = Treasury-security transactions by the Fed, banks and the rest of the world
+      − change in Treasury operating cash
+      + positive Federal Reserve remittances to Treasury
+```
 
-Interest allocation consumes [WAMEST](https://github.com/smkwray/wamest) maturity and instrument-composition estimates. These weights divide aggregate Treasury interest pools; they do not observe individual holders' receipts. Coupon accrual, bill discount, floating-rate interest, inflation-protected coupon interest, and inflation compensation remain separate components. Matching date, sector, component eligibility, and gross-holder evidence are required. Broad-debt maturity bounds and signed dealer or household residuals do not establish eligible gross Treasury holdings.
+Each tier refines the one before it:
 
-Interest allocation is therefore a substantive sensitivity of the deposit proxy. Source observability and denominator evidence remain separate from backcast method grades. Legacy yield-based allocation requires an explicit coupon-maturity proxy; duration and zero-coupon-equivalent maturity are not substitutes. See the [interest contract](docs/wamest_interest_output_contract.md).
+| Tier | Construction | Role |
+|---|---|---|
+| 0. Baseline | Z.1 Treasury transactions, Treasury operating cash, Fed remittances | Ladder input |
+| 1. Fed coupon correction | Removes coupon interest paid on SOMA holdings | Ladder input |
+| 2. Interest and money-fund correction | Removes Treasury interest paid to banks, credit unions and the rest of the world, by component, and applies the money-market-fund / ON RRP source-of-funds adjustment | Canonical quarterly measure |
+| Long-history regression series | Extends Tier 2 back to 2002Q1 with graded backcasts | Preferred series for regressions |
+| 3. Fiscal and monetary diagnostics | Receipt-side, perimeter and monetary-aggregate cross-checks | Diagnostic only |
+
+**Deposit perimeter.** The baseline headline is bank-only: U.S.-chartered depository institutions, foreign banking offices in the U.S., and banks in U.S.-affiliated areas. The canonical Tier 2 row widens this to depository institutions by adding natural-person credit unions. Corporate credit unions, the NCUA capitalization deposit, domestic-only, no-remittance and holdings-level variants are sensitivities.
+
+**Interest allocation.** WAMEST maturity and instrument-composition weights divide aggregate Treasury interest pools across holder sectors. The weights do not observe what any holder actually received. Coupon accrual, bill discount, floating-rate note (FRN) interest, inflation-protected (TIPS) coupon interest and TIPS inflation compensation stay separate, and an allocation needs matching date, sector, component eligibility and gross-holder evidence. The choice of allocation materially affects the proxy. See the [interest-allocation contract](docs/wamest_interest_output_contract.md).
+
+**Money-market funds.** A money-market fund (MMF) that buys Treasury securities by running down its overnight reverse repo (ON RRP) at the Federal Reserve does not draw on bank deposits, but the baseline counts the resulting rise in Treasury cash as a deposit drain. The adjustment adds those purchases back. The preferred version allocates each fund's purchases proportionally between ON RRP runoff and other funding, using SEC Form N-MFP filings; lower and upper bounds are published alongside it. See [MMF/ON RRP adjustment](docs/mmf_rrp_adjustment.md).
+
+Receipt-side corrections that public sources cannot support stay out of the default rows and are reported separately as sensitivities.
+
+## Which series to use
+
+| Purpose | Series | File |
+|---|---|---|
+| Canonical quarterly measure | `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` | `tdc_estimates.csv` |
+| Regressions over a long sample | `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow`, with its method-tier columns | `tdc_tier2_regression_series.csv` |
+| Credit-union-consistent comparison | `tdc_tier2_regression_mmf_rrp_prop_depository_institution_np_cu_ru_flow` | `tdc_tier2_regression_series.csv` |
+| Ladder inputs | `tdc_base_bank_only_ru_flow`, `tdc_base_broad_depository_np_cu_ru_flow` | `tdc_estimates.csv` |
+
+The canonical row covers only the quarters that component-level interest support reaches; earlier quarters are left empty rather than backfilled. The regression series fills the longer sample with backcasts whose method tier is recorded for every quarter, so analyses can split or weight by it. All other columns are sensitivities or diagnostics; [the output schema](docs/output_schema.md) describes each one.
 
 ## Install and validate
 
 Requires Python 3.11 or later. From the repository root:
 
 ```bash
-make bootstrap
-make test
-make demo
+make bootstrap   # create the environment and install the package
+make test        # default test suite
+make demo        # offline demonstration on synthetic data
 ```
 
-The bootstrap creates an external environment at `$HOME/venvs/tdcest`. Override it with `TDC_VENV=/path/to/environment`, or run targets with `PYTHON=/path/to/python`. The offline demo uses synthetic inputs and writes only to ignored `examples/demo_build/`; it needs no API key or network access.
+`make bootstrap` creates a virtual environment at `$HOME/venvs/tdcest`. Set `TDC_VENV=/path/to/environment` to put it elsewhere, or pass `PYTHON=/path/to/python` to any target. The demo needs no network access or API key and writes only to `examples/demo_build/`.
 
-The default test suite excludes the separately marked integration tests. Integration tests require the corresponding retained input artifacts and fail when those inputs are absent; they do not establish fresh upstream data.
+The default suite excludes tests marked `integration`. Those tests reproduce retained local outputs, need the corresponding input files, and fail when the inputs are absent. Run them with `pytest -m integration`.
 
-## Build with public data
+## Build from public data
 
 ```bash
 make build
 ```
 
-This runs `scripts/build_all.py --required-only`. The public FRED graph endpoint is used without a key; an exported `FRED_API_KEY` selects the API path. Source acquisition needs network access. Additional Treasury support can be requested with:
+`make build` downloads the baseline Z.1 series and the H.4.1 remittance series from FRED, then writes the estimates, figures and JSON export bundles. Without an API key it uses FRED's public graph endpoint; export `FRED_API_KEY` to use the API instead. To also download supporting Treasury FiscalData datasets:
 
 ```bash
 "$HOME/venvs/tdcest/bin/python" scripts/build_all.py --include-treasury-support
 ```
 
-A build creates local measurement outputs with their own coverage and provenance.
+The baseline needs only the downloaded series. Tiers 1 and 2 also need support files built from SOMA holdings, Treasury auction and interest data, SEC N-MFP filings and a WAMEST checkout. Each support builder is a `tdc` subcommand (`tdc --help` lists them), and the [data sources](docs/data_sources.md) page describes their inputs. Tier 1 and Tier 2 rows are produced only when their support files are present.
+
+## Reserve-side diagnostics
+
+| Command | Output |
+|---|---|
+| `tdc trc-export` | Quarterly TRC components, series and settlement-route registry |
+| `tdc reserve-factor-ledger-export` | H.4.1 Wednesday reserve-factor ledger and its bridges to quarterly TRC |
+| `tdc weekly-trc-export` | Weekly cash-corrected core proxy with signed route scenarios |
+| `scripts/export_trc_monthly.py` | Monthly TRC on a last-Wednesday clock |
+| `tdc bank-composition-export` | Descriptive U.S.-chartered bank balance-sheet composition |
+
+The `tdc` export commands take SHA-256 pins for their inputs, either directly or through an acquisition manifest, and stop if an input does not match. They must run from a clean committed checkout, so that each JSON receipt names the commit that produced it. The monthly script records input and output hashes in its receipt. Source files are acquired with `scripts/acquire_trc_inputs.py`, which runs [fiscus](https://github.com/smkwray/fiscus) through [uv](https://docs.astral.sh/uv/) and records every retrieval in a manifest. The weekly series has no preferred variant; see [weekly TRC conventions](docs/weekly_trc.md).
+
+`tdc regression-leg-export` writes a hash-bound decomposition of the regression series into accounting legs. The legs do not identify settlement routes or causal responses.
+
+## Measurement vintages
+
+A measurement vintage fixes the sample endpoint without changing the method. The default vintage `v1` ends at 2025Q4 for the quarterly TDC and TRC exports and at 2025-12-31 for the weekly export. A later vintage is built in its own directory tree, such as `data/refresh_<name>/`, with an explicit `--vintage` argument, and never overwrites the default inputs.
 
 ## Outputs
 
-| Path | Use |
+Raw downloads, processed tables, figures, caches and demo outputs are generated locally and are not tracked. The main processed outputs, all under `data/processed/`, are:
+
+| File | Contents |
 |---|---|
-| `data/processed/tdc_downstream_handoff_bundle.json` | Entry point for local downstream analysis: estimator roles, boundaries, series and comparison snapshots |
-| `data/processed/tdc_tier2_regression_series.csv` | Long-history quarterly proxy with source and method labels |
-| `examples/demo_build/` | Synthetic demonstration outputs |
+| `tdc_estimates.csv` | Quarterly estimator ladder: every tier, perimeter and sensitivity |
+| `tdc_tier2_regression_series.csv` | Long-history regression series with source and method labels |
+| `tdc_downstream_handoff_bundle.json` | Machine-readable summary of estimator roles, boundaries and latest values |
+| `trc_*_v1.csv`, `reserve_factor_*_v1.csv` | Reserve-side diagnostics, each with a JSON receipt of its inputs and outputs |
 
-Raw downloads, processed tables, reports, caches, environments and demo outputs are local and ignored.
+## Repository layout
 
-For a hash-bound treatment-leg decomposition, `tdc regression-leg-export --quarterly-sha256 HASH --regression-sha256 HASH` reads existing inputs from a clean committed checkout and writes a CSV plus receipt. It rejects changed inputs and reconciliation failures. The resulting accounting legs do not identify settlement routes or causal responses.
+| Path | Contents |
+|---|---|
+| `src/tdc_estimator/` | Package and the `tdc` command-line interface |
+| `scripts/` | Build, acquisition and export entry points |
+| `config/` | Source catalog overlays |
+| `docs/` | Methodology, equations, data sources and output schema |
+| `tests/` | Test suite with synthetic fixtures |
 
-## Reserve diagnostics and measurement vintages
+## License
 
-`tdc trc-export`, `tdc reserve-factor-ledger-export`, and `tdc weekly-trc-export` construct separate reserve-side accounting diagnostics. The weekly construction is a cash-corrected Wednesday proxy with explicit missing-data and unpriced-secondary-trade boundaries, plus route sensitivities. There is no preferred weekly series. See [weekly TRC conventions](docs/weekly_trc.md).
-
-A measurement vintage changes sample endpoints without selecting a new method. The configured default `v1` ends at 2025Q4 for quarterly exports and 2025-12-31 for weekly exports. Later vintages use a separate ignored root, such as `data/refresh_<name>/`, and an explicit `--vintage`; they do not overwrite the default inputs.
-
-## Documentation
-
-- [Methodology](docs/methodology.md) and [equations](docs/equations.md)
-- [Data sources](docs/data_sources.md)
-- [Output schema](docs/output_schema.md)
-- [Interest-allocation contract](docs/wamest_interest_output_contract.md)
-- [Local development](docs/local_development.md)
-
-Source code is under `src/tdc_estimator/` and command entry points under `scripts/`. See [LICENSE](LICENSE) for reuse terms.
+MIT. See [LICENSE](LICENSE).

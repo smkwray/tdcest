@@ -1,4 +1,4 @@
-"""Nonmarketable interest sidecars (owner ruling 1 + freeze-bless MUST 6).
+"""Nonmarketable interest sidecars.
 
 Quarterly expense-basis sidecars from the FiscalData interest-expense ledger,
 outside every DS^T_DU core object:
@@ -6,7 +6,7 @@ outside every DS^T_DU core object:
 - savings bonds: household-facing, ACCRUAL-basis (EE/I interest pays at
   redemption) — labeled expense/accrual until a redemption bridge exists;
 - SLGS: owned by state/local bond issuers — domestic public, NEVER household DU;
-- GAS: intragovernmental (excluded core context; reported for the defense stat).
+- GAS: intragovernmental (excluded core context; reported for completeness).
 
 Labels here are locked by tests; none of these series may enter DS math.
 """

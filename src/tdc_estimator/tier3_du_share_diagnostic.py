@@ -1,6 +1,6 @@
 """Tier 3 DU-facing share diagnostic — TWO side-specific series with bands.
 
-Per the 2026-07-13 freeze-bless ingest (Phase C): publish the DU-facing share of
+Publishes the DU-facing share of
 noninterest OUTLAYS and of noninterest RECEIPTS as separate series under the
 common "noninterest fiscal core" caption — never a single blended scalar, never
 "share of the deficit," never a lower bound, never evidence that ROW receipt
@@ -13,7 +13,7 @@ ROW treatment) / total receipts, where the bank band is the SOI Table 5.1
 classification/perimeter band (strict depositories / +BHCs central /
 finance-wide stress) applied to NET corporate receipts with step-held shares,
 and ROW is a zero baseline plus the BEA macro stress ceiling. Diagnostic tier
-only; Tier 3 canonical promotion stays rejected.
+only; never a canonical Tier 3 input.
 """
 
 from __future__ import annotations

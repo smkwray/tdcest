@@ -1,9 +1,10 @@
 # Weekly Treasury component of reserves
 
 `weekly-trc-export` builds a cash-corrected Wednesday core **proxy**, a separate
-uncorrected par sensitivity, and signed ON RRP route scenarios. It preserves
-all admitted quarterly TRC and reserve-factor ledger artifacts. There is no
-weekly preferred series, estimator, or allocation of monthly fund positions.
+uncorrected par sensitivity, and signed ON RRP route scenarios. It reads the
+quarterly TRC and reserve-factor ledger outputs under pinned hashes and does not
+modify them. There is no weekly preferred series, estimator, or allocation of
+monthly fund positions.
 
 ## Measurement and cash conventions
 
@@ -18,7 +19,7 @@ retained in the manifest and receipt. The same mapped positions supply
 classification, the Fed leg, coupon entitlement and route redemption holdings.
 A missing eligible snapshot stays unavailable.
 
-The admitted ledger supplies
+The reserve-factor ledger supplies
 `C = c_h = -delta TGA - delta SFP` unchanged. The measured securities leg is
 
 ```
@@ -181,29 +182,25 @@ same economic quantity on two clocks can be called pure timing.
 
 ## Reproduction
 
-External acquisition uses the existing fiscus registry/exporter, with discovery
-before fetch. The caller-owned overlay supplies DTS Table II and FRN entries.
-The consolidated manifest pins every source file's hash, coverage, vintage and
-cache key, including dated ESF cash. From this worktree:
+Inputs are acquired through [fiscus](https://github.com/smkwray/fiscus), which looks up each dataset before fetching it. A local overlay, `config/fiscus_weekly_trc.yml`, adds the DTS Table II and FRN entries. The consolidated manifest pins every source file's hash, coverage, vintage and cache key, including dated Exchange Stabilization Fund cash. From the repository root, with a fiscus checkout at `../fiscus`:
 
 ```
-uv run python scripts/acquire_trc_inputs.py --registry weekly-trc --fiscus-project ../../../fiscus
+python scripts/acquire_trc_inputs.py --registry weekly-trc --fiscus-project ../fiscus
 ```
 
-From a clean committed producer, run:
+Then, from a clean committed checkout:
 
 ```
-uv run tdc weekly-trc-export --inputs-manifest-sha256 MANIFEST_SHA256 --ledger-sha256 LEDGER_SHA256 --trc-components-sha256 COMPONENTS_SHA256
-uv run pytest
-uv run pytest -m integration tests/test_weekly_trc.py
+tdc weekly-trc-export --inputs-manifest-sha256 MANIFEST_SHA256 --ledger-sha256 LEDGER_SHA256 --trc-components-sha256 COMPONENTS_SHA256
+pytest -m integration tests/test_weekly_trc.py
 ```
 
-The branch-only files are `trc_weekly_components_v1.csv`,
-`trc_weekly_quarterly_v1.csv`, `trc_weekly_identity_v1.csv`,
-`trc_weekly_soma_changes_v1.csv`, `trc_weekly_route_daily_v1.csv`, and
-`trc_weekly_v1_receipt.json`. The receipt binds the committed producer, exact
-input/output hashes, column sources/clocks/units, unavailable quarters, era
-summaries, uncertainty statuses and unchanged admitted-artifact hashes.
+The export writes `trc_weekly_components_v1.csv`, `trc_weekly_quarterly_v1.csv`,
+`trc_weekly_identity_v1.csv`, `trc_weekly_soma_changes_v1.csv`,
+`trc_weekly_route_daily_v1.csv` and the receipt `trc_weekly_v1_receipt.json`. The
+receipt records the producing commit, exact input and output hashes, the source,
+clock and units of each column, unavailable quarters, era summaries, uncertainty
+statuses, and the unchanged hashes of the quarterly inputs it read.
 
 Source conventions: [Treasury settlement regulations, Appendix B](https://www.treasurydirect.gov/files/laws-and-regulations/auction-regulations-uoc/31-cfr-part-356.pdf),
 [Treasury rollovers](https://www.newyorkfed.org/markets/treasury-rollover-faq),
@@ -215,16 +212,15 @@ Source conventions: [Treasury settlement regulations, Appendix B](https://www.tr
 
 ## Build readout
 
-Producer `1f19cc15a34d78f2627e3c274e4ca9f2a447fffe`; receipt SHA-256
+The figures below come from the build with producer commit
+`1f19cc15a34d78f2627e3c274e4ca9f2a447fffe` and receipt SHA-256
 `6bcf0fc4cbb4b419fccd3d7b391b3e22d0a3df6501dd9fbfa49cc2d1f4e56fb4`.
 
-The default full suite reports **556 passed, 0 failed, 8 skipped, 3 deselected**.
-The live weekly-export integration check reports **1 passed, 0 failed,
-0 skipped, 17 deselected**. All five output hashes match the receipt. Admitted
-artifacts retain their pre-build hashes. Weekly Decimal identity errors and
-quarterly reserve telescoping errors are zero; the largest admitted-component
-reconciliation residue is 8.7E-11 USD million from printed float inputs.
-These are accounting checks, not validation of unobserved prices or entitlement.
+All five output hashes match the receipt, and the quarterly inputs keep their
+hashes. Weekly Decimal identity errors and quarterly reserve telescoping errors
+are zero; the largest reconciliation residue against the quarterly TRC
+components is 8.7E-11 USD million, from printed float inputs. These are
+accounting checks, not validation of unobserved prices or entitlement.
 
 Core coverage is **1,056 weeks, 2005-10-12–2025-12-31**. The first complete
 available quarter is **2006Q1**. Quarterly reconciliation covers **80 complete
@@ -241,6 +237,14 @@ full-history receipt. Core and par use the same available weeks.
 | 2009–2015 | 365 | 2,210.238 | 2,213.173 | -0.488 | 2.447 |
 | 2016–2025 | 522 | 673.027 | 796.041 | -49.743 | 41.763 |
 | Total | 1044 | 2,278.558 | 2,405.911 | -50.600 | 45.244 |
+
+The 2006Q1–2008Q3 era is cash-corrected only in part. Treasury auction records
+report no SOMA allotment for 2003–2007 issues and for part of 2008; the first
+reported allotment is 2008-04-10. Without an allotment, a primary purchase has no
+cash correction, so 115 of that era's 143 core weeks carry
+**$2,173.4bn** of `primary_cash_unavailable_par`, and its primary cash adjustment
+of −$0.286bn covers only the supported events. For those weeks the core is
+effectively par-valued.
 
 | Era | J applied | Stock-candidate-only | Cash-candidate-only | Statuses |
 | --- | --- | --- | --- | --- |
@@ -268,7 +272,7 @@ There are 219 weeks with `cash_candidate_only_no_same_week_stock_crosswalk`:
 +$26.072bn signed and $60.334bn absolute unmatched cash postings. Seven weeks
 have applied cash with no unmatched postings, and 87 have no nonzero cash
 candidate. Among the 219 candidate weeks, all **203 zero-stock-change weeks**
-identified in the review retain their nonzero dated cash (signed net **−$15.107bn**).
+retain their nonzero dated cash (signed net **−$15.107bn**).
 The 2020-04-13 withdrawal remains a **−$10.000bn cash candidate** in the week
 ending 2020-04-15 and is not applied. The 2020-05-11 **−$37.500bn** application
 is retained; its **−$10.000bn stock remainder** stays a candidate.
@@ -286,8 +290,8 @@ is retained; its **−$10.000bn stock remainder** stays a candidate.
 | Maturity payment clock | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 | Core difference | 162.412 | -167.541 | -44.027 | -296.860 | -346.016 |
 
-The differences compare Wednesday-bounded weekly sums with the admitted
-calendar-quarter components. Their sum reconciles the core difference up to
+The differences compare Wednesday-bounded weekly sums with the quarterly
+TRC components. Their sum reconciles the core difference up to
 the retained printed-input arithmetic residue. No residual is assigned to an
 unobserved cash correction.
 

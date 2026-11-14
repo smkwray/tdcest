@@ -1,10 +1,9 @@
-"""Transitive DS^T_DU release manifest (freeze-bless ingest MUST 4).
+"""Transitive DS^T_DU release manifest.
 
-Hashes the COMPLETE dependency set of the DS release — every input and every
-output — and validates ALL of them at readback (the prior component-support
-validator checked only output hashes, which let three stale-release defects
-slip: the regression splice, the promotion docs, and the empirical anchor).
-Mutating any declared file after manifest build fails validation.
+Hashes the complete dependency set of the DS release — every input and every
+output — and validates all of them at readback, so a stale input cannot pass
+behind a matching output hash. Mutating any declared file after the manifest
+is built fails validation.
 """
 
 from __future__ import annotations

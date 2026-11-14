@@ -1,37 +1,25 @@
 # Credit-union treatment
 
-This repo makes credit-union treatment explicit because the right inclusion rule depends on the **deposit concept** being estimated.
+Whether credit unions belong in the estimate depends on the deposit concept being measured, so TDCest makes the choice explicit.
 
-## Headline policy
+## Perimeters
 
-### Bank-only headline
+| Row | Credit-union treatment | Role |
+|---|---|---|
+| `tdc_base_bank_only_ru_flow` | Excludes all credit-union Treasury transactions | Bank-only headline |
+| `tdc_base_broad_depository_np_cu_ru_flow` | Adds natural-person credit-union Treasury transactions | Broad-depository headline |
+| `tdc_broad_depository_np_corp_cu_ru_flow` | Also adds corporate credit-union Treasury transactions | Sensitivity |
+| `tdc_credit_union_aggregate_sensitivity` | Also adds the NCUA share-insurance capitalization deposit | Sensitivity |
 
-Use:
+The aggregate sensitivity reproduces the published aggregate credit-union Treasury concept, so users can compare it with the clean broad-depository treatment.
 
-- `tdc_base_bank_only_ru_flow`
+At Tier 2, the depository-institution rows (`*_depository_institution_np_cu_*`) use the broad-depository perimeter and also subtract Treasury interest allocated to credit unions. The canonical Tier 2 row uses this perimeter.
 
-This excludes all credit-union Treasury transactions.
+## Why the choice is explicit
 
-### Broad-depository headline
+Two assumptions are avoided:
 
-Use:
+1. that every credit-union Treasury purchase maps one-for-one into the deposit concept being measured;
+2. that the aggregate published credit-union Treasury series is a pure marketable-Treasury concept. It also contains the NCUA capitalization deposit.
 
-- `tdc_base_broad_depository_np_cu_ru_flow`
-
-This adds natural-person credit-union Treasury transactions.
-
-## Sensitivities
-
-- `tdc_broad_depository_np_corp_cu_ru_flow`
-- `tdc_credit_union_aggregate_sensitivity`
-
-The aggregate-CU sensitivity includes the NCUA capitalization deposit term so users can compare the clean broad-depository concept against the broad published aggregate credit-union Treasury concept.
-
-## Why this matters
-
-A public TDC repo should not silently assume that:
-
-1. every credit-union Treasury purchase maps one-for-one into the deposit concept on the left-hand side, or
-2. the aggregate published credit-union Treasury series is a clean pure marketable-Treasury concept.
-
-The repo therefore publishes the credit-union choice as a visible modeling decision rather than burying it in a hidden sector mapping.
+Natural-person credit-union transactions, corporate credit-union transactions and the NCUA capitalization deposit are therefore kept as separate inputs.

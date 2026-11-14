@@ -11,10 +11,11 @@ CU_COUPON_OUT ?= data/raw/support__credit_union_tsy_coupon_interest_proxy.csv
 export PYTHONPYCACHEPREFIX
 export PIP_CACHE_DIR
 
+# Use the new environment's interpreter directly: PYTHON is resolved before the venv exists.
 bootstrap:
 	python3 -m venv $(TDC_VENV)
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -e .[dev]
+	$(TDC_VENV)/bin/python -m pip install --upgrade pip
+	$(TDC_VENV)/bin/python -m pip install -e '.[dev]'
 
 install:
 	$(PYTHON) -m pip install -e .[dev]
@@ -90,4 +91,4 @@ release-hygiene:
 	$(PYTHON) -B scripts/check_release_hygiene.py
 
 test:
-	$(PYTHON) -m pytest -q -o cache_dir=$(PYTEST_CACHE_DIR)
+	$(PYTHON) -m pytest -o cache_dir=$(PYTEST_CACHE_DIR)

@@ -215,3 +215,31 @@ def test_build_treasury_url_fills_default_page_size():
         "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/example?"
         "sort=-record_date&page%5Bsize%5D=10000"
     )
+
+
+def test_fred_bundle_continues_past_optional_failures_but_not_required_ones(monkeypatch, tmp_path: Path):
+    # An optional series failing is recorded and the build continues. A required series
+    # failing would leave a stale or absent file feeding the estimates, so it stops the run.
+    import pytest
+
+    import tdc_estimator.download as download
+
+    required = FredSeries(key="row_tsy_tx", series_id="REQ", description="required", agg="sum", required=True)
+    optional = FredSeries(key="m2", series_id="OPT", description="optional", agg="last")
+
+    def fake_series(spec, raw_dir, **kwargs):
+        if spec.series_id in failing:
+            raise OSError("HTTP 500")
+        return {"key": spec.key}
+
+    monkeypatch.setattr(download, "download_fred_series", fake_series)
+
+    failing = {"OPT"}
+    manifest = download.download_fred_bundle([required, optional], tmp_path)
+    assert [entry["key"] for entry in manifest["errors"]] == ["m2"]
+
+    failing = {"REQ"}
+    with pytest.raises(RuntimeError, match="row_tsy_tx"):
+        download.download_fred_bundle([required, optional], tmp_path)
+    recorded = json.loads((tmp_path / "manifest_fred.json").read_text(encoding="utf-8"))
+    assert recorded["errors"] == [{"key": "row_tsy_tx", "series_id": "REQ", "required": True, "error": "HTTP 500"}]

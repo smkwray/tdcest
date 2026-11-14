@@ -166,7 +166,7 @@ def download_fred_bundle(
                 )
             )
         except Exception as exc:
-            entry = {"key": spec.key, "series_id": spec.series_id, "error": str(exc)}
+            entry = {"key": spec.key, "series_id": spec.series_id, "required": spec.required, "error": str(exc)}
             errors.append(entry)
             if not continue_on_error:
                 raise
@@ -178,6 +178,11 @@ def download_fred_bundle(
         "errors": errors,
     }
     write_json(Path(raw_dir) / "manifest_fred.json", manifest)
+    # Optional series may fail and are listed in the manifest. A required series that fails
+    # would leave an older file or none in place, so the estimates cannot be trusted.
+    required_failures = [entry["key"] for entry in errors if entry["required"]]
+    if required_failures:
+        raise RuntimeError(f"Required FRED series failed to download: {required_failures}; see manifest_fred.json")
     return manifest
 
 

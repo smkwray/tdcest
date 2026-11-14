@@ -535,16 +535,16 @@ MMF_ON_RRP_ROUTE_LIMITATION = (
 )
 
 
-def mmf_on_rrp_route_adjustment(quarterly: pd.DataFrame, *, tolerance: float = 1e-6) -> pd.DataFrame:
-    """Expose the quarterly MMF/ON RRP route adjustment with explicit status.
+def mmf_route_bounds(quarterly: pd.DataFrame, *, prefix: str = "mmf_rrp_adjustment") -> pd.DataFrame:
+    """Quarterly MMF/ON RRP route bounds with explicit status, without failing on gaps.
 
-    ``quarterly`` is indexed by quarterly periods and carries the raw
-    ``mmf_rrp_adjustment_{lb,prop,ub}`` aggregates. Before the ON RRP mechanism
-    the route is definitionally zero. In active quarters every value must be
-    finite and ordered, except that a missing lower bound is implied to be zero
-    when the upper bound is zero (``0 <= lb <= ub``); that case is flagged.
+    ``quarterly`` is indexed by quarterly periods and carries ``{prefix}_{lb,prop,ub}``.
+    Before the ON RRP mechanism the route is definitionally zero. In active quarters a
+    missing lower bound is implied to be zero when the upper and proportional values are
+    zero (``0 <= lb <= ub``); that case is flagged. Other missing active-period values stay
+    missing with status ``missing_active_period``.
     """
-    columns = {"lb": "mmf_rrp_adjustment_lb", "prop": "mmf_rrp_adjustment_prop", "ub": "mmf_rrp_adjustment_ub"}
+    columns = {key: f"{prefix}_{key}" for key in ("lb", "prop", "ub")}
     missing = set(columns.values()) - set(quarterly.columns)
     if missing:
         raise ValueError(f"MMF route adjustment: missing columns {sorted(missing)}")
@@ -560,6 +560,14 @@ def mmf_on_rrp_route_adjustment(quarterly: pd.DataFrame, *, tolerance: float = 1
     out.loc[implied, "mmf_route_lb"] = 0.0
     out.loc[active, "mmf_route_status"] = "observed_one_sided"
     out.loc[implied, "mmf_route_status"] = "observed_one_sided_lb_implied_by_zero_ub"
+    gaps = active & out[["mmf_route_lb", "mmf_route_prop", "mmf_route_ub"]].isna().any(axis=1)
+    out.loc[gaps, "mmf_route_status"] = "missing_active_period"
+    return out
+
+
+def mmf_on_rrp_route_adjustment(quarterly: pd.DataFrame, *, tolerance: float = 1e-6) -> pd.DataFrame:
+    """``mmf_route_bounds`` that fails on missing active-period values or out-of-order bounds."""
+    out = mmf_route_bounds(quarterly)
     values = out[["mmf_route_lb", "mmf_route_prop", "mmf_route_ub"]]
     if not np.isfinite(values.to_numpy(dtype=float)).all():
         bad = values.index[~np.isfinite(values.to_numpy(dtype=float)).all(axis=1)]

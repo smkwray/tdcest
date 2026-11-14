@@ -8,7 +8,7 @@ The repository is the unit of regeneration. A copy of some processed files is a 
 
 ### `tdc_estimates.csv`
 
-The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and one column per estimator row. Columns follow the naming pattern `tdc_<tier>_<correction>_<perimeter>_ru_flow`, where the perimeter is `bank_only`, `broad_depository_np_cu` (adds natural-person credit unions), `depository_institution_np_cu` (broad perimeter less credit-union interest) or `domestic_bank_only` (no rest-of-world term). A column is written only when its inputs are present, and it is empty for quarters its support files do not cover. Key columns:
+The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and one column per estimator row. Columns follow the naming pattern `tdc_<tier>_<correction>_<perimeter>_ru_flow`, where the perimeter is `bank_only`, `broad_depository_np_cu` (adds natural-person credit unions), `depository_institution_np_cu` (broad perimeter less credit-union interest) or `domestic_bank_only` (no rest-of-world term). A column is written only when its inputs are present, and it is empty for quarters its support files do not cover. Missing inputs are never read as zero: a quarter that lacks a required transaction series or the remittance value is empty, and the MMF/ON RRP adjustment is zero only before the ON RRP facility began (2013Q3). `method_meta.json` records the remittance coverage start and the MMF route status counts. Key columns:
 
 | Column | Role |
 |---|---|

@@ -73,7 +73,7 @@ The default suite excludes tests marked `integration`. Those tests reproduce ret
 make build
 ```
 
-`make build` downloads the baseline Z.1 series and the H.4.1 remittance series from FRED, then writes the estimates, figures and JSON export bundles. Without an API key it uses FRED's public graph endpoint; export `FRED_API_KEY` to use the API instead. To also download supporting Treasury FiscalData datasets:
+`make build` downloads the baseline Z.1 series and the H.4.1 remittance series from FRED, then writes the estimates, figures and JSON export bundles. If a required series fails to download, the build stops; failures of optional series are listed in `data/raw/manifest_fred.json`. Without an API key it uses FRED's public graph endpoint; export `FRED_API_KEY` to use the API instead. To also download supporting Treasury FiscalData datasets:
 
 ```bash
 "$HOME/venvs/tdcest/bin/python" scripts/build_all.py --include-treasury-support

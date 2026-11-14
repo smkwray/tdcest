@@ -34,7 +34,9 @@ def test_base_estimator_formula_and_credit_union_ladder():
             "mmf_rrp_adjustment_lb": [0.5, 0.7],
             "mmf_rrp_adjustment_prop": [1.0, 1.4],
             "mmf_rrp_adjustment_ub": [1.8, 2.1],
+            "mmf_rrp_bills_adjustment_lb": [0.3, 0.4],
             "mmf_rrp_bills_adjustment_prop": [0.6, 0.8],
+            "mmf_rrp_bills_adjustment_ub": [0.9, 1.0],
             "bank_noninterest_outlay_proxy": [0.4, 0.6],
             "row_noninterest_outlay_proxy": [0.2, 0.3],
             "bank_nonborrow_receipt_proxy": [0.1, 0.2],
@@ -444,3 +446,94 @@ def test_decomposition_proxy_puts_h8_billions_on_the_z1_million_scale():
 
     # (100 - 10 - (60 - 31)) billion = 61 billion = 61,000 million.
     assert estimates.loc[idx[1], "tdc_decomposition_proxy_bank_centric"] == pytest.approx(61_000.0)
+
+
+def _fail_closed_frame(dates: list[str]) -> pd.DataFrame:
+    n = len(dates)
+    return pd.DataFrame(
+        {
+            "fed_tsy_tx": [10.0] * n,
+            "us_chartered_tsy_tx": [20.0] * n,
+            "foreign_offices_tsy_tx": [1.0] * n,
+            "affiliated_areas_tsy_tx": [0.5] * n,
+            "row_tsy_tx": [30.0] * n,
+            "treasury_operating_cash_tx": [5.0] * n,
+            "fed_remit_or_deferred": [2.0] * n,
+        },
+        index=pd.to_datetime(dates),
+    )
+
+
+def test_a_missing_required_leg_leaves_the_quarter_missing_instead_of_zero():
+    # A failed or short download used to enter as zero through min_count=1 sums, so a
+    # quarter without ROW purchases or remittances still published a full-looking TDC.
+    quarterly = _fail_closed_frame(["2024-03-31", "2024-06-30", "2024-09-30"])
+    quarterly.loc["2024-06-30", "row_tsy_tx"] = float("nan")
+    quarterly.loc["2024-09-30", "foreign_offices_tsy_tx"] = float("nan")
+    estimates, _, _, _ = compute_estimates(quarterly)
+
+    base = estimates["tdc_base_bank_only_ru_flow"]
+    assert base.loc["2024-03-31"] == pytest.approx(10 + 20 + 1 + 0.5 + 30 - 5 + 2)
+    assert base.loc["2024-06-30":].isna().all()
+
+
+def test_remittances_are_required_and_missing_quarters_stay_missing():
+    quarterly = _fail_closed_frame(["2024-03-31", "2024-06-30"])
+    quarterly.loc["2024-06-30", "fed_remit_or_deferred"] = float("nan")
+    estimates, _, _, _ = compute_estimates(quarterly)
+    assert pd.isna(estimates.loc["2024-06-30", "tdc_base_bank_only_ru_flow"])
+    assert estimates.loc["2024-06-30", "tdc_no_remit_bank_only"] == pytest.approx(10 + 20 + 1 + 0.5 + 30 - 5)
+
+    with pytest.raises(ValueError, match="fed_remit_or_deferred"):
+        compute_estimates(quarterly.drop(columns="fed_remit_or_deferred"))
+
+
+def test_level_backfill_records_where_remittances_are_excluded():
+    dates = ["2001-09-30", "2001-12-31", "2002-03-31", "2002-06-30"]
+    quarterly = _fail_closed_frame(dates)
+    quarterly["fed_remit_or_deferred"] = [float("nan"), float("nan"), 2.0, 3.0]
+    for key, level in {
+        "fed_tsy_level": [100.0, 110.0, 120.0, 130.0],
+        "us_chartered_tsy_level": [50.0, 52.0, 54.0, 56.0],
+        "foreign_offices_tsy_level": [5.0, 5.0, 5.0, 5.0],
+        "affiliated_areas_tsy_level": [1.0, 1.0, 1.0, 1.0],
+        "row_tsy_level": [200.0, 205.0, 210.0, 215.0],
+        "treasury_operating_cash_level": [30.0, 31.0, 32.0, 33.0],
+    }.items():
+        quarterly[key] = level
+    estimates, components, _, meta = compute_estimates(quarterly)
+
+    assert components.loc["2001-12-31", "fed_remit_positive"] != components.loc["2001-12-31", "fed_remit_positive"]
+    level = estimates["tdc_level_bank_only_sensitivity"]
+    assert level.loc["2001-12-31"] == pytest.approx(10 + 2 + 5 - 1)  # no remittance before coverage
+    assert level.loc["2002-06-30"] == pytest.approx(10 + 2 + 5 - 1 + 3)
+    assert meta["historical_backfill"]["fed_remittance_coverage_start"] == "2002-03-31"
+
+
+def test_mmf_route_is_zero_before_on_rrp_and_missing_when_unobserved_after():
+    dates = ["2013-06-30", "2013-09-30", "2013-12-31", "2014-03-31"]
+    quarterly = _fail_closed_frame(dates)
+    for key in ["fed_tsy_coupon_interest_proxy", "bank_tsy_coupon_interest_proxy", "row_tsy_coupon_interest_proxy"]:
+        quarterly[key] = 0.0
+    nan = float("nan")
+    quarterly["mmf_rrp_adjustment_lb"] = [nan, nan, 1.0, nan]
+    quarterly["mmf_rrp_adjustment_prop"] = [nan, 0.0, 2.0, nan]
+    quarterly["mmf_rrp_adjustment_ub"] = [nan, 0.0, 3.0, nan]
+    estimates, _, corrections, meta = compute_estimates(quarterly)
+
+    prop = corrections["tier2_mmf_rrp_prop_adjustment"]
+    lb = corrections["tier2_mmf_rrp_lb_adjustment"]
+    assert prop.loc["2013-06-30"] == 0.0  # before the facility: structurally zero
+    assert lb.loc["2013-09-30"] == 0.0  # 0 <= lb <= ub = 0
+    assert prop.loc["2013-12-31"] == 2.0
+    assert pd.isna(prop.loc["2014-03-31"])  # active quarter without filings: missing, not zero
+    assert pd.isna(estimates.loc["2014-03-31", "tdc_tier2_mmf_rrp_prop_bank_only_ru_flow"])
+    assert meta["mmf_rrp_route_status_counts"]["mmf_rrp_adjustment"] == {
+        "missing_active_period": 1,
+        "observed_one_sided": 1,
+        "observed_one_sided_lb_implied_by_zero_ub": 1,
+        "structural_zero_pre_on_rrp_mechanism": 1,
+    }
+
+    with pytest.raises(ValueError, match="lb, prop and ub together"):
+        compute_estimates(quarterly.drop(columns="mmf_rrp_adjustment_ub"))

@@ -7,13 +7,25 @@ from .catalog import (
     BANK_DEPOSITORY_TX_KEYS,
     CU_COMPONENT_TX_KEYS,
 )
+from .mmf_rrp import mmf_route_bounds
 
 
 def _sum_columns(df: pd.DataFrame, cols: list[str]) -> pd.Series:
-    available = [col for col in cols if col in df.columns]
-    if not available:
+    """Sum of every listed column; missing wherever any column or quarter value is missing."""
+    if not all(col in df.columns for col in cols):
         return pd.Series(index=df.index, dtype="float64")
-    return df[available].sum(axis=1, min_count=1)
+    return df[cols].sum(axis=1, min_count=len(cols))
+
+
+def _mmf_route(components: pd.DataFrame, prefix: str) -> pd.DataFrame:
+    """MMF/ON RRP route bounds on the estimator's date index: zero before the ON RRP
+    facility existed, missing (with status) when unobserved after it."""
+    frame = components[[f"{prefix}_{key}" for key in ("lb", "prop", "ub")]].copy()
+    dates = frame.index
+    frame.index = pd.to_datetime(dates).to_period("Q")
+    route = mmf_route_bounds(frame, prefix=prefix)
+    route.index = dates
+    return route
 
 
 def _has_all(df: pd.DataFrame, cols: list[str]) -> bool:
@@ -57,6 +69,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         *BANK_DEPOSITORY_TX_KEYS,
         "row_tsy_tx",
         "treasury_operating_cash_tx",
+        "fed_remit_or_deferred",
     ]
     missing = [col for col in required if col not in quarterly.columns]
     if missing:
@@ -87,22 +100,28 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     components["row_tsy_tx"] = quarterly["row_tsy_tx"]
     components["ru_bank_only_tsy_tx"] = components[
         ["fed_tsy_tx", "bank_depository_tsy_tx", "row_tsy_tx"]
-    ].sum(axis=1, min_count=1)
+    ].sum(axis=1, min_count=3)
     components["ru_broad_depository_np_cu_tsy_tx"] = components[
         ["fed_tsy_tx", "broad_depository_np_cu_tsy_tx", "row_tsy_tx"]
-    ].sum(axis=1, min_count=1)
+    ].sum(axis=1, min_count=3)
     components["ru_broad_depository_np_corp_cu_tsy_tx"] = components[
         ["fed_tsy_tx", "broad_depository_np_corp_cu_tsy_tx", "row_tsy_tx"]
-    ].sum(axis=1, min_count=1)
+    ].sum(axis=1, min_count=3)
     components["ru_broad_depository_full_cu_tsy_tx"] = components[
         ["fed_tsy_tx", "broad_depository_full_cu_tsy_tx", "row_tsy_tx"]
-    ].sum(axis=1, min_count=1)
+    ].sum(axis=1, min_count=3)
     components["minus_treasury_operating_cash_tx"] = -quarterly["treasury_operating_cash_tx"]
 
-    if "fed_remit_or_deferred" in quarterly.columns:
-        components["fed_remit_positive"] = quarterly["fed_remit_or_deferred"].fillna(0.0)
-    else:
-        components["fed_remit_positive"] = 0.0
+    # Remittances are missing, not zero, in quarters the remittance series does not cover.
+    # Only the pre-2002 level-change backfill treats them as zero, and it records that.
+    components["fed_remit_positive"] = quarterly["fed_remit_or_deferred"]
+    remit_observed = quarterly["fed_remit_or_deferred"].dropna()
+    remit_coverage_start = remit_observed.index.min() if not remit_observed.empty else None
+    remit_for_level_backfill = components["fed_remit_positive"]
+    if remit_coverage_start is not None:
+        remit_for_level_backfill = remit_for_level_backfill.where(
+            pd.to_datetime(quarterly.index) >= remit_coverage_start, 0.0
+        )
 
     if "fed_tsy_coupon_interest_proxy" in quarterly.columns:
         components["fed_tsy_coupon_interest_proxy"] = quarterly["fed_tsy_coupon_interest_proxy"]
@@ -140,6 +159,13 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     ]:
         if key in quarterly.columns:
             components[key] = quarterly[key]
+    mmf_routes: dict[str, pd.DataFrame] = {}
+    for prefix in ["mmf_rrp_adjustment", "mmf_rrp_bills_adjustment"]:
+        present = [key for key in ("lb", "prop", "ub") if f"{prefix}_{key}" in components.columns]
+        if present and len(present) < 3:
+            raise ValueError(f"MMF/ON RRP support must carry lb, prop and ub together; {prefix} has only {present}")
+        if present:
+            mmf_routes[prefix] = _mmf_route(components, prefix)
     if "bank_noninterest_outlay_proxy" in quarterly.columns:
         components["bank_noninterest_outlay_proxy"] = quarterly["bank_noninterest_outlay_proxy"]
     if "row_noninterest_outlay_proxy" in quarterly.columns:
@@ -290,7 +316,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             ("ub", "mmf_rrp_adjustment_ub"),
         ]:
             if component_key in components.columns:
-                adjustment = components[component_key].fillna(0.0)
+                adjustment = mmf_routes["mmf_rrp_adjustment"][f"mmf_route_{suffix}"]
                 corrections[f"tier2_mmf_rrp_{suffix}_adjustment"] = adjustment
                 estimates[f"tdc_tier2_h15_mmf_rrp_{suffix}_bank_only_ru_flow"] = (
                     estimates["tdc_tier2_h15_intensity_corrected_bank_only_ru_flow"]
@@ -333,7 +359,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             ("ub", "mmf_rrp_bills_adjustment_ub"),
         ]:
             if component_key in components.columns:
-                adjustment = components[component_key].fillna(0.0)
+                adjustment = mmf_routes["mmf_rrp_bills_adjustment"][f"mmf_route_{suffix}"]
                 corrections[f"tier2_mmf_rrp_bills_{suffix}_adjustment"] = adjustment
                 estimates[f"tdc_tier2_h15_mmf_rrp_bills_{suffix}_bank_only_ru_flow"] = (
                     estimates["tdc_tier2_h15_intensity_corrected_bank_only_ru_flow"]
@@ -427,7 +453,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             ("ub", "mmf_rrp_adjustment_ub"),
         ]:
             if component_key in components.columns:
-                adjustment = components[component_key].fillna(0.0)
+                adjustment = mmf_routes["mmf_rrp_adjustment"][f"mmf_route_{suffix}"]
                 estimates[f"tdc_tier2_component_anchored_mmf_rrp_{suffix}_bank_only_ru_flow"] = (
                     estimates["tdc_tier2_component_anchored_bank_only_ru_flow"] + adjustment
                 )
@@ -625,7 +651,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         estimates["tdc_level_bank_only_sensitivity"] = (
             bank_level_tsy.diff()
             - quarterly["treasury_operating_cash_level"].diff()
-            + components["fed_remit_positive"]
+            + remit_for_level_backfill
         )
 
     level_cols_broad_np = [
@@ -645,7 +671,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         estimates["tdc_level_broad_depository_np_cu_sensitivity"] = (
             broad_np_level_tsy.diff()
             - quarterly["treasury_operating_cash_level"].diff()
-            + components["fed_remit_positive"]
+            + remit_for_level_backfill
         )
 
     if _has_all(quarterly, ["m2", "currency", "bank_credit", *BANK_DEPOSITORY_LEVEL_KEYS]):
@@ -895,8 +921,8 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow": "Tier 3 bank-only = Tier 2 bank-only - Bank noninterest outlay proxy - Rest-of-world noninterest outlay proxy + Bank nonborrow receipt proxy + Rest-of-world nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow": "Tier 3 broad-depository = Tier 2 broad-depository - Bank noninterest outlay proxy - Rest-of-world noninterest outlay proxy + Bank nonborrow receipt proxy + Rest-of-world nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
             "tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow": "Tier 3 domestic-only = Tier 2 domestic-only - Bank noninterest outlay proxy + Bank nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
-            "tdc_bank_only_extended_1990": "Bank-only extended series = Bank-only headline when available; otherwise Bank-only level-change sensitivity.",
-            "tdc_broad_depository_extended_1990": "Broad-depository extended series = Broad-depository headline when available; otherwise Broad-depository level-change sensitivity.",
+            "tdc_bank_only_extended_1990": "Bank-only extended series = Bank-only headline when available; otherwise Bank-only level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
+            "tdc_broad_depository_extended_1990": "Broad-depository extended series = Broad-depository headline when available; otherwise Broad-depository level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
             "tdc_level_bank_only_sensitivity": "Bank-only level-change sensitivity = Change in Federal Reserve Treasury holdings + Change in Bank-sector Treasury holdings + Change in Rest-of-world Treasury holdings - Change in Treasury operating cash + Positive Federal Reserve remittances.",
             "tdc_level_broad_depository_np_cu_sensitivity": "Broad-depository level-change sensitivity = Bank-only level-change sensitivity + Change in natural-person credit-union Treasury holdings.",
             "tdc_decomposition_proxy_bank_centric": "Bank-centric decomposition proxy = Change in M2 - Change in currency - Change in non-Treasury bank assets, with the H.8 and money-stock series converted from USD billions to USD millions.",
@@ -917,6 +943,14 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "pre_transaction_history": "level_change_backfill",
             "historical_extension_starts": historical_start,
             "transaction_history_starts": tx_start,
+            "fed_remittance_coverage_start": (
+                pd.Timestamp(remit_coverage_start).date().isoformat() if remit_coverage_start is not None else None
+            ),
+            "fed_remittance_backfill_treatment": "Level-change backfill quarters before fed_remittance_coverage_start exclude Federal Reserve remittances.",
+        },
+        "mmf_rrp_route_status_counts": {
+            prefix: {str(key): int(value) for key, value in route["mmf_route_status"].value_counts().sort_index().items()}
+            for prefix, route in mmf_routes.items()
         },
         "cash_term": {
             "display_name": "Treasury operating cash",

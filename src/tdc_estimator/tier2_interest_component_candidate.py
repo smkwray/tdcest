@@ -305,7 +305,7 @@ def build_tier2_interest_component_candidate(
             frame = _eligible_weight_frame(frame, interest_allocation_weights, "coupon_accrual")
             fed_exact = _value_at(fed_coupon, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
-            denominator_keys = set(frame["sector_key"].astype(str).str.strip()) - fed_keys
+            denominator_keys = _pool_denominator_keys(frame, fed_keys, fed_exact, "coupon_accrual", date)
             rows.extend(
                 _sector_rows(
                     date=pd.Timestamp(date).normalize(),
@@ -331,7 +331,7 @@ def build_tier2_interest_component_candidate(
             frame = _eligible_weight_frame(frame, interest_allocation_weights, "frn_accrued_interest")
             fed_exact = _value_at(fed_frn, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
-            denominator_keys = set(frame["sector_key"].astype(str).str.strip()) - fed_keys
+            denominator_keys = _pool_denominator_keys(frame, fed_keys, fed_exact, "frn_accrued_interest", date)
             rows.extend(
                 _sector_rows(
                     date=pd.Timestamp(date).normalize(),
@@ -357,9 +357,7 @@ def build_tier2_interest_component_candidate(
             frame = _eligible_weight_frame(frame, interest_allocation_weights, "bill_amortized_discount")
             fed_exact = _value_at(fed_bill, date)
             allocation_pool = max(official_pool - max(fed_exact or 0.0, 0.0), 0.0)
-            denominator_keys = set(frame["sector_key"].astype(str).str.strip())
-            if fed_exact is not None:
-                denominator_keys = denominator_keys - fed_keys
+            denominator_keys = _pool_denominator_keys(frame, fed_keys, fed_exact, "bill_amortized_discount", date)
             rows.extend(
                 _sector_rows(
                     date=pd.Timestamp(date).normalize(),
@@ -412,6 +410,23 @@ def _series_from_frame(df: pd.DataFrame, column: str) -> pd.Series:
         name=column,
     )
     return out.dropna().sort_index().astype("float64")
+
+
+def _pool_denominator_keys(
+    frame: pd.DataFrame, fed_keys: set[str], fed_exact: float | None, component: str, date: object,
+) -> set[str]:
+    """Holders that share the allocation pool.
+
+    The Fed leaves the denominator only when its exact amount was taken out of the pool.
+    Without that amount its WAMEST weight keeps its share, rather than passing the Fed's
+    interest to banks, the rest of the world and credit unions.
+    """
+    keys = set(frame["sector_key"].astype(str).str.strip())
+    if fed_exact is not None:
+        return keys - fed_keys
+    if not keys & fed_keys:
+        raise ValueError(f"{component} pool at {pd.Timestamp(date).date()}: no Fed exact amount and no Fed weight")
+    return keys
 
 
 def _eligible_weight_frame(

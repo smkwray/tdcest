@@ -25,6 +25,19 @@ def _contract(frame):
     return frame
 
 
+def _zero_fed_components(date: str = "2025-03-31") -> pd.DataFrame:
+    # These fixtures carry no Fed holder. An explicit zero Fed amount keeps the whole pool with
+    # the listed holders; without it the allocator would need a Fed weight to hold the Fed share.
+    return pd.DataFrame(
+        {
+            "date": [date],
+            "fed_tsy_coupon_interest_proxy": [0.0],
+            "fed_tsy_bill_discount_interest_proxy": [0.0],
+            "fed_tsy_frn_interest_proxy": [0.0],
+        }
+    )
+
+
 def _component_pools() -> pd.DataFrame:
     return build_treasury_interest_component_pools(
         pd.DataFrame(
@@ -186,6 +199,7 @@ def test_build_tier2_interest_component_candidate_prefers_contract_weights():
     )
 
     out = build_tier2_interest_component_candidate(
+        fed_components=_zero_fed_components(),
         component_pools=_component_pools(),
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
@@ -312,6 +326,7 @@ def test_build_tier2_interest_component_candidate_keeps_contract_and_constraint_
     )
 
     out = build_tier2_interest_component_candidate(
+        fed_components=_zero_fed_components(),
         component_pools=_component_pools(),
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
@@ -360,6 +375,7 @@ def test_build_tier2_interest_component_candidate_applies_source_constraints():
     )
 
     out = build_tier2_interest_component_candidate(
+        fed_components=_zero_fed_components(),
         component_pools=_component_pools(),
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
@@ -408,6 +424,7 @@ def test_build_tier2_interest_component_candidate_applies_level_only_fallback_sp
     )
 
     out = build_tier2_interest_component_candidate(
+        fed_components=_zero_fed_components(),
         component_pools=_component_pools(),
         sector_maturity=sector_maturity,
         sector_panel=sector_panel,
@@ -460,7 +477,10 @@ def test_write_tier2_interest_component_candidate_and_summary(tmp_path: Path):
     ).to_csv(panel_path, index=False)
     pd.DataFrame({"date": ["2025-03-31"], "1y": [4.0]}).to_csv(curve_path, index=False)
 
+    fed_path = tmp_path / "fed_components.csv"
+    _zero_fed_components().to_csv(fed_path, index=False)
     written_csv, written_md = write_tier2_interest_component_candidate(
+        fed_components_path=fed_path,
         treasury_interest_path=treasury_path,
         sector_maturity_path=maturity_path,
         sector_panel_path=panel_path,
@@ -525,7 +545,9 @@ def test_cli_preserves_gross_exclusions_and_source_evidence(tmp_path, fault):
     args = ["tier2-interest-component-candidate", "--root", str(tmp_path / "consumer"),
             "--wamest-root", str(tmp_path / "wamest"), "--sector-maturity-file", str(maturity),
             "--sector-panel-file", str(panel), "--curve-file", str(curve), "--treasury-interest-file", str(treasury),
-            "--out", str(output), "--markdown-out", str(tmp_path / "candidate.md")]
+            "--out", str(output), "--markdown-out", str(tmp_path / "candidate.md"),
+            "--fed-components-file", str(tmp_path / "fed_components.csv")]
+    _zero_fed_components().to_csv(tmp_path / "fed_components.csv", index=False)
     if fault:
         with pytest.raises(ValueError):
             main(args)
@@ -539,3 +561,40 @@ def test_cli_preserves_gross_exclusions_and_source_evidence(tmp_path, fault):
     assert bank.source_observability_tiers == "D"
     assert bank.denominator_observability_tiers == "D"
     assert bank.source_families == "Z1_WAMEST"
+
+
+def test_fed_share_stays_with_the_fed_when_its_exact_amount_is_missing():
+    # Coupon and FRN pools used to drop the Fed from the denominator even when no Fed amount
+    # had been subtracted, so the Fed's interest went to banks and the rest of the world
+    # (2026Q1 candidate: bank coupon 16.2bn against 9.4bn the quarter before).
+    sector_maturity = pd.DataFrame({"date": ["2025-03-31"], "sector_key": ["bank_us_chartered"],
+                                    "coupon_share": [1.0], "bill_share": [1.0], "coupon_only_maturity_years": [1.0]})
+    sector_panel = pd.DataFrame({"date": ["2025-03-31"], "sector_key": ["bank_us_chartered"], "level": [1.0]})
+    curves = pd.DataFrame({"date": ["2025-03-31"], "1y": [4.0]})
+    contract = _contract(pd.DataFrame({
+        "date": ["2025-03-31"] * 3,
+        "sector_key": ["fed", "bank_us_chartered", "foreigners_total"],
+        "component_key": ["coupon_accrual"] * 3,
+        "central_weight": [2.0, 1.0, 1.0], "low_weight": [2.0, 1.0, 1.0], "high_weight": [2.0, 1.0, 1.0],
+        "gross_interest_weight": [2.0, 1.0, 1.0], "gross_interest_low_weight": [2.0, 1.0, 1.0],
+        "gross_interest_high_weight": [2.0, 1.0, 1.0], "weight_unit": ["usd_millions"] * 3,
+    }))
+
+    def bank_coupon(fed_components):
+        out = build_tier2_interest_component_candidate(
+            component_pools=_component_pools(), sector_maturity=sector_maturity, sector_panel=sector_panel,
+            curves=curves, interest_allocation_weights=contract, fed_components=fed_components,
+        )
+        return out.loc[out.sector_group.eq("bank") & out.component_key.eq("coupon_accrual")].iloc[0]
+
+    missing = bank_coupon(None)
+    assert missing["component_anchored_interest_mil"] == pytest.approx(8000.0 * 1 / 4)
+    exact = bank_coupon(pd.DataFrame({"date": ["2025-03-31"], "fed_tsy_coupon_interest_proxy": [4000.0]}))
+    assert exact["component_anchored_interest_mil"] == pytest.approx((8000.0 - 4000.0) * 1 / 2)
+
+    no_fed_weight = contract.loc[~contract.sector_key.eq("fed")]
+    with pytest.raises(ValueError, match="no Fed exact amount and no Fed weight"):
+        build_tier2_interest_component_candidate(
+            component_pools=_component_pools(), sector_maturity=sector_maturity, sector_panel=sector_panel,
+            curves=curves, interest_allocation_weights=no_fed_weight,
+        )

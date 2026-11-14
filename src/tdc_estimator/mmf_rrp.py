@@ -19,6 +19,10 @@ OFR_MMF_FED_REPO_MNEMONIC = "MMF-MMF_RP_wFR-M"
 OFR_MMF_OTHER_ASSETS_MNEMONIC = "MMF-MMF_OA_TOT-M"
 OFR_MMF_AGENCY_MNEMONIC = "MMF-MMF_AG_TOT-M"
 ON_RRP_OPERATION_START = pd.Timestamp("2013-09-23")
+# Fund-month support read by the estimator (SEC Form N-MFP) and the OFR aggregate
+# comparison file. The OFR builder never writes the estimator input by default.
+MMF_FUND_MONTH_SUPPORT_FILE = "support__mmf_fund_month.csv"
+OFR_MMF_AGGREGATE_SUPPORT_FILE = "support__mmf_fund_month_ofr_aggregate.csv"
 SEC_NMFP_DATASETS_PAGE_URL = "https://www.sec.gov/data-research/sec-markets-data/dera-form-n-mfp-data-sets"
 SEC_BASE_URL = "https://www.sec.gov"
 SEC_USER_AGENT = f"{USER_AGENT} research contact@example.com"

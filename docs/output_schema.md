@@ -1455,7 +1455,7 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 
 ## `tdc_mmf_rrp_source_comparison.csv`
 
-Optional quarterly source-comparison table written when both `data/raw/support__mmf_fund_month.csv` and `data/raw/support__mmf_fund_month_ofr_aggregate.csv` are present. It compares the preferred SEC Form N-MFP fund-month MMF/RRP adjustment with the aggregate OFR fallback and reports:
+Optional quarterly source-comparison table written when both `data/raw/support__mmf_fund_month.csv` and `data/raw/support__mmf_fund_month_ofr_aggregate.csv` are present. It compares the SEC Form N-MFP fund-month MMF/RRP adjustment with the OFR aggregate and reports:
 
 - preferred and fallback `rrp_runoff`
 - preferred and fallback Treasury increases

@@ -1,6 +1,6 @@
 # MMF/ON RRP adjustment
 
-This note defines the money-market-fund (MMF) adjustment for Federal Reserve overnight reverse repo (ON RRP) funding in the Tier 2 ladder. The preferred adjustment uses SEC Form N-MFP fund-month filings; the Office of Financial Research (OFR) aggregate data are a fallback and a source comparison.
+This note defines the money-market-fund (MMF) adjustment for Federal Reserve overnight reverse repo (ON RRP) funding in the Tier 2 ladder. The adjustment uses SEC Form N-MFP fund-month filings; Office of Financial Research (OFR) aggregate data serve as a source comparison.
 
 ## Motivation
 
@@ -49,8 +49,7 @@ When `data/raw/support__mmf_fund_month.csv` is present, the pipeline writes:
 - `tdc_mmf_rrp_fund_month_adjustments.csv`
 - `tdc_mmf_rrp_quarterly_adjustments.csv`
 - `tdc_mmf_rrp_adjustment.md`
-- `tdc_mmf_rrp_source_comparison.csv`, when the OFR aggregate fallback file is present
-- `tdc_mmf_rrp_source_comparison.md`, when the OFR aggregate fallback file is present
+- `tdc_mmf_rrp_source_comparison.csv` and `.md`, when `data/raw/support__mmf_fund_month_ofr_aggregate.csv` is also present
 
 The quarterly adjustment columns are merged into `quarterly_inputs.csv`, and the estimator adds each of them to the Tier 2 rows:
 
@@ -78,7 +77,7 @@ If `treasury_total` is present, it is used directly. Otherwise total Treasury se
 
 ## OFR aggregate bridge
 
-The command below writes the OFR aggregate MMF dataset into the support-file shape:
+The command below writes the OFR aggregate MMF dataset into the support-file shape, at `data/raw/support__mmf_fund_month_ofr_aggregate.csv`:
 
 ```bash
 tdc mmf-rrp-support
@@ -97,7 +96,7 @@ The aggregate bridge maps:
 - `MMF-MMF_OA_TOT-M` to `non_treasury_non_fed_rrp_assets`
 - `MMF-MMF_TOT-M` to `nav`
 
-The aggregate bridge supports a monthly adjustment. It cannot allocate purchases fund by fund, but it avoids the coarser netting of quarterly total ON RRP.
+The aggregate cannot allocate purchases fund by fund, so the estimator does not read it. To run the adjustment on the aggregate anyway, pass `--out data/raw/support__mmf_fund_month.csv` explicitly.
 
 ## SEC Form N-MFP fund-level bridge
 
@@ -121,7 +120,7 @@ The parser uses:
 
 For each fund and report date, the filing with the latest filing date is kept. Two different filings on that same latest date stop the build rather than being resolved arbitrarily, so the result does not depend on archive order. Feeder funds are excluded to avoid double counting with their master portfolios, which are kept; with this rule, totals closely match the OFR aggregate scale. Treasury totals are summed from `U.S. Treasury Debt` holdings. Treasury bills are identified by bill CUSIP prefixes (`912796`, `912797`) or bill security titles. Fed RRP is identified from repurchase-agreement rows whose issuer or title names the Federal Reserve or FRBNY.
 
-When both the SEC fund-level file and OFR aggregate fallback are present, the pipeline writes a source-comparison artifact. That comparison is not an alternate estimator; it documents why the SEC fund-level proportional allocation is preferred and shows where aggregate netting materially changes the MMF/RRP adjustment.
+When both the SEC fund-level file and the OFR aggregate file are present, the pipeline writes a source-comparison artifact. That comparison is not an alternate estimator; it documents why the SEC fund-level proportional allocation is preferred and shows where aggregate netting materially changes the MMF/RRP adjustment.
 
 ## Boundary rule
 

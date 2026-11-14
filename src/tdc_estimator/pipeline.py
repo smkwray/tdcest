@@ -26,7 +26,12 @@ from .input_audit import write_input_audit
 from .headline_validation_review import write_headline_validation_review
 from .gse_rrp_boundary import write_gse_rrp_boundary_check
 from .io import build_quarterly_frame
-from .mmf_rrp import write_mmf_rrp_adjustment_outputs, write_mmf_rrp_source_comparison
+from .mmf_rrp import (
+    MMF_FUND_MONTH_SUPPORT_FILE,
+    OFR_MMF_AGGREGATE_SUPPORT_FILE,
+    write_mmf_rrp_adjustment_outputs,
+    write_mmf_rrp_source_comparison,
+)
 from .monetary_stage0 import write_monetary_stage0_diagnostics
 from .monetary_control_overlap_audit import write_monetary_control_overlap_audit
 from .monetary_residual_interpretation import write_monetary_residual_interpretation
@@ -118,8 +123,8 @@ def run_estimation_pipeline(
     gse_rrp_boundary_markdown_path = processed_dir / "tdc_gse_rrp_boundary_check.md"
     bill_discount_validation_path = processed_dir / "bill_discount_validation.csv"
     bill_discount_validation_markdown_path = processed_dir / "bill_discount_validation.md"
-    mmf_rrp_raw_path = Path(raw_dir) / "support__mmf_fund_month.csv"
-    mmf_rrp_fallback_raw_path = Path(raw_dir) / "support__mmf_fund_month_ofr_aggregate.csv"
+    mmf_rrp_raw_path = Path(raw_dir) / MMF_FUND_MONTH_SUPPORT_FILE
+    mmf_rrp_fallback_raw_path = Path(raw_dir) / OFR_MMF_AGGREGATE_SUPPORT_FILE
     mmf_rrp_quarterly = None
     mmf_rrp_source_comparison = None
     if mmf_rrp_raw_path.exists():

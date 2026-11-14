@@ -542,3 +542,34 @@ def test_cmd_tier3_source_input_writes_default_examples_path(monkeypatch, tmp_pa
     assert calls["source"]["base_quarterly_input_path"] is None
     assert calls["source"]["start"] == "2022-09-30"
     assert calls["source"]["row_profile"] == "default"
+
+
+def test_ofr_mmf_support_never_replaces_the_sec_estimator_input(monkeypatch, tmp_path: Path):
+    # The estimator reads support__mmf_fund_month.csv as the SEC N-MFP fund-level input.
+    # The OFR aggregate is a comparison source; writing it there would silently swap the
+    # canonical MMF/ON RRP adjustment to the aggregate netting it is compared against.
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    sec_input = raw / cli.MMF_FUND_MONTH_SUPPORT_FILE
+    sec_input.write_text("date,fund_id\n2024-01-31,S000000001\n", encoding="utf-8")
+    written: list[Path] = []
+
+    def fake_write_ofr(*, out_path, raw_json_path=None):
+        written.append(Path(out_path))
+        Path(out_path).write_text("date,fund_id\n2024-01-31,ofr_aggregate_mmf\n", encoding="utf-8")
+        return Path(out_path)
+
+    monkeypatch.setattr(cli, "project_paths", lambda root: _namespace(root=Path(root), raw=raw, processed=tmp_path / "processed", figures=tmp_path / "figures", site=tmp_path / "site"))
+    monkeypatch.setattr(cli, "ensure_project_dirs", lambda paths: None)
+    monkeypatch.setattr(cli, "write_ofr_mmf_aggregate_support", fake_write_ofr)
+    monkeypatch.setattr(cli, "download_fred_bundle", lambda *args, **kwargs: {})
+    monkeypatch.setattr(cli, "run_estimation_pipeline", lambda **kwargs: {})
+    monkeypatch.setattr(cli, "write_json", lambda path, payload: None)
+
+    assert cli.cmd_mmf_rrp_support(_namespace(root=tmp_path, out=None, no_raw_json=True)) == 0
+    common = dict(root=tmp_path, required_only=True, include_treasury_support=False, include_mmf_support=True, fred_api_key=None, start_date=None, end_date=None)
+    assert cli.cmd_download(_namespace(**common)) == 0
+    assert cli.cmd_build(_namespace(**common)) == 0
+
+    assert written == [raw / cli.OFR_MMF_AGGREGATE_SUPPORT_FILE] * 3
+    assert sec_input.read_text(encoding="utf-8") == "date,fund_id\n2024-01-31,S000000001\n"

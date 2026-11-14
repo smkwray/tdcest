@@ -42,7 +42,13 @@ from .tdc_empirical_anchor import write_tdc_empirical_anchor
 from .z1_domestic_nonbank_sector_context import (
     write_z1_domestic_nonbank_sector_context,
 )
-from .mmf_rrp import download_sec_nmfp_zips, write_ofr_mmf_aggregate_support, write_sec_nmfp_fund_month_support
+from .mmf_rrp import (
+    MMF_FUND_MONTH_SUPPORT_FILE,
+    OFR_MMF_AGGREGATE_SUPPORT_FILE,
+    download_sec_nmfp_zips,
+    write_ofr_mmf_aggregate_support,
+    write_sec_nmfp_fund_month_support,
+)
 from .mts_previous_issues import (
     write_stitched_previous_targets_with_fiscaldata,
     write_table4_target_history_as_fiscaldata_receipts,
@@ -135,7 +141,7 @@ def cmd_download(args: argparse.Namespace) -> int:
     mmf_support_path = None
     if getattr(args, "include_mmf_support", False):
         mmf_support_path = write_ofr_mmf_aggregate_support(
-            out_path=paths.raw / "support__mmf_fund_month.csv",
+            out_path=paths.raw / OFR_MMF_AGGREGATE_SUPPORT_FILE,
             raw_json_path=paths.raw / "ofr__mmf_dataset.json",
         )
 
@@ -196,7 +202,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         )
     if getattr(args, "include_mmf_support", False):
         write_ofr_mmf_aggregate_support(
-            out_path=paths.raw / "support__mmf_fund_month.csv",
+            out_path=paths.raw / OFR_MMF_AGGREGATE_SUPPORT_FILE,
             raw_json_path=paths.raw / "ofr__mmf_dataset.json",
         )
 
@@ -513,7 +519,7 @@ def cmd_tier3_source_input(args: argparse.Namespace) -> int:
 def cmd_mmf_rrp_support(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
-    out_path = Path(args.out) if args.out else (paths.raw / "support__mmf_fund_month.csv")
+    out_path = Path(args.out) if args.out else (paths.raw / OFR_MMF_AGGREGATE_SUPPORT_FILE)
     raw_json_path = None if args.no_raw_json else (paths.raw / "ofr__mmf_dataset.json")
     written = write_ofr_mmf_aggregate_support(out_path=out_path, raw_json_path=raw_json_path)
     print(f"Wrote OFR aggregate MMF/RRP support file to {written}")
@@ -523,7 +529,7 @@ def cmd_mmf_rrp_support(args: argparse.Namespace) -> int:
 def cmd_sec_nmfp_mmf_support(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
-    out_path = Path(args.out) if args.out else (paths.raw / "support__mmf_fund_month.csv")
+    out_path = Path(args.out) if args.out else (paths.raw / MMF_FUND_MONTH_SUPPORT_FILE)
     zip_paths = [Path(path) for path in args.zip]
     if args.download:
         zip_paths.extend(
@@ -1167,7 +1173,7 @@ def cmd_interest_source_constraints(args: argparse.Namespace) -> int:
         markdown_out_path=out_md,
         bank_ffiec_path=bank_ffiec_path,
         credit_union_ncua_path=credit_union_ncua_path,
-        mmf_path=args.mmf_file or (paths.raw / "support__mmf_fund_month.csv"),
+        mmf_path=args.mmf_file or (paths.raw / MMF_FUND_MONTH_SUPPORT_FILE),
         row_tic_path=row_tic_path,
     )
     print(f"Wrote Tier 2 interest source constraints to {written_csv}")
@@ -1660,7 +1666,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_download = sub.add_parser("download", parents=[root_parent], help="Download raw source data.")
     p_download.add_argument("--required-only", action="store_true", help="Download only the required baseline FRED series.")
     p_download.add_argument("--include-treasury-support", action="store_true", help="Also download supporting Treasury Fiscal Data datasets.")
-    p_download.add_argument("--include-mmf-support", action="store_true", help="Also download OFR aggregate MMF support data for the MMF/RRP adjustment.")
+    p_download.add_argument("--include-mmf-support", action="store_true", help="Also download the OFR aggregate MMF dataset to data/raw/support__mmf_fund_month_ofr_aggregate.csv, a source comparison for the SEC N-MFP adjustment.")
     p_download.add_argument("--fred-api-key", default=None, help="Optional FRED API key. If omitted, uses the FRED graph CSV endpoint.")
     p_download.add_argument("--start-date", default=None, help="Optional download start date, YYYY-MM-DD.")
     p_download.add_argument("--end-date", default=None, help="Optional download end date, YYYY-MM-DD.")
@@ -1678,7 +1684,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_build = sub.add_parser("build", parents=[root_parent], help="Download, estimate, plot, and site-export in one step.")
     p_build.add_argument("--required-only", action="store_true", help="Download only the required baseline FRED series.")
     p_build.add_argument("--include-treasury-support", action="store_true", help="Also download supporting Treasury Fiscal Data datasets.")
-    p_build.add_argument("--include-mmf-support", action="store_true", help="Also download OFR aggregate MMF support data for the MMF/RRP adjustment.")
+    p_build.add_argument("--include-mmf-support", action="store_true", help="Also download the OFR aggregate MMF dataset to data/raw/support__mmf_fund_month_ofr_aggregate.csv, a source comparison for the SEC N-MFP adjustment.")
     p_build.add_argument("--fred-api-key", default=None, help="Optional FRED API key. If omitted, uses the FRED graph CSV endpoint.")
     p_build.add_argument("--start-date", default=None, help="Optional download start date, YYYY-MM-DD.")
     p_build.add_argument("--end-date", default=None, help="Optional download end date, YYYY-MM-DD.")
@@ -1893,12 +1899,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_mmf_rrp = sub.add_parser(
         "mmf-rrp-support",
         parents=[root_parent],
-        help="Build the MMF/RRP support file from the OFR aggregate MMF dataset.",
+        help="Build the OFR aggregate MMF/RRP comparison file from the OFR MMF dataset.",
     )
     p_mmf_rrp.add_argument(
         "--out",
         default=None,
-        help="Output CSV path. Defaults to data/raw/support__mmf_fund_month.csv under --root.",
+        help="Output CSV path. Defaults to data/raw/support__mmf_fund_month_ofr_aggregate.csv under --root.",
     )
     p_mmf_rrp.add_argument(
         "--no-raw-json",

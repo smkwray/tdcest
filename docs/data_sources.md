@@ -66,7 +66,8 @@ WAMEST sector levels in billions are converted to USD millions. The interest-all
 
 | File | Source | Role |
 |---|---|---|
-| `support__mmf_fund_month.csv` | SEC Form N-MFP filings (`tdc sec-nmfp-mmf-support`), preferred; or Office of Financial Research aggregate MMF data (`tdc mmf-rrp-support`), fallback and cross-check | MMF/ON RRP adjustment |
+| `support__mmf_fund_month.csv` | SEC Form N-MFP filings (`tdc sec-nmfp-mmf-support`) | MMF/ON RRP adjustment |
+| `support__mmf_fund_month_ofr_aggregate.csv` | Office of Financial Research aggregate MMF data (`tdc mmf-rrp-support`, or `--include-mmf-support` on `download` and `build`) | Source comparison only |
 | `support__gse_on_rrp.csv` | New York Fed reverse repo operation results, GSE accepted amounts (`tdc gse-on-rrp-support`) | GSE/ON RRP boundary diagnostic only |
 
 See [MMF/ON RRP adjustment](mmf_rrp_adjustment.md) for the input contract.

@@ -97,3 +97,19 @@ def test_missing_lower_bound_with_zero_route_is_zero():
     fm.loc[fm["date"].str.startswith("2013-09"), ["mmf_rrp_adjustment_prop", "mmf_rrp_adjustment_ub"]] = 0.0
     m = tm.build_monthly(weekly(periods=40), fm).set_index("month")
     assert m.loc["2013-09", "mmf_route_lb"] == 0.0 and m.loc["2013-09", "mmf_route_status"].endswith("implied_by_zero_ub")
+
+
+@pytest.mark.parametrize("edge", ["first", "last"])
+def test_a_missing_edge_week_is_not_replaced_by_its_neighbour(edge):
+    """A month's opening or closing level must come from its own first or last Wednesday."""
+    w = weekly(periods=40)
+    november = w.index[pd.to_datetime(w["date"]).dt.strftime("%Y-%m").eq("2013-11")]
+    week = november[0] if edge == "first" else november[-1]
+    column = "reserve_balances_start" if edge == "first" else "reserve_balances_end"
+    w.loc[week, column] = np.nan
+    with pytest.raises(ValueError, match="missing reserve"):
+        tm.build_monthly(w, fund_month())
+    w = weekly(periods=40)
+    w.loc[week, "delta_reserve_balances"] = np.nan
+    with pytest.raises(ValueError, match="missing reserve"):
+        tm.build_monthly(w, fund_month())

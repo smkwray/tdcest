@@ -65,11 +65,15 @@ def build_monthly(weekly: pd.DataFrame, fund_month: pd.DataFrame) -> pd.DataFram
         "end_wednesday": groups["date"].max(),
         "weeks": groups.size(),
         "weeks_with_core": groups["trc_core"].count(),
-        "reserve_balances_start": groups["reserve_balances_start"].first(),
-        "reserve_balances_end": groups["reserve_balances_end"].last(),
+        # Opening and closing levels come from the month's first and last Wednesdays exactly;
+        # first()/last() would skip a missing edge week and take a neighbouring level.
+        "reserve_balances_start": groups["reserve_balances_start"].agg(lambda s: s.iloc[0]),
+        "reserve_balances_end": groups["reserve_balances_end"].agg(lambda s: s.iloc[-1]),
     })
     for name in WEEKLY_SUMS:
         out[name] = groups[name].sum(min_count=1)
+    # The reserve change must cover every week; a partial sum would pass the level check only by luck.
+    out.loc[groups["delta_reserve_balances"].count().lt(out["weeks"]), "delta_reserve_balances"] = np.nan
     complete = out["weeks_with_core"].eq(out["weeks"])
     out.loc[~complete, ["trc_core", "trc_par_sensitivity"]] = np.nan
     if not out["weeks"].between(4, 5).all():

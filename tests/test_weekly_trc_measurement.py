@@ -5,7 +5,7 @@ from decimal import Decimal as D
 import pandas as pd
 import pytest
 
-from test_weekly_trc import auction, fixture, holding, target
+from test_weekly_trc import auction, fixture, holding, registry_ending_with, target
 from tdc_estimator.weekly_trc import (
     allocate_route_capacity,
     bill_total_par,
@@ -100,7 +100,7 @@ def test_primary_cash_bill_neutrality():
         for d in pd.date_range(END, "2022-03-30", freq="W-WED")
     ]
     ledger, sources = event_build(-99, 99, 0, additions=additions, auctions=[a])
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.primary_cash_adjustment == -1
     assert row.trc_core == 0 and row.trc_par_sensitivity == 1
 
@@ -149,7 +149,7 @@ def test_tips_redemption_cash_and_floor(ratio, expected):
     )
     sources["soma"].loc[sources["soma"].asOfDate.ge(str(END.date())), "parValue"] = "0"
     sources["cpi"]["value"] = str(D(ratio) * 100)
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.trc_core == 0 and row.redemption_inflation == D(expected) - 100
 
 
@@ -158,7 +158,7 @@ def test_tips_noncash_accrual_excluded():
     sources["soma"].loc[
         sources["soma"].asOfDate.ge(str(END.date())), "inflationCompensation"
     ] = "5000000"
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.trc_core == 0 and row.soma_inflation_compensation_change_excluded == 5
 
 
@@ -292,7 +292,7 @@ def test_coupon_entitlement_primary_before_payment_and_accrued_interest_once():
     sources["soma"].loc[sources["soma"].asOfDate.ge(str(END.date())), "parValue"] = (
         "200000000"
     )
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert (
         row.soma_coupon_cash == 2
         and row.primary_cash_adjustment == -1
@@ -396,7 +396,7 @@ def test_coverage_first_complete_remittance_week():
 
 def test_incomplete_quarter_never_partial_sum():
     ledger, sources = fixture()
-    weekly = build_weekly_trc(ledger, sources)[0]
+    weekly = build_weekly_trc(ledger, sources, registry_ending_with(ledger))[0]
     comp = pd.DataFrame(
         [
             dict(
@@ -496,7 +496,7 @@ def test_route_perimeter_bridge_and_foreign_bank_correspondent():
     h = ledger.date.eq(str(END.date()))
     ledger.loc[h, "f_rrp_others"] = "-10"
     ledger.loc[h, "rho"] = "10"
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.rrp_others_vs_on_rrp_flow_bridge == -10
     # No ownership-only foreign correction exists; foreign/GSE allocation needs a declared shared route.
     assert row.route_baseline == 0
@@ -504,10 +504,10 @@ def test_route_perimeter_bridge_and_foreign_bank_correspondent():
 
 def test_identity_mutation_is_not_validation():
     ledger, sources = event_build(1, 0, 0, rate="2", maturity="2032-01-04")
-    good = build_weekly_trc(ledger, sources)
+    good = build_weekly_trc(ledger, sources, registry_ending_with(ledger))
     assert target(good).trc_core == 0
     sources["soma"]["coupon"] = "4"
-    bad = build_weekly_trc(ledger, sources)
+    bad = build_weekly_trc(ledger, sources, registry_ending_with(ledger))
     assert (
         good[1].identity_error.dropna().eq(0).all()
         and bad[1].identity_error.dropna().eq(0).all()
@@ -521,7 +521,7 @@ def test_secondary_cash_is_unpriced_par_proxy():
     sources["soma"].loc[sources["soma"].asOfDate.ge(str(END.date())), "parValue"] = (
         "200000000"
     )
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.trc_core == 100 and row.unpriced_secondary_net_par == 100
     assert "prices_and_entitlements_unobserved" in row.core_status
     assert (
@@ -535,20 +535,20 @@ def test_coupon_remittance_neutral_and_all_security_premium_excluded():
         sources["remittances"].record_date.eq("2022-01-04"), "transaction_today_amt"
     ] = "2"
     ledger.loc[ledger.date.eq(str(END.date())), ["c_h", "rho"]] = ["-1", "1"]
-    result = build_weekly_trc(ledger, sources)
+    result = build_weekly_trc(ledger, sources, registry_ending_with(ledger))
     assert target(result).trc_core == 0
     ledger.loc[ledger.date.eq(str(END.date())), ["f_unamortized_premiums", "rho"]] = [
         "8",
         "-7",
     ]
-    assert target(build_weekly_trc(ledger, sources)).trc_core == 0
+    assert target(build_weekly_trc(ledger, sources, registry_ending_with(ledger))).trc_core == 0
 
 
 def test_reverse_repo_not_outright_sale():
     ledger, sources = fixture()
     h = ledger.date.eq(str(END.date()))
     ledger.loc[h, ["f_rrp_others", "rho"]] = ["-100", "100"]
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, registry_ending_with(ledger)))
     assert row.fed_leg_par == 0 and row.trc_core == 0
 
 
@@ -759,7 +759,7 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
     sources["remittances"] = pd.DataFrame(
         [{**seed, "record_date": str(d.date())} for d in business]
     )
-    baseline = build_weekly_trc(ledger, sources)
+    baseline = build_weekly_trc(ledger, sources, registry_ending_with(ledger))
     for target_day, source_day in [
         ("2019-11-27", "2019-11-28"),
         ("2019-12-25", "2019-12-24"),
@@ -768,7 +768,7 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
         sources["soma"].loc[sources["soma"].asOfDate.eq(target_day), "asOfDate"] = (
             source_day
         )
-    substituted = build_weekly_trc(ledger, sources)
+    substituted = build_weekly_trc(ledger, sources, registry_ending_with(ledger))
     # Compare classification, Fed/coupon cash and daily route consumers through the production entry point.
     for expected, actual in zip(baseline, substituted):
         pd.testing.assert_frame_equal(expected, actual)
@@ -795,7 +795,7 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
     assert q.reserve_telescoping_error == 0 and q.delta_reserve_balances == 13
     sources["soma"] = sources["soma"].loc[sources["soma"].asOfDate.ne("2019-11-28")]
     missing = (
-        quarter_tables(build_weekly_trc(ledger, sources)[0], comp)
+        quarter_tables(build_weekly_trc(ledger, sources, registry_ending_with(ledger))[0], comp)
         .set_index("quarter")
         .loc["2019Q4"]
     )

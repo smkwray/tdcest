@@ -11,7 +11,17 @@ import subprocess
 import pandas as pd
 import pytest
 
-from tdc_estimator.catalog import WEEKLY_TRC_REGISTRY
+from tdc_estimator.catalog import MEASUREMENT_VINTAGES, MeasurementVintage, weekly_trc_registry
+
+# The synthetic ledger covers 2021-12-29..2022-03-30, so the fixture vintage ends there.
+FIXTURE_VINTAGE = MeasurementVintage("fixture", "2022Q1", "2022-03-30")
+WEEKLY_TRC_REGISTRY = weekly_trc_registry(FIXTURE_VINTAGE)
+
+
+def registry_ending_with(ledger):
+    """Weekly registry whose endpoint is the synthetic ledger's last Wednesday."""
+    end = pd.Timestamp(ledger.date.iloc[-1])
+    return weekly_trc_registry(MeasurementVintage("fixture", f"{end.year}Q{end.quarter}", str(end.date())))
 from tdc_estimator.cli import main
 from tdc_estimator.reserve_factor_ledger import LEDGER_OUTPUT_FILES, load_h41_rows
 from tdc_estimator.trc_export import TRC_OUTPUT_FILES
@@ -247,7 +257,7 @@ def test_postings_zero_transfers_and_signed_secondary_reserves(event):
         - (3 if event == "inflation" else fed)
         + (3 if event == "inflation" else 0)
     )
-    result = build_weekly_trc(ledger, sources)
+    result = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
     row = target(result)
     assert row.trc_core == D(reserve)
     assert all(v == 0 for v in result[1].identity_error.dropna())
@@ -269,13 +279,13 @@ def test_postings_zero_transfers_and_signed_secondary_reserves(event):
 def test_missing_snapshot_and_required_values_fail_closed():
     ledger, sources = fixture()
     sources["soma"] = sources["soma"].loc[sources["soma"].asOfDate.ne("2022-01-05")]
-    result = build_weekly_trc(ledger, sources)
+    result = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
     assert target(result).trc_core is None
     assert target(result, "2022-01-12").trc_core is None
     assert target(result).soma_status == "unavailable_missing_consecutive_snapshot"
     sources["soma"].loc[sources["soma"].index[0], "parValue"] = "null"
     with pytest.raises(ValueError, match="malformed"):
-        build_weekly_trc(ledger, sources)
+        build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
 
 
 def test_unknown_auction_is_recorded_and_never_assigned_secondary_purchase():
@@ -302,7 +312,7 @@ def test_route_scenarios_use_gross_cash_and_net_rrp_once():
     sources["auctions"] = pd.DataFrame(
         [auction("BILL", "2022-01-04", "2022-04-05", par="8000000")]
     )
-    result = build_weekly_trc(ledger, sources)
+    result = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
     row = target(result)
     assert row.route_baseline == 0 and row.route_forward == 8
     d = result[3].set_index("date").loc["2022-01-04"]
@@ -321,7 +331,7 @@ def test_route_scenarios_use_gross_cash_and_net_rrp_once():
         and identity.identity_error == 0
     )
     sources["on_rrp"].loc[sources["on_rrp"].date.eq("2022-01-04"), "value"] = "."
-    assert target(build_weekly_trc(ledger, sources)).route_forward is None
+    assert target(build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)).route_forward is None
 
 
 def test_end_month_and_actual_holiday_coupon_dates():
@@ -368,7 +378,7 @@ def test_complete_quarters_telescope_and_missing_week_is_not_partial_point():
             ["s_h", "f_treasury_securities", "delta_reserve_balances"],
         ] = str(n)
         ledger.loc[ledger.date.eq(day), "reserve_balances"] = str(1000 + cumulative)
-    w, _, _, _ = build_weekly_trc(ledger, sources)
+    w, _, _, _ = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
     components = pd.DataFrame(
         [
             dict(
@@ -400,7 +410,8 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_path):
+def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_path, monkeypatch):
+    monkeypatch.setitem(MEASUREMENT_VINTAGES, FIXTURE_VINTAGE.name, FIXTURE_VINTAGE)
     ledger, sources = fixture()
     root = tmp_path
     (root / "data/processed").mkdir(parents=True)
@@ -469,6 +480,8 @@ def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_
         sha(root / "data/processed" / LEDGER_OUTPUT_FILES["weekly"]),
         "--trc-components-sha256",
         sha(root / "data/processed" / TRC_OUTPUT_FILES["components"]),
+        "--vintage",
+        FIXTURE_VINTAGE.name,
     ]
     assert main(args) == 0
     receipt = json.loads((root / "data/processed" / OUTPUTS["receipt"]).read_text())
@@ -672,10 +685,18 @@ def test_malformed_or_absent_dts_cash_is_never_zero_filled():
     sources["remittances"] = sources["remittances"].loc[
         sources["remittances"].record_date.ne("2022-01-04")
     ]
-    row = target(build_weekly_trc(ledger, sources))
+    row = target(build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY))
     assert row.cash_remittances is None and row.trc_core is None
     sources["remittances"].loc[
         sources["remittances"].index[0], "transaction_today_amt"
     ] = "garbage"
     with pytest.raises(ValueError, match="malformed"):
-        build_weekly_trc(ledger, sources)
+        build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)
+
+
+def test_a_ledger_that_stops_before_the_weekly_endpoint_fails():
+    # The weekly series used to end silently at the ledger's last Wednesday.
+    ledger, sources = fixture()
+    short = ledger.loc[ledger.date.le("2022-03-23")]
+    with pytest.raises(ValueError, match="before the weekly endpoint 2022-03-30"):
+        build_weekly_trc(short, sources, WEEKLY_TRC_REGISTRY)

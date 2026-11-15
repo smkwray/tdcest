@@ -1117,10 +1117,10 @@ def build_weekly_trc(ledger, sources, registry=WEEKLY_TRC_REGISTRY):
     ):
         raise ValueError("Ledger: expected consecutive unique Wednesdays")
     auctions = prepare_auctions(sources["auctions"])
-    first, last = (
-        max(pd.Timestamp(registry.inputs[0].snapshot_window[0]), dates[0]),
-        min(pd.Timestamp(registry.inputs[0].snapshot_window[1]), dates[-1]),
-    )
+    window_end = pd.Timestamp(registry.inputs[0].snapshot_window[1])
+    if dates[-1] < window_end:
+        raise ValueError(f"Ledger ends {dates[-1].date()}, before the weekly endpoint {window_end.date()}")
+    first, last = max(pd.Timestamp(registry.inputs[0].snapshot_window[0]), dates[0]), window_end
     dates = dates[(dates >= first) & (dates <= last)]
     if dates.empty:
         raise ValueError("Ledger and SOMA do not overlap")

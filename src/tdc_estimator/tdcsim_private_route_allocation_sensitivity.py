@@ -455,9 +455,9 @@ def _base_row(
         "source_backed_private_bucket_split_status": (
             "not_source_backed_private_bucket_split"
         ),
-        "allowed_use": "tdcsim_ratewall_sensitivity_sidecar_context_only",
+        "allowed_use": "tdcsim_rate_model_sensitivity_sidecar_context_only",
         "blocked_use": (
-            "canonical_tdc_math;tdcsim_central_holder_allocation;ratewall_"
+            "canonical_tdc_math;tdcsim_central_holder_allocation;rate_model_"
             "evidence_mode;pricing_incidence_welfare_tax_mpc_or_prior_narrowing"
         ),
         "exact_blocker": str(route["exact_blocker"]),
@@ -533,7 +533,7 @@ def render_tdcsim_private_route_allocation_sensitivity_markdown(
             f"- Object families: `{'; '.join(object_families)}`.",
             "- Boundary: bounded noncanonical proxy only; not a source-backed TDCSim `Private` split.",
             "- ON-RRP treatment: memo-only, not added to Treasury holder denominators.",
-            "- Allowed use: TDCSim and RateWall sensitivity sidecar context only; no canonical TDC, Evidence Mode, allocation, incidence, welfare, tax, MPC, pricing, or prior-narrowing use.",
+            "- Allowed use: TDCSim and rate-model sensitivity sidecar context only; no canonical TDC, Evidence Mode, allocation, incidence, welfare, tax, MPC, pricing, or prior-narrowing use.",
             "",
         ]
     )

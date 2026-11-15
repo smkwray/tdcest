@@ -40,17 +40,17 @@ def test_z1_domestic_nonbank_sector_context_splits_sectors_fail_closed() -> None
     assert set(panel["canonical_tdc_math_change"]) == {"false"}
     assert not any(
         str(value).startswith("pass_")
-        for value in panel["ratewall_current_demand_gate"]
+        for value in panel["rate_model_current_demand_gate"]
     )
     by_sector = {row["sector_route_id"]: row for _, row in panel.iterrows()}
 
     mmf = by_sector["z1_mmf_sector_context"]
     assert mmf["m2_scope"] == "mixed_retail_mmf_and_non_m2_mmf"
-    assert mmf["ratewall_current_demand_gate"] == "fail_mixed_unknown"
+    assert mmf["rate_model_current_demand_gate"] == "fail_mixed_unknown"
 
     dealer = by_sector["z1_security_brokers_dealers_sector_context"]
     assert dealer["debited_claim_type"] == "repo_claim"
-    assert dealer["ratewall_current_demand_gate"] == "fail_noncurrent_claim"
+    assert dealer["rate_model_current_demand_gate"] == "fail_noncurrent_claim"
 
     household = by_sector["z1_households_nonprofits_residual_sector_context"]
     assert household["debited_claim_type"] == "mixed_unknown"

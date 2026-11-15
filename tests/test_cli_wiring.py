@@ -73,7 +73,7 @@ def test_build_parser_exposes_expected_commands():
         "bank-composition-export",
         "weekly-trc-export",
         "tdc-empirical-anchor",
-        "ratewall-du-ru-methodology",
+        "du-ru-methodology",
         "route-admissibility-registry",
         "tdcsim-private-route-allocation-sensitivity",
         "z1-domestic-nonbank-sector-context",

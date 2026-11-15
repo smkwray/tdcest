@@ -18,7 +18,7 @@ MONETARY_ROUTE_BRIDGE_FIELDS = [
     "m2_scope",
     "deposit_pass_through_scope",
     "tdc_estimator_treatment",
-    "ratewall_treatment",
+    "rate_model_treatment",
     "current_demand_eligible",
     "canonical_tdc_math_change",
     "exact_blocker",
@@ -37,7 +37,7 @@ ROUTE_SPECS = [
         "m2_scope": "true",
         "deposit_pass_through_scope": "false",
         "tdc_estimator_treatment": "excluded_from_depository_target_by_definition",
-        "ratewall_treatment": "context_only_not_deposit_pass_through",
+        "rate_model_treatment": "context_only_not_deposit_pass_through",
         "current_demand_eligible": "false",
         "exact_blocker": (
             "retail_mmf_shares_are_m2_but_not_bank_deposits_or_current_demand_"
@@ -60,7 +60,7 @@ ROUTE_SPECS = [
             "current_canonical_tier2_source_of_funds_adjustment_not_deposit_"
             "pass_through_evidence"
         ),
-        "ratewall_treatment": "source_backed_plumbing_context_excluded_from_deposit_pass_through",
+        "rate_model_treatment": "source_backed_plumbing_context_excluded_from_deposit_pass_through",
         "current_demand_eligible": "false",
         "exact_blocker": "fed_rrp_runoff_is_not_bank_deposit_pass_through",
         "notes": (
@@ -78,7 +78,7 @@ ROUTE_SPECS = [
         "m2_scope": "unknown_or_mixed",
         "deposit_pass_through_scope": "unknown_or_mixed",
         "tdc_estimator_treatment": "context_not_clean_deposit_scope",
-        "ratewall_treatment": "blocked_until_m2_or_deposit_funding_split_exists",
+        "rate_model_treatment": "blocked_until_m2_or_deposit_funding_split_exists",
         "current_demand_eligible": "false",
         "exact_blocker": "domestic_nonbank_z1_bucket_mixes_m2_and_non_m2_funding_routes",
         "notes": (
@@ -95,7 +95,7 @@ ROUTE_SPECS = [
         "m2_scope": "mixed_retail_mmf_and_non_m2_mmf",
         "deposit_pass_through_scope": "false",
         "tdc_estimator_treatment": "context_or_mmf_rrp_adjustment_only",
-        "ratewall_treatment": "context_only_until_retail_institutional_onrrp_split_exists",
+        "rate_model_treatment": "context_only_until_retail_institutional_onrrp_split_exists",
         "current_demand_eligible": "false",
         "exact_blocker": "mmf_plumbing_bucket_does_not_identify_retail_m2_vs_institutional_non_m2",
         "notes": (
@@ -112,7 +112,7 @@ ROUTE_SPECS = [
         "m2_scope": "false_or_unknown",
         "deposit_pass_through_scope": "false",
         "tdc_estimator_treatment": "context_only_not_depository_target",
-        "ratewall_treatment": "context_only_not_current_demand",
+        "rate_model_treatment": "context_only_not_current_demand",
         "current_demand_eligible": "false",
         "exact_blocker": "dealer_repo_bridge_is_market_plumbing_not_household_or_deposit_claim",
         "notes": "Keep dealer/repo bridge separate from deposit-funded domestic demand.",
@@ -126,7 +126,7 @@ ROUTE_SPECS = [
         "m2_scope": "false",
         "deposit_pass_through_scope": "false",
         "tdc_estimator_treatment": "context_only_not_depository_target",
-        "ratewall_treatment": "context_only_not_current_demand",
+        "rate_model_treatment": "context_only_not_current_demand",
         "current_demand_eligible": "false",
         "exact_blocker": (
             "other_financial_claims_are_not_m1_m2_deposit_scope_without_a_"
@@ -143,7 +143,7 @@ ROUTE_SPECS = [
         "m2_scope": "false",
         "deposit_pass_through_scope": "false",
         "tdc_estimator_treatment": "not_separately_observed_current_export",
-        "ratewall_treatment": "future_split_target_context_only",
+        "rate_model_treatment": "future_split_target_context_only",
         "current_demand_eligible": "false",
         "exact_blocker": "requires_retail_vs_institutional_mmf_split_before_amount_use",
         "notes": (
@@ -194,7 +194,7 @@ def _source_amount(row: pd.Series, source_field: str) -> tuple[str, str]:
 def build_monetary_route_bridge(
     quarterly: pd.DataFrame,
     *,
-    ratewall_du_ru_methodology: pd.DataFrame | None = None,
+    du_ru_methodology: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Build a route-level monetary-scope bridge for downstream TDC users.
 
@@ -219,8 +219,8 @@ def build_monetary_route_bridge(
             q[column] = _numeric(q, column) / 1000.0
 
     methodology = _date_frame(
-        ratewall_du_ru_methodology
-        if ratewall_du_ru_methodology is not None
+        du_ru_methodology
+        if du_ru_methodology is not None
         else pd.DataFrame()
     )
     if not methodology.empty:
@@ -276,7 +276,7 @@ def build_monetary_route_bridge(
                     "m2_scope": spec["m2_scope"],
                     "deposit_pass_through_scope": spec["deposit_pass_through_scope"],
                     "tdc_estimator_treatment": spec["tdc_estimator_treatment"],
-                    "ratewall_treatment": spec["ratewall_treatment"],
+                    "rate_model_treatment": spec["rate_model_treatment"],
                     "current_demand_eligible": spec["current_demand_eligible"],
                     "canonical_tdc_math_change": "false",
                     "exact_blocker": spec["exact_blocker"],
@@ -304,7 +304,7 @@ def render_monetary_route_bridge_markdown(frame: pd.DataFrame) -> str:
             f"- Latest non-M2/non-M2-like route rows: `{len(non_m2)}`.",
             "- Purpose: classify M1/M2/deposit-pass-through scope for domestic nonbank and MMF routes.",
             "- Boundary: classification-only; this bridge does not change canonical TDC math.",
-            "- RateWall use: import route labels and keep non-M2 routes out of deposit-pass-through/current-demand math unless a future source-backed split clears the blocker.",
+            "- Downstream rate-model use: import route labels and keep non-M2 routes out of deposit-pass-through/current-demand math unless a future source-backed split clears the blocker.",
             "",
         ]
     )
@@ -313,13 +313,13 @@ def render_monetary_route_bridge_markdown(frame: pd.DataFrame) -> str:
 def write_monetary_route_bridge(
     *,
     quarterly: pd.DataFrame,
-    ratewall_du_ru_methodology: pd.DataFrame | None,
+    du_ru_methodology: pd.DataFrame | None,
     csv_path: Path | str,
     markdown_path: Path | str | None = None,
 ) -> tuple[Path, Path | None, pd.DataFrame]:
     frame = build_monetary_route_bridge(
         quarterly,
-        ratewall_du_ru_methodology=ratewall_du_ru_methodology,
+        du_ru_methodology=du_ru_methodology,
     )
     target = Path(csv_path)
     target.parent.mkdir(parents=True, exist_ok=True)

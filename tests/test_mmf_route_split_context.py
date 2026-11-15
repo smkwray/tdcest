@@ -80,7 +80,7 @@ def test_build_mmf_route_split_context_keeps_split_context_only(tmp_path: Path) 
     assert institutional_treasury["treasury_coupons_bil"] == "0.7"
 
     onrrp = by_route["institutional_or_nonretail_mmf_onrrp_plumbing_context"]
-    assert onrrp["ratewall_treatment"] == "fed_onrrp_plumbing_context_only"
+    assert onrrp["rate_model_treatment"] == "fed_onrrp_plumbing_context_only"
     assert onrrp["current_demand_eligible"] == "false"
 
     assert {row["canonical_tdc_math_change"] for _, row in rows.iterrows()} == {

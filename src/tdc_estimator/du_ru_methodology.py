@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 
-RATEWALL_DU_RU_METHODOLOGY_FIELDS = [
+DU_RU_METHODOLOGY_FIELDS = [
     "date",
     "quarter",
     "treasury_interest_total_bil",
@@ -48,14 +48,14 @@ def _to_numeric(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(frame[column], errors="coerce")
 
 
-def build_ratewall_du_ru_methodology_panel(
+def build_du_ru_methodology_panel(
     du_fiscal_flow: pd.DataFrame,
     interest_method: pd.DataFrame,
     z1_holder_absorption: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Build the TDC-EST-owned DU/RU export used by RateWall."""
+    """Build the TDC-EST-owned DU/RU export used by downstream rate models."""
     if du_fiscal_flow.empty:
-        return pd.DataFrame(columns=RATEWALL_DU_RU_METHODOLOGY_FIELDS)
+        return pd.DataFrame(columns=DU_RU_METHODOLOGY_FIELDS)
 
     interest = du_fiscal_flow.copy()
     interest["date"] = pd.to_datetime(interest["date"], errors="coerce")
@@ -211,19 +211,19 @@ def build_ratewall_du_ru_methodology_panel(
         available,
         "methodology_status",
     ] = "pass_tdcest_interest_split_and_z1_absorption_available"
-    out["source_status"] = "tdcest_ratewall_du_ru_methodology_export"
-    return out.loc[:, RATEWALL_DU_RU_METHODOLOGY_FIELDS]
+    out["source_status"] = "tdcest_du_ru_methodology_export"
+    return out.loc[:, DU_RU_METHODOLOGY_FIELDS]
 
 
-def render_ratewall_du_ru_methodology_markdown(frame: pd.DataFrame) -> str:
+def render_du_ru_methodology_markdown(frame: pd.DataFrame) -> str:
     if frame.empty:
-        return "# RateWall DU/RU Methodology Export\n\nNo rows were generated.\n"
+        return "# DU/RU Methodology Export\n\nNo rows were generated.\n"
     counts = frame["methodology_status"].value_counts().to_dict()
     first = frame["quarter"].dropna().iloc[0]
     latest = frame["quarter"].dropna().iloc[-1]
     return "\n".join(
         [
-            "# RateWall DU/RU Methodology Export",
+            "# DU/RU Methodology Export",
             "",
             f"- Quarter range: `{first}` to `{latest}`.",
             f"- Status counts: `{counts}`.",
@@ -237,7 +237,7 @@ def render_ratewall_du_ru_methodology_markdown(frame: pd.DataFrame) -> str:
     )
 
 
-def write_ratewall_du_ru_methodology_panel(
+def write_du_ru_methodology_panel(
     *,
     du_fiscal_flow_path: Path | str,
     interest_method_path: Path | str,
@@ -256,7 +256,7 @@ def write_ratewall_du_ru_methodology_panel(
         if Path(z1_holder_absorption_path).exists()
         else pd.DataFrame()
     )
-    frame = build_ratewall_du_ru_methodology_panel(
+    frame = build_du_ru_methodology_panel(
         du_fiscal_flow,
         interest_method,
         z1_holder_absorption,
@@ -271,7 +271,7 @@ def write_ratewall_du_ru_methodology_panel(
         written_md = Path(markdown_path)
         written_md.parent.mkdir(parents=True, exist_ok=True)
         written_md.write_text(
-            render_ratewall_du_ru_methodology_markdown(frame),
+            render_du_ru_methodology_markdown(frame),
             encoding="utf-8",
         )
     return csv_path, written_md, frame

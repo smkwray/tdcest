@@ -21,7 +21,7 @@ Z1_DOMESTIC_NONBANK_SECTOR_CONTEXT_FIELDS = [
     "m2_scope",
     "deposit_pass_through_scope",
     "tdc_admissibility",
-    "ratewall_current_demand_gate",
+    "rate_model_current_demand_gate",
     "current_demand_eligible",
     "canonical_tdc_math_change",
     "exact_blocker",
@@ -43,7 +43,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mmf_share_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "mixed_retail_mmf_and_non_m2_mmf",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "exact_blocker": "z1_mmf_sector_does_not_split_retail_institutional_onrrp_or_final_investor_route",
     },
     {
@@ -55,7 +55,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "repo_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false_or_unknown",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "dealer_repo_sector_is_market_plumbing_not_deposit_recipient_route",
     },
     {
@@ -67,7 +67,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "agency_or_fed_liability_related_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "gse_sector_does_not_identify_bank_deposit_debit_or_recipient_current_demand",
     },
     {
@@ -79,7 +79,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mutual_fund_share_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "mutual_fund_sector_does_not_identify_deposit_debit_or_final_current_demand",
     },
     {
@@ -91,7 +91,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mutual_fund_share_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "closed_end_fund_sector_does_not_identify_deposit_debit_or_final_current_demand",
     },
     {
@@ -103,7 +103,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mutual_fund_share_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "etf_sector_does_not_identify_deposit_debit_or_final_current_demand",
     },
     {
@@ -115,7 +115,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "pension_insurance_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "insurance_pension_sector_does_not_identify_deposit_debit_or_current_demand_route",
     },
     {
@@ -127,7 +127,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mixed_unknown",
         "funding_route_observed": "mixed_unknown",
         "m2_scope": "unknown_or_mixed",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "exact_blocker": "household_nonprofit_residual_does_not_identify_debited_claim_or_payment_route",
     },
     {
@@ -139,7 +139,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mixed_unknown",
         "funding_route_observed": "mixed_unknown",
         "m2_scope": "unknown_or_mixed",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "exact_blocker": "nonfinancial_corporate_sector_does_not_identify_debited_claim_or_current_demand_route",
     },
     {
@@ -151,7 +151,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mixed_unknown",
         "funding_route_observed": "mixed_unknown",
         "m2_scope": "unknown_or_mixed",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "exact_blocker": "nonfinancial_noncorporate_sector_does_not_identify_debited_claim_or_current_demand_route",
     },
     {
@@ -163,7 +163,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mixed_unknown",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "state_local_government_sector_is_not_deposit_user_current_demand_route",
     },
     {
@@ -175,7 +175,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "repo_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "abs_issuer_sector_does_not_identify_deposit_debit_or_final_current_demand",
     },
     {
@@ -187,7 +187,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "mixed_unknown",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "holding_company_sector_does_not_identify_deposit_debit_or_current_demand_route",
     },
     {
@@ -199,7 +199,7 @@ SECTOR_SPECS = [
         "debited_claim_type": "repo_claim",
         "funding_route_observed": "sector_aggregate_only",
         "m2_scope": "false",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "exact_blocker": "central_clearing_counterparty_sector_is_market_plumbing_not_current_demand_route",
     },
 ]
@@ -259,8 +259,8 @@ def build_z1_domestic_nonbank_sector_context(
                         else "false"
                     ),
                     "tdc_admissibility": "context_only",
-                    "ratewall_current_demand_gate": spec[
-                        "ratewall_current_demand_gate"
+                    "rate_model_current_demand_gate": spec[
+                        "rate_model_current_demand_gate"
                     ],
                     "current_demand_eligible": "false",
                     "canonical_tdc_math_change": "false",
@@ -294,7 +294,7 @@ def render_z1_domestic_nonbank_sector_context_markdown(frame: pd.DataFrame) -> s
             f"- Latest-quarter sector route rows: `{len(latest)}`.",
             f"- Sector route families: `{'; '.join(families)}`.",
             "- Boundary: Z.1 sector holder context only; no row identifies a deposit debit, final investor, or current-demand payment route.",
-            "- RateWall use: guardrail/context only, not current-demand or canonical TDC math.",
+            "- Downstream rate-model use: guardrail/context only, not current-demand or canonical TDC math.",
             "",
         ]
     )

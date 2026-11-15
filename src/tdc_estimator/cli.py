@@ -28,7 +28,7 @@ from .interest_source_constraints import TIC_SLT_TABLE3_URL, ensure_tic_slt_tabl
 from .interest_source_window_validation import write_interest_source_window_validation
 from .ncua_interest_constraints import write_ncua_interest_constraints_from_cache
 from .pipeline import run_estimation_pipeline
-from .ratewall_du_ru_methodology import write_ratewall_du_ru_methodology_panel
+from .du_ru_methodology import write_du_ru_methodology_panel
 from .monetary_route_bridge import write_monetary_route_bridge
 from .mmf_route_split_context import write_mmf_route_split_context
 from .route_admissibility_registry import write_route_admissibility_registry
@@ -391,7 +391,7 @@ def cmd_tier2_coupon_proxies(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_ratewall_du_ru_methodology(args: argparse.Namespace) -> int:
+def cmd_du_ru_methodology(args: argparse.Namespace) -> int:
     paths = project_paths(args.root)
     ensure_project_dirs(paths)
     z1_path = _existing_path(
@@ -403,16 +403,16 @@ def cmd_ratewall_du_ru_methodology(args: argparse.Namespace) -> int:
     )
     if z1_path is None:
         raise ValueError(
-            "RateWall DU/RU methodology export requires a Z.1 holder absorption "
+            "DU/RU methodology export requires a Z.1 holder absorption "
             "panel. Pass --z1-holder-absorption-file or build tdcmix first."
         )
     csv_path = Path(args.out) if args.out else (
-        paths.processed / "ratewall_du_ru_methodology_panel.csv"
+        paths.processed / "du_ru_methodology_panel.csv"
     )
     markdown_path = Path(args.markdown_out) if args.markdown_out else (
-        paths.processed / "ratewall_du_ru_methodology_panel.md"
+        paths.processed / "du_ru_methodology_panel.md"
     )
-    written_csv, written_md, frame = write_ratewall_du_ru_methodology_panel(
+    written_csv, written_md, frame = write_du_ru_methodology_panel(
         du_fiscal_flow_path=args.du_fiscal_flow_file
         or (paths.processed / "tdc_du_fiscal_flow_research.csv"),
         interest_method_path=args.interest_method_file
@@ -421,9 +421,9 @@ def cmd_ratewall_du_ru_methodology(args: argparse.Namespace) -> int:
         csv_path=csv_path,
         markdown_path=markdown_path,
     )
-    print(f"Wrote RateWall DU/RU methodology panel to {written_csv}")
+    print(f"Wrote DU/RU methodology panel to {written_csv}")
     if written_md is not None:
-        print(f"Wrote RateWall DU/RU methodology summary to {written_md}")
+        print(f"Wrote DU/RU methodology summary to {written_md}")
     print(f"Generated {len(frame)} methodology rows")
     return 0
 
@@ -437,9 +437,9 @@ def cmd_monetary_route_bridge(args: argparse.Namespace) -> int:
         else paths.processed / "quarterly_inputs.csv"
     )
     methodology_path = (
-        Path(args.ratewall_du_ru_methodology_file)
-        if args.ratewall_du_ru_methodology_file
-        else paths.processed / "ratewall_du_ru_methodology_panel.csv"
+        Path(args.du_ru_methodology_file)
+        if args.du_ru_methodology_file
+        else paths.processed / "du_ru_methodology_panel.csv"
     )
     if not quarterly_path.exists():
         raise ValueError(
@@ -462,7 +462,7 @@ def cmd_monetary_route_bridge(args: argparse.Namespace) -> int:
     )
     written_csv, written_md, frame = write_monetary_route_bridge(
         quarterly=quarterly,
-        ratewall_du_ru_methodology=methodology,
+        du_ru_methodology=methodology,
         csv_path=csv_path,
         markdown_path=markdown_path,
     )
@@ -1983,7 +1983,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_route_admissibility = sub.add_parser(
         "route-admissibility-registry",
         parents=[root_parent],
-        help="Export quarterless route admissibility guardrails for TDC/RateWall route use.",
+        help="Export quarterless route admissibility guardrails for TDC and downstream rate-model route use.",
     )
     p_route_admissibility.add_argument(
         "--monetary-route-bridge-file",
@@ -3067,37 +3067,37 @@ def build_parser() -> argparse.ArgumentParser:
     p_dst_du_manifest.add_argument("--out", default=None)
     p_dst_du_manifest.set_defaults(func=cmd_dst_du_release_manifest)
 
-    p_ratewall_du_ru = sub.add_parser(
-        "ratewall-du-ru-methodology",
+    p_du_ru = sub.add_parser(
+        "du-ru-methodology",
         parents=[root_parent],
-        help="Export the TDC-EST/Z.1 DU/RU methodology panel for RateWall.",
+        help="Export the TDC-EST/Z.1 DU/RU methodology panel for downstream rate models.",
     )
-    p_ratewall_du_ru.add_argument(
+    p_du_ru.add_argument(
         "--du-fiscal-flow-file",
         default=None,
         help="TDC-EST DU fiscal-flow research CSV. Defaults to data/processed/tdc_du_fiscal_flow_research.csv.",
     )
-    p_ratewall_du_ru.add_argument(
+    p_du_ru.add_argument(
         "--interest-method-file",
         default=None,
         help="TDC-EST interest-method tier CSV. Defaults to data/processed/tier2_regression_interest_backcast_wide.csv.",
     )
-    p_ratewall_du_ru.add_argument(
+    p_du_ru.add_argument(
         "--z1-holder-absorption-file",
         default=None,
         help="Z.1 holder absorption CSV. Defaults to the sibling tdcmix exact holder panel.",
     )
-    p_ratewall_du_ru.add_argument(
+    p_du_ru.add_argument(
         "--out",
         default=None,
-        help="Output CSV path. Defaults to data/processed/ratewall_du_ru_methodology_panel.csv.",
+        help="Output CSV path. Defaults to data/processed/du_ru_methodology_panel.csv.",
     )
-    p_ratewall_du_ru.add_argument(
+    p_du_ru.add_argument(
         "--markdown-out",
         default=None,
-        help="Output Markdown path. Defaults to data/processed/ratewall_du_ru_methodology_panel.md.",
+        help="Output Markdown path. Defaults to data/processed/du_ru_methodology_panel.md.",
     )
-    p_ratewall_du_ru.set_defaults(func=cmd_ratewall_du_ru_methodology)
+    p_du_ru.set_defaults(func=cmd_du_ru_methodology)
 
     p_monetary_route = sub.add_parser(
         "monetary-route-bridge",
@@ -3110,9 +3110,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Quarterly inputs CSV. Defaults to data/processed/quarterly_inputs.csv.",
     )
     p_monetary_route.add_argument(
-        "--ratewall-du-ru-methodology-file",
+        "--du-ru-methodology-file",
         default=None,
-        help="RateWall DU/RU methodology CSV. Defaults to data/processed/ratewall_du_ru_methodology_panel.csv.",
+        help="DU/RU methodology CSV. Defaults to data/processed/du_ru_methodology_panel.csv.",
     )
     p_monetary_route.add_argument(
         "--out",

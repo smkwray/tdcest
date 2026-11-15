@@ -93,7 +93,7 @@ def build_tdcsim_private_route_support_contract(
 
     The output is not a new estimator. It wraps the existing lambda sensitivity
     rows with machine-readable evidence tier, mapping burden, and blocked-use
-    fields so downstream TDCSim/RateWall consumers cannot mistake the sidecar
+    fields so downstream TDCSim and rate-model consumers cannot mistake the sidecar
     for an empirical Private-bucket route split.
     """
 

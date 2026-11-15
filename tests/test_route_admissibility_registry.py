@@ -33,7 +33,7 @@ def _source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
     )
     monetary = build_monetary_route_bridge(
         quarterly,
-        ratewall_du_ru_methodology=methodology,
+        du_ru_methodology=methodology,
     )
     mmf = pd.DataFrame(
         [
@@ -57,7 +57,7 @@ def _source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
                 "deposit_pass_through_scope": "false",
                 "current_demand_eligible": "false",
                 "tdc_estimator_treatment": "context_only_not_canonical_tdc_math",
-                "ratewall_treatment": "context_only_not_deposit_pass_through",
+                "rate_model_treatment": "context_only_not_deposit_pass_through",
                 "canonical_tdc_math_change": "false",
                 "exact_blocker": "fund_type_and_portfolio_holdings_do_not_identify_final_investor_current_demand_conversion",
                 "source_status": "source_backed_sec_nmfp_context",
@@ -83,7 +83,7 @@ def _source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
                 "deposit_pass_through_scope": "false",
                 "current_demand_eligible": "false",
                 "tdc_estimator_treatment": "context_only_not_canonical_tdc_math",
-                "ratewall_treatment": "fed_onrrp_plumbing_context_only",
+                "rate_model_treatment": "fed_onrrp_plumbing_context_only",
                 "canonical_tdc_math_change": "false",
                 "exact_blocker": "fed_onrrp_holdings_are_fed_plumbing_not_bank_deposit_or_recipient_demand_evidence",
                 "source_status": "source_backed_sec_nmfp_context",
@@ -109,7 +109,7 @@ def _source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
                 "deposit_pass_through_scope": "false",
                 "current_demand_eligible": "false",
                 "tdc_estimator_treatment": "context_only_not_canonical_tdc_math",
-                "ratewall_treatment": "context_only_not_deposit_pass_through",
+                "rate_model_treatment": "context_only_not_deposit_pass_through",
                 "canonical_tdc_math_change": "false",
                 "exact_blocker": "fund_type_and_portfolio_holdings_do_not_identify_final_investor_current_demand_conversion",
                 "source_status": "source_backed_sec_nmfp_context",
@@ -135,7 +135,7 @@ def _source_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
                 "deposit_pass_through_scope": "false",
                 "current_demand_eligible": "false",
                 "tdc_estimator_treatment": "context_only_not_canonical_tdc_math",
-                "ratewall_treatment": "fed_onrrp_plumbing_context_only",
+                "rate_model_treatment": "fed_onrrp_plumbing_context_only",
                 "canonical_tdc_math_change": "false",
                 "exact_blocker": "fed_onrrp_holdings_are_fed_plumbing_not_bank_deposit_or_recipient_demand_evidence",
                 "source_status": "source_backed_sec_nmfp_context",
@@ -171,7 +171,7 @@ def test_route_admissibility_registry_fail_closes_current_demand() -> None:
     assert set(registry["canonical_tdc_math_change"]) == {"false"}
     assert not any(
         str(value).startswith("pass_")
-        for value in registry["ratewall_current_demand_gate"]
+        for value in registry["rate_model_current_demand_gate"]
     )
 
     retail = by_route["retail_mmf_m2_non_deposit_scope"]
@@ -182,7 +182,7 @@ def test_route_admissibility_registry_fail_closes_current_demand() -> None:
     retail_holding = by_route["retail_mmf_treasury_holdings_context"]
     assert retail_holding["m2_scope"] == "true"
     assert retail_holding["deposit_pass_through_scope"] == "false"
-    assert retail_holding["ratewall_current_demand_gate"] == "fail_investor_type_only"
+    assert retail_holding["rate_model_current_demand_gate"] == "fail_investor_type_only"
 
     institutional = by_route[
         "institutional_or_nonretail_mmf_treasury_holdings_context"
@@ -193,7 +193,7 @@ def test_route_admissibility_registry_fail_closes_current_demand() -> None:
     onrrp = by_route["mmf_onrrp_runoff_non_m2_plumbing"]
     assert onrrp["debited_claim_type"] == "fed_rrp_liability"
     assert onrrp["tdc_admissibility"] == "named_plumbing_adjustment"
-    assert onrrp["ratewall_current_demand_gate"] == "fail_noncurrent_claim"
+    assert onrrp["rate_model_current_demand_gate"] == "fail_noncurrent_claim"
     assert onrrp["onrrp_boundary_status"] == (
         "nyfed_fed_liability_counterparty_type_context"
     )
@@ -201,11 +201,11 @@ def test_route_admissibility_registry_fail_closes_current_demand() -> None:
 
     broad_z1 = by_route["z1_domestic_nonbank_mixed_unknown_m2_scope"]
     assert broad_z1["debited_claim_type"] == "mixed_unknown"
-    assert broad_z1["ratewall_current_demand_gate"] == "fail_mixed_unknown"
+    assert broad_z1["rate_model_current_demand_gate"] == "fail_mixed_unknown"
 
     dealer = by_route["z1_dealer_repo_bridge_non_m2_or_unknown_scope"]
     assert dealer["tdc_admissibility"] == "context_only"
-    assert dealer["ratewall_current_demand_gate"] == "fail_noncurrent_claim"
+    assert dealer["rate_model_current_demand_gate"] == "fail_noncurrent_claim"
 
     retail_onrrp = by_route["retail_mmf_onrrp_plumbing_context"]
     assert retail_onrrp["onrrp_boundary_status"] == (

@@ -32,7 +32,7 @@ CERTIFIED_END = pd.Timestamp("2025-12-31")
 INTEREST_ARTIFACTS = [
     PROCESSED / "tier2_interest_component_candidate.csv",
     PROCESSED / "tier2_regression_interest_backcast_wide.csv",
-    PROCESSED / "ratewall_du_ru_methodology_panel.csv",
+    PROCESSED / "du_ru_methodology_panel.csv",
     PROCESSED / "tdc_du_fiscal_flow_research.csv",
     RAW / "support__bank_tier2_component_interest_proxy.csv",
     RAW / "support__credit_union_tier2_component_interest_proxy.csv",

@@ -28,7 +28,7 @@ MMF_ROUTE_SPLIT_CONTEXT_FIELDS = [
     "deposit_pass_through_scope",
     "current_demand_eligible",
     "tdc_estimator_treatment",
-    "ratewall_treatment",
+    "rate_model_treatment",
     "canonical_tdc_math_change",
     "exact_blocker",
     "source_status",
@@ -220,7 +220,7 @@ def build_mmf_route_split_context(zip_paths: list[Path | str]) -> pd.DataFrame:
                 **base,
                 "route_id": f"{prefix}_mmf_treasury_holdings_context",
                 "route_label": f"{route_label_prefix} Treasury holdings context.",
-                "ratewall_treatment": "context_only_not_deposit_pass_through",
+                "rate_model_treatment": "context_only_not_deposit_pass_through",
                 "exact_blocker": (
                     "fund_type_and_portfolio_holdings_do_not_identify_final_"
                     "investor_current_demand_conversion"
@@ -236,7 +236,7 @@ def build_mmf_route_split_context(zip_paths: list[Path | str]) -> pd.DataFrame:
                 **base,
                 "route_id": f"{prefix}_mmf_onrrp_plumbing_context",
                 "route_label": f"{route_label_prefix} Fed ON-RRP holdings context.",
-                "ratewall_treatment": "fed_onrrp_plumbing_context_only",
+                "rate_model_treatment": "fed_onrrp_plumbing_context_only",
                 "exact_blocker": (
                     "fed_onrrp_holdings_are_fed_plumbing_not_bank_deposit_or_"
                     "recipient_demand_evidence"
@@ -270,7 +270,7 @@ def render_mmf_route_split_context_markdown(frame: pd.DataFrame) -> str:
             f"- Latest route rows: `{len(latest)}`.",
             "- Source: SEC Form N-MFP fund retail flag and portfolio holdings.",
             "- Boundary: context-only; this split does not identify final investor current-demand conversion.",
-            "- RateWall use: classify retail vs institutional/nonretail MMF Treasury and ON-RRP plumbing without changing canonical TDC math.",
+            "- Downstream rate-model use: classify retail vs institutional/nonretail MMF Treasury and ON-RRP plumbing without changing canonical TDC math.",
             "",
         ]
     )

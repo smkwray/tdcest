@@ -3,12 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tdc_estimator.ratewall_du_ru_methodology import (
-    build_ratewall_du_ru_methodology_panel,
+from tdc_estimator.du_ru_methodology import (
+    build_du_ru_methodology_panel,
 )
 
 
-def test_build_ratewall_du_ru_methodology_panel_combines_tdcest_interest_and_z1_absorption() -> None:
+def test_build_du_ru_methodology_panel_combines_tdcest_interest_and_z1_absorption() -> None:
     du_fiscal_flow = pd.DataFrame(
         {
             "date": ["2025-03-31", "2025-06-30"],
@@ -40,7 +40,7 @@ def test_build_ratewall_du_ru_methodology_panel_combines_tdcest_interest_and_z1_
         }
     )
 
-    frame = build_ratewall_du_ru_methodology_panel(
+    frame = build_du_ru_methodology_panel(
         du_fiscal_flow,
         interest_method,
         z1_holder_absorption,

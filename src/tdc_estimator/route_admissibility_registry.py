@@ -24,7 +24,7 @@ ROUTE_ADMISSIBILITY_REGISTRY_FIELDS = [
     "m2_scope",
     "deposit_pass_through_scope",
     "tdc_admissibility",
-    "ratewall_current_demand_gate",
+    "rate_model_current_demand_gate",
     "current_demand_eligible",
     "canonical_tdc_math_change",
     "onrrp_boundary_status",
@@ -79,7 +79,7 @@ ROUTE_RULES = {
         "funding_route_observed": "sector_aggregate_only",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -96,7 +96,7 @@ ROUTE_RULES = {
         "funding_route_observed": "fed_rrp_runoff_observed",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "named_plumbing_adjustment",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "nyfed_fed_liability_counterparty_type_context",
         "onrrp_counterparty_scope": "mmf_counterparty_aggregate",
         "onrrp_boundary_source_url": "https://www.newyorkfed.org/markets/rrp_counterparties",
@@ -113,7 +113,7 @@ ROUTE_RULES = {
         "funding_route_observed": "mixed_unknown",
         "payment_route_observed": "mixed_unknown",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -130,7 +130,7 @@ ROUTE_RULES = {
         "funding_route_observed": "mixed_unknown",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_mixed_unknown",
+        "rate_model_current_demand_gate": "fail_mixed_unknown",
         "onrrp_boundary_status": "mixed_mmf_onrrp_boundary_unresolved",
         "onrrp_counterparty_scope": "mixed_retail_institutional_and_onrrp_mmf_scope",
         "onrrp_boundary_source_url": "https://www.newyorkfed.org/markets/rrp_counterparties",
@@ -147,7 +147,7 @@ ROUTE_RULES = {
         "funding_route_observed": "sector_aggregate_only",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -164,7 +164,7 @@ ROUTE_RULES = {
         "funding_route_observed": "sector_aggregate_only",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -181,7 +181,7 @@ ROUTE_RULES = {
         "funding_route_observed": "not_observed",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "target_contract_blocked",
-        "ratewall_current_demand_gate": "fail_not_observed",
+        "rate_model_current_demand_gate": "fail_not_observed",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -198,7 +198,7 @@ ROUTE_RULES = {
         "funding_route_observed": "portfolio_holdings_only",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_investor_type_only",
+        "rate_model_current_demand_gate": "fail_investor_type_only",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -215,7 +215,7 @@ ROUTE_RULES = {
         "funding_route_observed": "fed_rrp_runoff_observed",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "sec_nmfp_fed_onrrp_portfolio_context",
         "onrrp_counterparty_scope": "retail_mmf_fund_scope",
         "onrrp_boundary_source_url": "https://www.sec.gov/data-research/sec-markets-data/dera-form-n-mfp-data-sets",
@@ -232,7 +232,7 @@ ROUTE_RULES = {
         "funding_route_observed": "portfolio_holdings_only",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_investor_type_only",
+        "rate_model_current_demand_gate": "fail_investor_type_only",
         "onrrp_boundary_status": "not_onrrp_route",
         "onrrp_counterparty_scope": "not_applicable",
         "onrrp_boundary_source_url": "",
@@ -249,7 +249,7 @@ ROUTE_RULES = {
         "funding_route_observed": "fed_rrp_runoff_observed",
         "payment_route_observed": "not_observed",
         "tdc_admissibility": "context_only",
-        "ratewall_current_demand_gate": "fail_noncurrent_claim",
+        "rate_model_current_demand_gate": "fail_noncurrent_claim",
         "onrrp_boundary_status": "sec_nmfp_fed_onrrp_portfolio_context",
         "onrrp_counterparty_scope": "institutional_or_nonretail_mmf_fund_scope",
         "onrrp_boundary_source_url": "https://www.sec.gov/data-research/sec-markets-data/dera-form-n-mfp-data-sets",
@@ -318,7 +318,7 @@ def build_route_admissibility_registry(
 
     The amount-bearing bridge/context tables remain the source for quarterly
     values. This registry is a route-rule guardrail that records what the
-    sources actually observe and keeps RateWall current-demand use fail-closed.
+    sources actually observe and keeps downstream current-demand use fail-closed.
     """
 
     summaries = {}
@@ -349,7 +349,7 @@ def build_route_admissibility_registry(
                 "funding_route_observed": "not_observed",
                 "payment_route_observed": "not_observed",
                 "tdc_admissibility": "exclude",
-                "ratewall_current_demand_gate": "fail_not_observed",
+                "rate_model_current_demand_gate": "fail_not_observed",
                 "onrrp_boundary_status": "not_onrrp_route",
                 "onrrp_counterparty_scope": "not_applicable",
                 "onrrp_boundary_source_url": "",
@@ -377,7 +377,7 @@ def build_route_admissibility_registry(
                 "m2_scope": summary["m2_scope"],
                 "deposit_pass_through_scope": summary["deposit_pass_through_scope"],
                 "tdc_admissibility": rule["tdc_admissibility"],
-                "ratewall_current_demand_gate": rule["ratewall_current_demand_gate"],
+                "rate_model_current_demand_gate": rule["rate_model_current_demand_gate"],
                 "current_demand_eligible": summary["current_demand_eligible"],
                 "canonical_tdc_math_change": summary["canonical_tdc_math_change"],
                 "onrrp_boundary_status": rule["onrrp_boundary_status"],
@@ -399,7 +399,7 @@ def build_route_admissibility_registry(
 def render_route_admissibility_registry_markdown(frame: pd.DataFrame) -> str:
     if frame.empty:
         return "# TDC Route Admissibility Registry\n\nNo rows were generated.\n"
-    gate_counts = frame["ratewall_current_demand_gate"].value_counts().to_dict()
+    gate_counts = frame["rate_model_current_demand_gate"].value_counts().to_dict()
     onrrp_rows = int(frame["onrrp_boundary_status"].ne("not_onrrp_route").sum())
     return "\n".join(
         [
@@ -411,7 +411,7 @@ def render_route_admissibility_registry_markdown(frame: pd.DataFrame) -> str:
             f"- ON-RRP boundary rows: `{onrrp_rows}`.",
             f"- Current-demand gate counts: `{gate_counts}`.",
             "- Boundary: quarterless source-owned guardrail; amount-bearing route data remain in the bridge/context tables.",
-            "- RateWall use: guardrail-only; this registry does not enter current-demand or canonical runtime math.",
+            "- Downstream rate-model use: guardrail-only; this registry does not enter current-demand or canonical runtime math.",
             "",
         ]
     )

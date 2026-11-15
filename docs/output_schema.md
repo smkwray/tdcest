@@ -922,7 +922,7 @@ Optional target-definition decomposition written when the target-definition brid
 
 Route-classification bridge for domestic nonbank and MMF Treasury absorption
 surfaces. The table labels each route by M1 scope, M2 scope, deposit-pass-through
-scope, TDC estimator treatment, and RateWall treatment. It is classification
+scope, TDC estimator treatment, and rate-model treatment. It is classification
 only: `canonical_tdc_math_change` is always `false`.
 
 Current rows include retail MMFs inside M2 but outside bank-deposit scope,
@@ -997,7 +997,7 @@ Columns:
 - `m2_scope`
 - `deposit_pass_through_scope`
 - `tdc_admissibility`
-- `ratewall_current_demand_gate`
+- `rate_model_current_demand_gate`
 - `current_demand_eligible`
 - `canonical_tdc_math_change`
 - `onrrp_boundary_status`
@@ -1053,7 +1053,7 @@ Important fields:
 - `m2_scope`
 - `deposit_pass_through_scope`
 - `tdc_admissibility`
-- `ratewall_current_demand_gate`
+- `rate_model_current_demand_gate`
 - `current_demand_eligible`
 - `canonical_tdc_math_change`
 - `exact_blocker`

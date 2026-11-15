@@ -36,7 +36,7 @@ def test_build_monetary_route_bridge_labels_non_m2_routes() -> None:
 
     bridge = build_monetary_route_bridge(
         quarterly,
-        ratewall_du_ru_methodology=methodology,
+        du_ru_methodology=methodology,
     )
     latest = bridge.loc[bridge["quarter"].eq("2025Q2")]
     by_route = {row["route_id"]: row for _, row in latest.iterrows()}
@@ -55,7 +55,7 @@ def test_build_monetary_route_bridge_labels_non_m2_routes() -> None:
     domestic = by_route["z1_domestic_nonbank_mixed_unknown_m2_scope"]
     assert domestic["m2_scope"] == "unknown_or_mixed"
     assert domestic["deposit_pass_through_scope"] == "unknown_or_mixed"
-    assert domestic["ratewall_treatment"] == (
+    assert domestic["rate_model_treatment"] == (
         "blocked_until_m2_or_deposit_funding_split_exists"
     )
 
@@ -81,7 +81,7 @@ def test_write_monetary_route_bridge_outputs_files(tmp_path: Path) -> None:
 
     _, _, bridge = write_monetary_route_bridge(
         quarterly=quarterly,
-        ratewall_du_ru_methodology=None,
+        du_ru_methodology=None,
         csv_path=csv_path,
         markdown_path=md_path,
     )

@@ -1285,14 +1285,6 @@ BANK_COMPOSITION_REGISTRY = FiscusRegistry(
                       window=(f"{BANK_H8_BASE_MONTH}-01", None)) for line in BANK_H8_LINES),
     ),
 )
-FISCUS_REGISTRIES = {registry.name: registry for registry in (
-    TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY)}
-
-
-def fiscus_registries(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict[str, FiscusRegistry]:
-    """Registries for one vintage: window-bound requests end at the vintage endpoint."""
-    return {**FISCUS_REGISTRIES, "trc": trc_registry(vintage), "weekly-trc": weekly_trc_registry(vintage)}
-
 BANK_DEPOSITORY_TX_KEYS = [
     "us_chartered_tsy_tx",
     "foreign_offices_tsy_tx",
@@ -1316,6 +1308,75 @@ CU_COMPONENT_LEVEL_KEYS = [
     "corp_credit_unions_tsy_level",
     "ncua_capitalization_deposit_level",
 ]
+
+
+# Measured TDC against the federal budget deficit: a descriptive comparison of two
+# differently scoped totals. Treasury's own MTS Table 1 (fiscaldata.mts_table_1) starts
+# in 2015, so the monthly total comes from its FRED mirror, which reaches back to 1980.
+@dataclass(frozen=True)
+class ComparisonPeriod:
+    """Calendar quarters ``first`` through ``last``; ``last=None`` closes at the vintage endpoint."""
+
+    first: str
+    last: str | None
+
+
+@dataclass(frozen=True)
+class FundingLeg:
+    """One funding-source leg of measured TDC: a signed sum of regression-leg columns, USD million."""
+
+    key: str
+    label: str
+    terms: tuple[tuple[str, int], ...]
+
+
+DEFICIT_COMPARISON_PERIODS: tuple[ComparisonPeriod, ...] = (
+    ComparisonPeriod("2002Q1", None),
+    ComparisonPeriod("2002Q1", "2007Q4"),
+    ComparisonPeriod("2008Q1", "2019Q4"),
+    ComparisonPeriod("2020Q1", "2021Q4"),
+    ComparisonPeriod("2022Q1", None),
+)
+DEFICIT_FUNDING_LEGS: tuple[FundingLeg, ...] = (
+    FundingLeg("banks", "Banks: US-chartered, foreign-office and affiliated-area Treasury purchases net of "
+               "allocated interest", (*((key, 1) for key in BANK_DEPOSITORY_TX_KEYS),
+                                      ("bank_tier2_regression_interest_proxy", -1))),
+    FundingLeg("foreign", "Rest of world: Treasury purchases net of allocated interest (leg R)",
+               (("row_tsy_tx", 1), ("row_tier2_regression_interest_proxy", -1))),
+    FundingLeg("fed", "Federal Reserve: Treasury purchases less the SOMA coupon proxy plus positive remittances",
+               (("fed_tsy_tx", 1), ("fed_tsy_coupon_interest_proxy", -1), ("fed_remit_positive", 1))),
+    FundingLeg("treasury_cash_drawdown", "Treasury cash drawdown: minus Treasury operating cash transactions (leg O)",
+               (("treasury_operating_cash_tx", -1),)),
+    FundingLeg("mmf_on_rrp", "Money funds via ON RRP: effective proportional MMF/ON RRP route adjustment",
+               (("effective_mmf_rrp_adjustment_prop", 1),)),
+)
+
+
+def deficit_comparison_periods(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> tuple[tuple[str, str], ...]:
+    """(first, last) quarter of every comparison period, open ends closed at the vintage endpoint."""
+    return tuple((period.first, period.last or vintage.quarter_end) for period in DEFICIT_COMPARISON_PERIODS)
+
+
+def deficit_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusRegistry:
+    first = min(period.first for period in DEFICIT_COMPARISON_PERIODS)
+    start = f"{first[:4]}-{3 * int(first[-1]) - 2:02d}-01"
+    return FiscusRegistry(
+        name="deficit", input_dir=Path("data/raw/fiscus/deficit"),
+        manifest=Path("data/raw/fiscus/deficit/inputs_manifest.json"), schema_version="deficit_fiscus_inputs_v1",
+        inputs=(_fred_input("mts_surplus_deficit", "MTSDS133FMS", 1.0, "mts_calendar_month",
+                            "Monthly Treasury Statement total federal surplus or deficit (-), USD million, "
+                            "not seasonally adjusted", window=(start, vintage.quarter_end_date)),),
+    )
+
+
+FISCUS_REGISTRIES = {registry.name: registry for registry in (
+    TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY, deficit_registry())}
+
+
+def fiscus_registries(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict[str, FiscusRegistry]:
+    """Registries for one vintage: window-bound requests end at the vintage endpoint."""
+    return {**FISCUS_REGISTRIES, "trc": trc_registry(vintage), "weekly-trc": weekly_trc_registry(vintage),
+            "deficit": deficit_registry(vintage)}
 
 
 def all_fred_series(include_optional: bool = True) -> list[FredSeries]:

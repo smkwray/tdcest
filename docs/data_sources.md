@@ -121,6 +121,10 @@ Source notes:
 
 The weekly TRC adds SOMA holdings snapshots, Treasury auction results, DTS Table II and FRN indexes; see [weekly TRC conventions](weekly_trc.md).
 
+## Federal deficit
+
+`scripts/acquire_trc_inputs.py --registry deficit` fetches FRED `MTSDS133FMS`, the Monthly Treasury Statement total federal surplus or deficit (USD millions, not seasonally adjusted, negative in deficit months), into `data/raw/fiscus/deficit/`. Treasury's own MTS Table 1 on FiscalData starts in 2015, so the FRED copy supplies the months before it. The request window runs from the first comparison quarter to the vintage endpoint.
+
 ## Monetary cross-check series
 
 Optional FRED series used by the monetary diagnostics. Targets are read as quarter-end (last-observation) values.

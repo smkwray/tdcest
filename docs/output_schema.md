@@ -75,6 +75,15 @@ Written by `tdc bank-composition-export`, with receipt `bank_composition_v1_rece
 
 These tables are descriptive. They do not estimate or attribute deposit change.
 
+### TDC and the federal deficit: `tdc_deficit_comparison_*_v1.csv`
+
+Written by `tdc deficit-comparison-export`, with receipt `tdc_deficit_comparison_v1_receipt.json`. It reads the regression legs and the monthly Monthly Treasury Statement surplus or deficit. Values are in USD millions.
+
+- `tdc_deficit_comparison_quarterly_v1.csv`: one row per quarter with measured TDC (`tdc`, leg `C`), the deficit (minus the sum of the quarter's three monthly surpluses, so a surplus month reduces it), five funding-source legs (`banks`, `foreign`, `fed`, `treasury_cash_drawdown`, `mmf_on_rrp`) and `leg_reconciliation_gap`. The legs are defined in `DEFICIT_FUNDING_LEGS` in `catalog.py`.
+- `tdc_deficit_comparison_periods_v1.csv`: cumulative TDC, cumulative deficit, their ratio and each leg's cumulative sum for the periods in `DEFICIT_COMPARISON_PERIODS`. The ratio divides the two sums; no quarterly ratio is reported.
+
+The two totals have different scopes. Measured TDC includes secondary-market Treasury-security settlements, Treasury cash changes and interest and remittance terms; the deficit is a budget measure on a modified cash basis. The ratio is not the share of deficit dollars that stayed in deposits.
+
 ## Files
 
 ### `bundle.json`

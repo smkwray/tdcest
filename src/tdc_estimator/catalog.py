@@ -110,7 +110,7 @@ BASE_FRED_SERIES: list[FredSeries] = [
         description="Credit Unions; Treasury Securities Held by Corporate Credit Unions; Asset, Transactions",
         agg="sum",
         required=True,
-        notes="Corporate credit union Treasury transactions. Included as a sensitivity series rather than the default broad-depository headline.",
+        notes="Corporate credit union Treasury transactions. Included as a sensitivity series rather than the broad-depository baseline.",
     ),
     FredSeries(
         key="ncua_capitalization_deposit_tx",

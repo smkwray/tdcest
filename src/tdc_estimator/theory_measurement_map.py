@@ -109,7 +109,7 @@ def build_theory_measurement_map() -> pd.DataFrame:
                 "The simplest live estimate: Treasury-security transactions plus positive Fed remittances minus Treasury operating cash."
             ),
             "current_measurement_mapping": (
-                "This is the repo’s live bank-only base headline and the main implemented approximation to the Treasury-cash-constraint identity in the transaction-data era."
+                "This is the bank-only baseline (Tier 0 ladder input) and the main implemented approximation to the Treasury-cash-constraint identity in the transaction-data era."
             ),
             "implementation_status": "implemented_live",
             "main_caveat": (

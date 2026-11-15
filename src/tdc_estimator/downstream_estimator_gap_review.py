@@ -157,7 +157,7 @@ def build_downstream_estimator_gap_review(
             ),
         ],
         gap_role="interest_cleanup_gap",
-        interpretation="Difference between the base headline and Tier 2 bank-only, dominated by Treasury interest-cleanup assumptions.",
+        interpretation="Difference between the bank-only baseline and Tier 2 bank-only, dominated by Treasury interest-cleanup assumptions.",
     )
 
     tier2_to_tier3 = (_value(est, latest, "tdc_tier3_fiscal_corrected_bank_only_ru_flow") or 0.0) - (

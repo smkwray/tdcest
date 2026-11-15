@@ -8,7 +8,7 @@ The repository is the unit of regeneration. A copy of some processed files is a 
 
 ### `tdc_estimates.csv`
 
-The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and one column per estimator row. Columns follow the naming pattern `tdc_<tier>_<correction>_<perimeter>_ru_flow`, where the perimeter is `bank_only`, `broad_depository_np_cu` (adds natural-person credit unions), `depository_institution_np_cu` (broad perimeter less credit-union interest) or `domestic_bank_only` (no rest-of-world term). A column is written only when its inputs are present, and it is empty for quarters its support files do not cover. Missing inputs are never read as zero: a quarter that lacks a required transaction series or the remittance value is empty, and the MMF/ON RRP adjustment is zero only before the ON RRP facility began (2013Q3). `method_meta.json` records the remittance coverage start and the MMF route status counts. Key columns:
+The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and one column per estimator row. Columns follow the naming pattern `tdc_<tier>_<correction>_<perimeter>_ru_flow`, where the perimeter is `bank_only`, `broad_depository_np_cu` (adds natural-person credit unions), `depository_institution_np_cu` (broad perimeter less credit-union interest) or `domestic_bank_only` (no rest-of-world term). A column is written only when its inputs are present, and it is empty for quarters its support files do not cover. A quarter that lacks a required quarterly input (a Z.1 Treasury transaction series, Treasury operating cash or the remittance value) is left empty rather than filled with zero; the pre-2002 level-change backfill is the one exception and excludes remittances, as `method_meta.json` records. The quarterly MMF/ON RRP adjustment is zero before the ON RRP facility began (2013Q3); after that, a missing lower bound is set to zero only when the proportional and upper values are both observed zeros, and other missing values stay missing, with status counts in `method_meta.json`. These checks apply to the quarterly inputs: monthly and weekly source data are aggregated as published, and fund-level MMF limitations are described in [MMF/ON RRP adjustment](mmf_rrp_adjustment.md). Key columns:
 
 | Column | Role |
 |---|---|
@@ -389,7 +389,7 @@ Short markdown note summarizing the current bank historical window, bank current
 
 ### `tdc_workstream_end_state_map.csv`
 
-Processed finite-push map for the remaining project workstreams. It records:
+Status map of the project's open workstreams. It records:
 
 - priority order
 - recommended mode:
@@ -402,7 +402,7 @@ Processed finite-push map for the remaining project workstreams. It records:
 - target end state
 - binding blocker
 - external dependency
-- next finite push
+- next planned step
 - explicit stop rule
 - whether the workstream should be deprioritized
 
@@ -410,7 +410,7 @@ This artifact is intended to keep the project from drifting into low-payoff loop
 
 ### `tdc_workstream_end_state_map.md`
 
-Short markdown note grouping the remaining work into highest-yield pushes, freeze or diagnostic-only branches, and the full ranked map.
+Short markdown note grouping the open workstreams by recommended mode, with the full ranked map.
 
 ### `tdc_project_goal_status_review.csv`
 
@@ -421,7 +421,7 @@ Processed repo-level status review for the original end goals. It records, for e
 - strongest live surface
 - latest relevant date
 - binding blocker
-- next finite push
+- next planned step
 - summary note
 
 The major goal rows are:
@@ -467,7 +467,7 @@ Processed backend-facing contract for downstream repos. It consolidates the main
 - comparison anchor
 - binding blocker
 - main known boundary
-- next finite push
+- next planned step
 
 ### `tdc_downstream_estimator_contract.md`
 
@@ -510,7 +510,7 @@ Processed receipt-boundary map for the fiscal shell. It consolidates the live de
 - counterparty group
 - receipt family
 - role
-- whether the item is included in the live Tier 3 headline
+- whether the item is included in the Tier 3 diagnostic row
 - whether it is included only in historical overlays
 - latest reference date and value
 - strongest supporting surface
@@ -561,7 +561,7 @@ Processed backend review of the variables and boundary cells most likely to matt
 For each variable it records:
 
 - role
-- whether it is inside the live headline
+- whether it enters the estimator ladder rows
 - latest date and value
 - evidence grade
 - the gap keys where it is dominant or secondary
@@ -703,7 +703,7 @@ For each backend area it records:
 - explicit stop rule
 - summary note
 
-This is the main “freeze versus keep pushing” backend review artifact after the contract and receipt stop-gate layers are already in place.
+It summarizes, for each backend area, whether further work is planned or the area is closed.
 
 ### `tdc_backend_closeout_review.md`
 
@@ -773,7 +773,7 @@ Processed packaging summary for the MRV-first / CBSP branch. It records:
 - current cash-route, remitter, and timing states
 - strongest current nondefault claim
 - binding default blocker
-- next finite push
+- next planned step
 
 ### `tdc_row_mrv_nondefault_evidence_summary.md`
 
@@ -781,7 +781,7 @@ Short markdown note summarizing why MRV remains the leading recurring ROW pilot 
 
 ### `tdc_bank_receipt_default_readiness.csv`
 
-Processed readiness gate for promoting the bank corporate-tax bridge into the default Tier 3 bank receipt correction. It records the explicit minimum checks requested in the latest methods review: perimeter contamination, share stability, stale-share rule, estimator-integration overlap, and no-double-count/sign treatment. When the normalized IRS Table 5.3 availability file is present, the perimeter check is backed by explicit public minor-industry suppression evidence rather than a generic narrative note.
+Processed readiness gate for promoting the bank corporate-tax bridge into the default Tier 3 bank receipt correction. It records the minimum checks for promotion: perimeter contamination, share stability, stale-share rule, estimator-integration overlap, and no-double-count/sign treatment. When the normalized IRS Table 5.3 availability file is present, the perimeter check is backed by explicit public minor-industry suppression evidence rather than a generic narrative note.
 
 ### `tdc_bank_receipt_default_readiness.md`
 
@@ -798,7 +798,7 @@ Processed source-roadmap table for the bank corporate-tax bridge. It separates:
 
 ### `tdc_bank_receipt_source_map.md`
 
-Short markdown note summarizing which bank share source families are already loaded and which missing source family still blocks current-quarter bank default use. After the latest narrow external source hunt, this note should make clear when the latest official public bank-minor path still tops out at TY2022.
+Short markdown note summarizing which bank share source families are already loaded and which missing source family still blocks current-quarter bank default use. It states the latest tax year with official public bank-minor-industry shares (TY2022 when last checked).
 
 ### `tdc_bank_receipt_stop_gate.csv`
 
@@ -1406,7 +1406,7 @@ Focused processed table for the default bank-only ladder from `2022-09-30` onwar
 - `tdc_tier2_h15_treasury_interest_robust_bank_only_ru_flow` if the legacy H15 Tier 2 coupon inputs plus bank and ROW bill-discount support proxies are present
 - `tdc_tier2_h15_treasury_interest_robust_depository_institution_np_cu_ru_flow` if the legacy H15 DI Tier 2 inputs plus bank, ROW, and credit-union bill-discount support proxies are present
 - `tdc_tier2_h15_treasury_interest_robust_mmf_rrp_prop_bank_only_ru_flow` if the legacy H15 bill-discount robustness and preferred MMF/RRP inputs are present
-- `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` if DI, bill-discount, and preferred MMF/RRP inputs are present
+- `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` if component-anchored interest support for banks, the rest of the world and credit unions and the MMF fund-month support are present; it is never filled from the H.15 rows
 - `tdc_tier3_fiscal_corrected_bank_only_ru_flow` if the Tier 2 bank-only inputs plus all Tier 3 fiscal support inputs are present
 - `tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow` if the Tier 2 broad-depository inputs plus all Tier 3 fiscal support inputs are present
 - `tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow` if the Tier 2 domestic-only inputs plus bank-side Tier 3 fiscal support inputs are present

@@ -44,7 +44,7 @@ The right treatment of credit unions depends on the deposit concept being estima
 
 | Row | Perimeter | Role |
 |---|---|---|
-| `tdc_base_bank_only_ru_flow` | U.S.-chartered depository institutions, foreign banking offices in the U.S., banks in U.S.-affiliated areas | Baseline headline |
+| `tdc_base_bank_only_ru_flow` | U.S.-chartered depository institutions, foreign banking offices in the U.S., banks in U.S.-affiliated areas | Bank-only baseline (ladder input) |
 | `tdc_base_broad_depository_np_cu_ru_flow` | Bank-only plus natural-person credit unions | Broad-depository alternative |
 | `tdc_broad_depository_np_corp_cu_ru_flow` | Also adds corporate credit unions | Sensitivity |
 | `tdc_credit_union_aggregate_sensitivity` | Also adds the NCUA share-insurance capitalization deposit | Sensitivity |
@@ -130,7 +130,7 @@ Source observability and denominator evidence are recorded separately from the m
 
 Tier 3 adds Treasury outlays to and receipts from banks and the rest of the world, which the Tier 2 baseline does not separate. Public sources identify these flows only partially, so Tier 3 is a partial reconciliation rather than a corrected estimate.
 
-- **Bank receipts.** IRS Statistics of Income Publication 16 Table 5.1 supplies bank-minor-industry shares of corporate income tax. They support a historical bank-receipt overlay only in years where the published shares are recent enough; quarters beyond the latest published tax year are excluded rather than extrapolated.
+- **Bank receipts.** IRS Statistics of Income Publication 16 Table 5.1 supplies bank-minor-industry shares of corporate income tax. They support a historical bank-receipt overlay. A published share may be carried forward for up to two calendar years after its tax year; quarters older than that are excluded from the overlay rather than extrapolated.
 - **Rest-of-world receipts.** The leading recurring candidate is the State Department machine-readable visa (MRV) fee line, timed with monthly visa issuance statistics. It stays outside the default because public sources do not identify the remitting account or the quarterly cash timing.
 - **Other candidates.** Bank regulatory receipts, other visa and immigration lines, and foreign-military-sales deposits are kept as labeled sensitivities or exclusions.
 

@@ -38,9 +38,9 @@ prop  = min(upper, rrp_runoff * treasury_increase / (treasury_increase + other_u
 lower = min(treasury_increase, max(0, rrp_runoff - other_uses))
 ```
 
-Fed RRP positions are set to zero before the ON RRP facility began (September 2013), and a missing Fed RRP observation is treated as no runoff.
+Fed RRP positions are set to zero before the ON RRP facility began (September 2013). A missing Fed RRP position is also read as zero before the change is taken, so a missing observation that follows a positive position would appear as runoff. The SEC fund-month file behind the published estimates has no missing Fed RRP positions.
 
-Changes are measured against a fund's previous filing. When a fund files only a notice of late filing (Form NT N-MFP) for a month and no holdings report for that month follows, the next change spans two months and lands in the later one. In the SEC data through 2025 this affects 231 of about 56,000 fund-month steps, concentrated in September 2018 (37 funds) and March 2021 (29 funds), when groups of funds filed notices only. Totals over the two months are unaffected; only their split between the two months, and between quarters when the missing month ends a quarter, is.
+Changes are measured against a fund's previous filing. When a fund files only a notice of late filing (Form NT N-MFP) for a month and no holdings report for that month follows, the next change spans two months. Net holdings changes still add up across the gap, but the adjustment applies positive parts, minima and a proportional split to each change, so a missing month can change both the timing and the size of the estimated adjustment, and its allocation cannot be recovered from the neighbouring filings. In the SEC data through 2025 this affects 231 of about 56,000 fund-month steps, concentrated in September 2018 (37 funds) and March 2021 (29 funds), when groups of funds filed notices only.
 
 The same lower/proportional/upper family is also emitted for bills-only Treasury increases as a robustness check.
 

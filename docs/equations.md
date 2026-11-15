@@ -104,7 +104,7 @@ Construction notes:
 + \Delta TS^{tx}_{CU^{NP},t}
 ```
 
-This is the main broader-perimeter comparison, not the preferred headline.
+This is the main broader-perimeter comparison; the headline is the canonical Tier 2 row.
 
 ### Tier 2 H.15 Coupon-Intensity Sensitivity
 

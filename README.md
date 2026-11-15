@@ -34,7 +34,7 @@ Each tier refines the one before it:
 | Long-history regression series | Extends Tier 2 back to 2002Q1 with graded backcasts | Preferred series for regressions |
 | 3. Fiscal and monetary diagnostics | Receipt-side, perimeter and monetary-aggregate cross-checks | Diagnostic only |
 
-**Deposit perimeter.** The baseline headline is bank-only: U.S.-chartered depository institutions, foreign banking offices in the U.S., and banks in U.S.-affiliated areas. The canonical Tier 2 row widens this to depository institutions by adding natural-person credit unions. Corporate credit unions, the NCUA capitalization deposit, domestic-only, no-remittance and holdings-level variants are sensitivities.
+**Deposit perimeter.** The baseline is bank-only: U.S.-chartered depository institutions, foreign banking offices in the U.S., and banks in U.S.-affiliated areas. The canonical Tier 2 row widens this to depository institutions by adding natural-person credit unions. Corporate credit unions, the NCUA capitalization deposit, domestic-only, no-remittance and holdings-level variants are sensitivities.
 
 **Interest allocation.** WAMEST maturity and instrument-composition weights divide aggregate Treasury interest pools across holder sectors. The weights do not observe what any holder actually received. Coupon accrual, bill discount, floating-rate note (FRN) interest, inflation-protected (TIPS) coupon interest and TIPS inflation compensation stay separate, and an allocation needs matching date, sector, component eligibility and gross-holder evidence. The choice of allocation materially affects the proxy. See the [interest-allocation contract](docs/wamest_interest_output_contract.md).
 

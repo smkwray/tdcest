@@ -146,7 +146,7 @@ def build_downstream_deposit_effect_comparison_panel(
             row_receipt_boundary=row_boundary,
             historical_only=False,
             nondefault_only=False,
-            summary_note="Interest-cleanup comparison between the base bank-only headline and Tier 2.",
+            summary_note="Interest-cleanup comparison between the bank-only baseline and Tier 2.",
         )
     )
     rows.extend(

@@ -18,7 +18,7 @@ def test_downstream_ingest_manifest_prioritizes_handoff_and_core_contracts() -> 
     use_cases = pd.DataFrame(
         [
             {
-                "use_case_key": "current_quarter_bank_only_headline",
+                "use_case_key": "current_quarter_headline",
                 "primary_latest_reference_date": "2025-12-31",
                 "binding_boundary": "bank_live_default_receipt_cell=stale_share_rule; row_live_default_receipt_cell=evidence_boundary",
             },
@@ -89,6 +89,9 @@ def test_downstream_ingest_manifest_prioritizes_handoff_and_core_contracts() -> 
 
     contract_row = frame.loc[frame["artifact_key"].eq("tdc_downstream_estimator_contract")].iloc[0]
     assert contract_row["stability_class"] == "primary_contract"
+    # The contract row carries the canonical headline use case's date and boundary.
+    assert pd.Timestamp(contract_row["latest_reference_date"]) == pd.Timestamp("2025-12-31")
+    assert contract_row["binding_boundary"].startswith("bank_live_default_receipt_cell=stale_share_rule")
 
     handoff_row = frame.loc[frame["artifact_key"].eq("tdc_downstream_handoff_bundle")].iloc[0]
     assert handoff_row["artifact_format"] == "json"

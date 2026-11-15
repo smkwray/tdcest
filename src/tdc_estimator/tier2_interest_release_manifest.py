@@ -129,7 +129,8 @@ def validate_support_frame_dates_and_values(
     if work[date_column].duplicated().any():
         raise ValueError(f"{label} has duplicate dates")
     values = pd.to_numeric(work[value_column], errors="coerce")
-    if values.isna().any() or (~values.apply(lambda value: pd.notna(value) and value > 0.0)).any():
+    finite = values.notna() & values.abs().lt(float("inf"))
+    if not (finite & values.gt(0.0)).all():
         raise ValueError(f"{label} contains non-finite or non-positive support values")
 
 

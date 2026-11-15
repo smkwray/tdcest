@@ -246,3 +246,12 @@ def test_component_support_window_follows_the_measurement_vintage(tmp_path: Path
     )
     with pytest.raises(ValueError, match="matches no registered measurement vintage"):
         build_quarterly_frame(out_dir, specs=[], local_specs=[spec])
+
+
+def test_certified_support_rejects_infinite_values() -> None:
+    from tdc_estimator.tier2_interest_release_manifest import validate_support_frame_dates_and_values
+
+    dates = default_component_release_dates()
+    frame = pd.DataFrame({"date": dates, "value": [1.0] * (len(dates) - 1) + [float("inf")]})
+    with pytest.raises(ValueError, match="non-finite"):
+        validate_support_frame_dates_and_values(frame, date_column="date", value_column="value", expected_dates=dates, label="bank")

@@ -71,7 +71,7 @@ def assert_component_support_source_window_ready(
                 f"Tier 2 component support export blocked: candidate sector {sector} date window mismatch: {sector_dates}"
             )
         values = pd.to_numeric(sector_rows["component_anchored_interest_mil"], errors="coerce")
-        if values.isna().any():
+        if values.isna().any() or values.abs().eq(float("inf")).any():
             raise ValueError(f"Tier 2 component support export blocked: candidate sector {sector} has non-finite values.")
 
     validation = build_interest_source_window_validation(candidate=candidate, constraints=constraints)

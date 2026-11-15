@@ -6,8 +6,8 @@ Whether credit unions belong in the estimate depends on the deposit concept bein
 
 | Row | Credit-union treatment | Role |
 |---|---|---|
-| `tdc_base_bank_only_ru_flow` | Excludes all credit-union Treasury transactions | Bank-only headline |
-| `tdc_base_broad_depository_np_cu_ru_flow` | Adds natural-person credit-union Treasury transactions | Broad-depository headline |
+| `tdc_base_bank_only_ru_flow` | Excludes all credit-union Treasury transactions | Bank-only baseline (ladder input) |
+| `tdc_base_broad_depository_np_cu_ru_flow` | Adds natural-person credit-union Treasury transactions | Broad-depository baseline (ladder input) |
 | `tdc_broad_depository_np_corp_cu_ru_flow` | Also adds corporate credit-union Treasury transactions | Sensitivity |
 | `tdc_credit_union_aggregate_sensitivity` | Also adds the NCUA share-insurance capitalization deposit | Sensitivity |
 

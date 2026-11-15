@@ -94,7 +94,7 @@ def build_downstream_problem_variable_review(
             "evidence_grade": str(row_coupon.get("reliability_grade", "n/a")),
             "dominant_in_gap_keys": _gap_keys_text(_get_gap_rows(gap, "tier2_row_coupon_correction")),
             "binding_boundary": "proxy_scale_and_sector_allocation",
-            "downstream_relevance": "largest live cleanup wedge between the base headline and Tier 2/Tier 3 bank-only views",
+            "downstream_relevance": "largest live cleanup wedge between the bank-only baseline and Tier 2/Tier 3 bank-only views",
             "interpretation_risk": "A large component-anchored Treasury interest cleanup term means downstream users should not treat Tier 0 to corrected-ladder differences as receipt-side effects.",
             "summary_note": str(row_coupon.get("notes", "")),
         },

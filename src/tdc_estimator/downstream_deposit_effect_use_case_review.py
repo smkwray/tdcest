@@ -149,7 +149,7 @@ def build_downstream_deposit_effect_use_case_review(
             "dominant_problem_variable_family": str(gap_perimeter.get("dominant_component_family", "n/a")),
             "binding_boundary": "credit_union_and_depository_perimeter_choice",
             "fallback_artifacts": "tdc_downstream_estimator_gap_review;tdc_downstream_component_contribution_review",
-            "recommended_reading": "Use the broad-depository series to bound perimeter effects, not to replace the bank-only headline for all questions.",
+            "recommended_reading": "Use the broad-depository series to bound perimeter effects, not to replace the bank-only rows for all questions.",
             "summary_note": "The main live bank-vs-broad wedge is small relative to the full ladder and is currently driven by credit-union perimeter terms.",
         },
         {

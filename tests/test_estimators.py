@@ -537,3 +537,45 @@ def test_mmf_route_is_zero_before_on_rrp_and_missing_when_unobserved_after():
 
     with pytest.raises(ValueError, match="lb, prop and ub together"):
         compute_estimates(quarterly.drop(columns="mmf_rrp_adjustment_ub"))
+
+
+def test_a_late_starting_remittance_series_is_not_backfilled_inside_the_transaction_era():
+    # The level-change backfill may exclude unknown remittances only before transaction data
+    # begin. A remittance series that starts late must leave transaction-era quarters empty,
+    # not fill them with a level-change estimate that silently drops remittances.
+    dates = ["2023-12-31", "2024-03-31", "2024-06-30"]
+    quarterly = _fail_closed_frame(dates)
+    quarterly["fed_remit_or_deferred"] = [float("nan"), float("nan"), 3.0]
+    for key, level in {
+        "fed_tsy_level": [100.0, 110.0, 120.0],
+        "us_chartered_tsy_level": [50.0, 52.0, 54.0],
+        "foreign_offices_tsy_level": [5.0, 5.0, 5.0],
+        "affiliated_areas_tsy_level": [1.0, 1.0, 1.0],
+        "row_tsy_level": [200.0, 205.0, 210.0],
+        "treasury_operating_cash_level": [30.0, 31.0, 32.0],
+    }.items():
+        quarterly[key] = level
+    estimates, _, _, meta = compute_estimates(quarterly)
+
+    assert meta["historical_backfill"]["transaction_history_starts"] == "2002-12-31"
+    assert pd.isna(estimates.loc["2024-03-31", "tdc_level_bank_only_sensitivity"])
+    assert pd.isna(estimates.loc["2024-03-31", "tdc_bank_only_extended_1990"])
+    assert estimates.loc["2024-06-30", "tdc_level_bank_only_sensitivity"] == pytest.approx(10 + 2 + 5 - 1 + 3)
+    assert estimates.loc["2024-06-30", "tdc_bank_only_extended_1990"] == pytest.approx(10 + 20 + 1 + 0.5 + 30 - 5 + 3)
+
+
+def test_canonical_metadata_requires_an_observed_quarter():
+    quarterly = _fail_closed_frame(["2024-03-31", "2024-06-30"])
+    for key in ["fed_tsy_coupon_interest_proxy", "bank_tsy_coupon_interest_proxy", "row_tsy_coupon_interest_proxy",
+                "credit_union_tsy_coupon_interest_proxy", "np_credit_unions_tsy_tx"]:
+        quarterly[key] = 0.0
+    for key in ["bank_tier2_component_interest_proxy", "row_tier2_component_interest_proxy",
+                "credit_union_tier2_component_interest_proxy"]:
+        quarterly[key] = float("nan")
+    for key in ["mmf_rrp_adjustment_lb", "mmf_rrp_adjustment_prop", "mmf_rrp_adjustment_ub"]:
+        quarterly[key] = 0.0
+    estimates, _, _, meta = compute_estimates(quarterly)
+
+    assert estimates["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"].isna().all()
+    assert meta["preferred_method"] is None
+    assert meta["canonical_tier2_status"].startswith("unavailable")

@@ -113,15 +113,17 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     components["minus_treasury_operating_cash_tx"] = -quarterly["treasury_operating_cash_tx"]
 
     # Remittances are missing, not zero, in quarters the remittance series does not cover.
-    # Only the pre-2002 level-change backfill treats them as zero, and it records that.
+    # Only the historical level-change backfill before the transaction era treats a missing
+    # remittance as zero, and the metadata records that.
     components["fed_remit_positive"] = quarterly["fed_remit_or_deferred"]
     remit_observed = quarterly["fed_remit_or_deferred"].dropna()
     remit_coverage_start = remit_observed.index.min() if not remit_observed.empty else None
-    remit_for_level_backfill = components["fed_remit_positive"]
-    if remit_coverage_start is not None:
-        remit_for_level_backfill = remit_for_level_backfill.where(
-            pd.to_datetime(quarterly.index) >= remit_coverage_start, 0.0
-        )
+    before_transaction_era = pd.Series(
+        pd.to_datetime(quarterly.index) < pd.Timestamp(tx_start), index=quarterly.index
+    )
+    remit_for_level_backfill = components["fed_remit_positive"].where(
+        ~before_transaction_era, components["fed_remit_positive"].fillna(0.0)
+    )
 
     if "fed_tsy_coupon_interest_proxy" in quarterly.columns:
         components["fed_tsy_coupon_interest_proxy"] = quarterly["fed_tsy_coupon_interest_proxy"]
@@ -683,13 +685,17 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     historical_start = "1990-03-31"
     if "tdc_level_bank_only_sensitivity" in estimates.columns:
         estimates["tdc_bank_only_extended_1990"] = estimates["tdc_base_bank_only_ru_flow"].combine_first(
-            _from_date(estimates["tdc_level_bank_only_sensitivity"], historical_start)
+            _from_date(estimates["tdc_level_bank_only_sensitivity"], historical_start).where(before_transaction_era)
         )
 
     if "tdc_level_broad_depository_np_cu_sensitivity" in estimates.columns:
         estimates["tdc_broad_depository_extended_1990"] = estimates[
             "tdc_base_broad_depository_np_cu_ru_flow"
-        ].combine_first(_from_date(estimates["tdc_level_broad_depository_np_cu_sensitivity"], historical_start))
+        ].combine_first(
+            _from_date(estimates["tdc_level_broad_depository_np_cu_sensitivity"], historical_start).where(
+                before_transaction_era
+            )
+        )
 
     estimates["tdc_base_bank_only_ru_flow_4q"] = estimates["tdc_base_bank_only_ru_flow"].rolling(4).sum()
     estimates["tdc_base_bank_only_ru_flow_cum"] = estimates["tdc_base_bank_only_ru_flow"].cumsum()
@@ -809,7 +815,8 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         "tdc_base_broad_depository_np_cu_ru_flow"
     ]
 
-    canonical_available = CANONICAL_TIER2_METHOD in estimates.columns
+    # Available means at least one observed quarter, not merely a column of missing values.
+    canonical_available = CANONICAL_TIER2_METHOD in estimates.columns and bool(estimates[CANONICAL_TIER2_METHOD].notna().any())
     metadata = {
         "preferred_method": CANONICAL_TIER2_METHOD if canonical_available else None,
         "canonical_tier2_method": CANONICAL_TIER2_METHOD if canonical_available else None,
@@ -871,7 +878,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "tdc_tier3_domestic_bank_only_delta_from_tier2": "Tier 3 domestic-only minus Tier 2 domestic-only.",
         },
         "notes": [
-            "The default headline is a bank-only transaction-based estimator beginning in late 2002.",
+            "The headline is the canonical Tier 2 row, tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow. The Tier 0 baseline is a bank-only transaction-based estimator beginning in 2002.",
             "A broad-depository alternative adds natural-person credit-union Treasury transactions and uses the same transaction-era coverage.",
             "Corporate credit unions are included only as an additional sensitivity layer.",
             "The aggregate credit-union sensitivity also includes the NCUA capitalization deposit, which is part of the published aggregate credit-union Treasury series in Z.1.",
@@ -884,50 +891,50 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "Level and decomposition methods are sensitivity checks only.",
         ],
         "method_descriptions": {
-            "tdc_base_bank_only_ru_flow": "Preferred headline. Fed + bank-sector + rest-of-world Treasury transactions minus Treasury operating cash transactions plus positive Fed remittances. Transaction-data era only.",
+            "tdc_base_bank_only_ru_flow": "Bank-only baseline (Tier 0 ladder input). Fed + bank-sector + rest-of-world Treasury transactions minus Treasury operating cash transactions plus positive Fed remittances. Transaction-data era only.",
             "tdc_base_broad_depository_np_cu_ru_flow": "Broad-depository alternative that adds natural-person credit-union Treasury transactions. Transaction-data era only.",
             "tdc_broad_depository_np_corp_cu_ru_flow": "Sensitivity that also adds corporate credit-union Treasury transactions.",
             "tdc_credit_union_aggregate_sensitivity": "Sensitivity that matches the aggregate credit-union Treasury concept by adding natural-person and corporate credit-union Treasury transactions plus the NCUA capitalization deposit term.",
-            "tdc_domestic_bank_only_ru_flow": "Bank-only headline excluding the rest-of-world term.",
-            "tdc_no_remit_bank_only": "Bank-only headline excluding Fed remittances.",
-            "tdc_tier1_fed_corrected_bank_only_ru_flow": "Tier 1 bank-only variant. Tier 0 bank-only headline minus the optional Fed Treasury coupon-interest proxy from SOMA holdings snapshots.",
-            "tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow": "Tier 1 broad-depository variant. Broad-depository Tier 0 headline minus the optional Fed Treasury coupon-interest proxy.",
-            "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow": "Tier 1 domestic-only bank variant. Domestic-only Tier 0 headline minus the optional Fed Treasury coupon-interest proxy.",
-            "tdc_tier2_interest_corrected_bank_only_ru_flow": "Tier 2 bank-only variant. Tier 0 bank-only headline minus Fed coupon plus promoted component-anchored bank and ROW Treasury interest proxies when present; falls back to the H15 intensity proxies when component support is absent.",
-            "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow": "Tier 2 broad-depository variant. Broad-depository Tier 0 headline minus Fed coupon plus promoted component-anchored bank and ROW Treasury interest proxies when present; falls back to the H15 intensity proxies when component support is absent.",
-            "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow": "Tier 2 domestic-only bank variant. Domestic-only Tier 0 headline minus Fed coupon plus promoted component-anchored bank Treasury interest proxy when present; falls back to the H15 intensity proxy when component support is absent.",
+            "tdc_domestic_bank_only_ru_flow": "Bank-only baseline excluding the rest-of-world term.",
+            "tdc_no_remit_bank_only": "Bank-only baseline excluding Fed remittances.",
+            "tdc_tier1_fed_corrected_bank_only_ru_flow": "Tier 1 bank-only variant. Tier 0 bank-only baseline minus the optional Fed Treasury coupon-interest proxy from SOMA holdings snapshots.",
+            "tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow": "Tier 1 broad-depository variant. Broad-depository Tier 0 baseline minus the optional Fed Treasury coupon-interest proxy.",
+            "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow": "Tier 1 domestic-only bank variant. Domestic-only Tier 0 baseline minus the optional Fed Treasury coupon-interest proxy.",
+            "tdc_tier2_interest_corrected_bank_only_ru_flow": "Tier 2 bank-only variant. Tier 0 bank-only baseline minus Fed coupon plus promoted component-anchored bank and ROW Treasury interest proxies when present; falls back to the H15 intensity proxies when component support is absent.",
+            "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow": "Tier 2 broad-depository variant. Broad-depository Tier 0 baseline minus Fed coupon plus promoted component-anchored bank and ROW Treasury interest proxies when present; falls back to the H15 intensity proxies when component support is absent.",
+            "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow": "Tier 2 domestic-only bank variant. Domestic-only Tier 0 baseline minus Fed coupon plus promoted component-anchored bank Treasury interest proxy when present; falls back to the H15 intensity proxy when component support is absent.",
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow": "Tier 3 bank-only variant. Tier 2 bank-only plus optional bank and rest-of-world reserve-user fiscal-flow corrections and a mint or central-bank cash-factor adjustment.",
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow": "Tier 3 broad-depository variant. Tier 2 broad-depository plus optional bank and rest-of-world reserve-user fiscal-flow corrections and a mint or central-bank cash-factor adjustment.",
             "tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow": "Tier 3 domestic-only bank variant. Tier 2 domestic-only plus optional bank reserve-user fiscal-flow corrections and a mint or central-bank cash-factor adjustment.",
-            "tdc_bank_only_extended_1990": "Historical extension that uses the bank-only transaction headline where available and the bank-only level-change analog from 1990 until transaction coverage begins.",
+            "tdc_bank_only_extended_1990": "Historical extension that uses the bank-only transaction baseline where available and the bank-only level-change analog from 1990 until transaction coverage begins.",
             "tdc_broad_depository_extended_1990": "Historical extension that uses the broad-depository transaction series where available and the broad-depository level-change analog from 1990 until transaction coverage begins.",
             "tdc_level_bank_only_sensitivity": "Level-change version of the bank-only estimator.",
             "tdc_level_broad_depository_np_cu_sensitivity": "Level-change broad-depository sensitivity with natural-person credit unions.",
             "tdc_decomposition_proxy_bank_centric": "Rough money/bank-balance-sheet proxy. Included for diagnostics only.",
         },
         "method_formulas": {
-            "tdc_base_bank_only_ru_flow": "Bank-only headline = Federal Reserve Treasury transactions + Bank-sector Treasury transactions + Rest-of-world Treasury transactions - Treasury operating cash transactions + Positive Federal Reserve remittances.",
-            "tdc_base_broad_depository_np_cu_ru_flow": "Broad-depository headline = Bank-only headline + Natural-person credit-union Treasury transactions.",
-            "tdc_broad_depository_np_corp_cu_ru_flow": "Broad-depository plus corporate credit unions = Broad-depository headline + Corporate credit-union Treasury transactions.",
+            "tdc_base_bank_only_ru_flow": "Bank-only baseline = Federal Reserve Treasury transactions + Bank-sector Treasury transactions + Rest-of-world Treasury transactions - Treasury operating cash transactions + Positive Federal Reserve remittances.",
+            "tdc_base_broad_depository_np_cu_ru_flow": "Broad-depository baseline = Bank-only baseline + Natural-person credit-union Treasury transactions.",
+            "tdc_broad_depository_np_corp_cu_ru_flow": "Broad-depository plus corporate credit unions = Broad-depository baseline + Corporate credit-union Treasury transactions.",
             "tdc_credit_union_aggregate_sensitivity": "Aggregate credit-union sensitivity = Broad-depository plus corporate credit unions + NCUA capitalization deposit term.",
-            "tdc_domestic_bank_only_ru_flow": "Domestic-only bank headline = Federal Reserve Treasury transactions + Bank-sector Treasury transactions - Treasury operating cash transactions + Positive Federal Reserve remittances.",
+            "tdc_domestic_bank_only_ru_flow": "Domestic-only bank baseline = Federal Reserve Treasury transactions + Bank-sector Treasury transactions - Treasury operating cash transactions + Positive Federal Reserve remittances.",
             "tdc_no_remit_bank_only": "Bank-only excluding remittances = Federal Reserve Treasury transactions + Bank-sector Treasury transactions + Rest-of-world Treasury transactions - Treasury operating cash transactions.",
-            "tdc_tier1_fed_corrected_bank_only_ru_flow": "Tier 1 bank-only = Bank-only headline - Fed Treasury coupon-interest proxy.",
-            "tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow": "Tier 1 broad-depository = Broad-depository headline - Fed Treasury coupon-interest proxy.",
-            "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow": "Tier 1 domestic-only = Domestic-only bank headline - Fed Treasury coupon-interest proxy.",
-            "tdc_tier2_interest_corrected_bank_only_ru_flow": "Tier 2 bank-only = Bank-only headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - Rest-of-world component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxies.",
-            "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow": "Tier 2 broad-depository = Broad-depository headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - Rest-of-world component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxies.",
-            "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow": "Tier 2 domestic-only = Domestic-only bank headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxy.",
+            "tdc_tier1_fed_corrected_bank_only_ru_flow": "Tier 1 bank-only = Bank-only baseline - Fed Treasury coupon-interest proxy.",
+            "tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow": "Tier 1 broad-depository = Broad-depository baseline - Fed Treasury coupon-interest proxy.",
+            "tdc_tier1_fed_corrected_domestic_bank_only_ru_flow": "Tier 1 domestic-only = Domestic-only bank baseline - Fed Treasury coupon-interest proxy.",
+            "tdc_tier2_interest_corrected_bank_only_ru_flow": "Tier 2 bank-only = Bank-only baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - Rest-of-world component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxies.",
+            "tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow": "Tier 2 broad-depository = Broad-depository baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - Rest-of-world component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxies.",
+            "tdc_tier2_interest_corrected_domestic_bank_only_ru_flow": "Tier 2 domestic-only = Domestic-only bank baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy when component support is present; otherwise uses the H15 coupon-intensity proxy.",
             "tdc_tier3_fiscal_corrected_bank_only_ru_flow": "Tier 3 bank-only = Tier 2 bank-only - Bank noninterest outlay proxy - Rest-of-world noninterest outlay proxy + Bank nonborrow receipt proxy + Rest-of-world nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
             "tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow": "Tier 3 broad-depository = Tier 2 broad-depository - Bank noninterest outlay proxy - Rest-of-world noninterest outlay proxy + Bank nonborrow receipt proxy + Rest-of-world nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
             "tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow": "Tier 3 domestic-only = Tier 2 domestic-only - Bank noninterest outlay proxy + Bank nonborrow receipt proxy + Mint or central-bank cash-factor proxy.",
-            "tdc_bank_only_extended_1990": "Bank-only extended series = Bank-only headline when available; otherwise Bank-only level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
-            "tdc_broad_depository_extended_1990": "Broad-depository extended series = Broad-depository headline when available; otherwise Broad-depository level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
+            "tdc_bank_only_extended_1990": "Bank-only extended series = Bank-only baseline when available; otherwise Bank-only level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
+            "tdc_broad_depository_extended_1990": "Broad-depository extended series = Broad-depository baseline when available; otherwise Broad-depository level-change sensitivity, which excludes Fed remittances before the remittance series begins.",
             "tdc_level_bank_only_sensitivity": "Bank-only level-change sensitivity = Change in Federal Reserve Treasury holdings + Change in Bank-sector Treasury holdings + Change in Rest-of-world Treasury holdings - Change in Treasury operating cash + Positive Federal Reserve remittances.",
             "tdc_level_broad_depository_np_cu_sensitivity": "Broad-depository level-change sensitivity = Bank-only level-change sensitivity + Change in natural-person credit-union Treasury holdings.",
             "tdc_decomposition_proxy_bank_centric": "Bank-centric decomposition proxy = Change in M2 - Change in currency - Change in non-Treasury bank assets, with the H.8 and money-stock series converted from USD billions to USD millions.",
-            "tdc_base_bank_only_ru_flow_4q": "Bank-only headline, four-quarter sum = Rolling four-quarter sum of the bank-only headline.",
-            "tdc_base_bank_only_ru_flow_cum": "Bank-only headline, cumulative = Cumulative sum of the bank-only headline.",
+            "tdc_base_bank_only_ru_flow_4q": "Bank-only baseline, four-quarter sum = Rolling four-quarter sum of the bank-only baseline.",
+            "tdc_base_bank_only_ru_flow_cum": "Bank-only baseline, cumulative = Cumulative sum of the bank-only baseline.",
         },
         "credit_union_policy": {
             "default": "exclude_all_credit_unions_from_bank_only_headline",
@@ -946,7 +953,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "fed_remittance_coverage_start": (
                 pd.Timestamp(remit_coverage_start).date().isoformat() if remit_coverage_start is not None else None
             ),
-            "fed_remittance_backfill_treatment": "Level-change backfill quarters before fed_remittance_coverage_start exclude Federal Reserve remittances.",
+            "fed_remittance_backfill_treatment": "The level-change backfill is used only before transaction_history_starts; there it excludes Federal Reserve remittances in quarters without remittance data.",
         },
         "mmf_rrp_route_status_counts": {
             prefix: {str(key): int(value) for key, value in route["mmf_route_status"].value_counts().sort_index().items()}
@@ -1084,9 +1091,9 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     )
     metadata["notes"].extend(
         [
-            "MMF/RRP-adjusted Tier 2 rows are candidate measurement upgrades, not the default headline until the fund-month MMF input and scale audits clear.",
+            "The canonical Tier 2 row includes the proportional MMF/ON RRP adjustment; the lower- and upper-bound MMF rows and the bills-only MMF rows are sensitivities.",
             "The depository-institution Tier 2 candidate subtracts a separate credit-union Treasury coupon-interest proxy when that optional support series is available.",
-            "The canonical Tier 2 policy target is the depository-institution row with coupon, bill-discount, and proportional MMF/RRP corrections when all required inputs are present.",
+            "The canonical Tier 2 row is the component-anchored depository-institution row plus the proportional MMF/ON RRP adjustment. It is written only when component-anchored interest support for banks, the rest of the world and credit unions and the MMF fund-month support are present; it is never filled from the H.15 coupon-only rows.",
             "Component-anchored Tier 2 rows are promoted as the live canonical Tier 2 rows when support files are present. They subtract staged official-pool allocations for bank, ROW, and credit-union Treasury interest components while preserving the existing Fed coupon Tier 1 correction.",
             "Fed-extension component-anchored rows are nondefault rows that additionally subtract exact SOMA bill-discount plus FRN interest. They do not add the separate TIPS coupon diagnostic or TIPS inflation-compensation proxy.",
         ]
@@ -1126,10 +1133,10 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "tdc_tier2_mmf_rrp_lb_bank_only_ru_flow": "Tier 2 + MMF/RRP lower bank-only = Tier 2 bank-only + lower-bound fund-month MMF/RRP adjustment.",
             "tdc_tier2_mmf_rrp_ub_bank_only_ru_flow": "Tier 2 + MMF/RRP upper bank-only = Tier 2 bank-only + upper-bound fund-month MMF/RRP adjustment.",
             "tdc_tier2_mmf_rrp_prop_depository_institution_np_cu_ru_flow": "Tier 2 + MMF/RRP prop DI NP-CU = Tier 2 DI NP-CU + proportional fund-month MMF/RRP adjustment.",
-            "tdc_tier2_component_anchored_bank_only_ru_flow": "Component-anchored Tier 2 bank-only = Bank-only headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - ROW component-anchored Treasury interest proxy.",
-            "tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow": "Component-anchored Tier 2 broad-depository = Broad-depository headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - ROW component-anchored Treasury interest proxy.",
+            "tdc_tier2_component_anchored_bank_only_ru_flow": "Component-anchored Tier 2 bank-only = Bank-only baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - ROW component-anchored Treasury interest proxy.",
+            "tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow": "Component-anchored Tier 2 broad-depository = Broad-depository baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy - ROW component-anchored Treasury interest proxy.",
             "tdc_tier2_component_anchored_depository_institution_np_cu_ru_flow": "Component-anchored Tier 2 DI NP-CU = Component-anchored Tier 2 broad-depository - Credit-union component-anchored Treasury interest proxy.",
-            "tdc_tier2_component_anchored_domestic_bank_only_ru_flow": "Component-anchored Tier 2 domestic-only = Domestic-only bank headline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy.",
+            "tdc_tier2_component_anchored_domestic_bank_only_ru_flow": "Component-anchored Tier 2 domestic-only = Domestic-only bank baseline - Fed Treasury coupon-interest proxy - Bank component-anchored Treasury interest proxy.",
             "tdc_tier2_component_anchored_mmf_rrp_prop_bank_only_ru_flow": "Component-anchored Tier 2 + MMF/RRP prop bank-only = Component-anchored Tier 2 bank-only + proportional fund-month MMF/RRP adjustment.",
             "tdc_tier2_component_anchored_mmf_rrp_prop_depository_institution_np_cu_ru_flow": "Component-anchored Tier 2 + MMF/RRP prop DI NP-CU = Component-anchored Tier 2 DI NP-CU + proportional fund-month MMF/RRP adjustment.",
             "tdc_tier2_component_anchored_fed_extension_bank_only_ru_flow": "Fed-extension component-anchored Tier 2 bank-only = Component-anchored Tier 2 bank-only - Fed bill+FRN component extension.",

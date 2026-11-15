@@ -97,7 +97,7 @@ The `tdc` export commands take SHA-256 pins for their inputs, either directly or
 
 ## Measurement vintages
 
-A measurement vintage fixes the sample endpoint without changing the method. The default vintage `v1` ends at 2025Q4 for the quarterly TDC and TRC exports and at 2025-12-31 for the weekly export. A later vintage is built in its own directory tree, such as `data/refresh_<name>/`, with an explicit `--vintage` argument, and never overwrites the default inputs.
+A measurement vintage fixes the sample endpoint without changing the method. The default vintage `v1` ends at 2025Q4 for the quarterly TDC and TRC exports and at 2025-12-31 for the weekly export. A later vintage is built in its own directory tree, such as `data/refresh_<name>/`, with an explicit `--vintage` argument, and never overwrites the default inputs. The certified Tier 2 component support (`tdc tier2-component-support-export --vintage <name>`) covers 2022Q1 through the vintage endpoint, and the estimator loads it only when its window matches a registered vintage.
 
 ## Outputs
 

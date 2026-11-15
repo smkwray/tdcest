@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tdc_estimator.catalog import LocalSeries
+from tdc_estimator.catalog import MEASUREMENT_VINTAGES, LocalSeries
 from tdc_estimator.io import build_quarterly_frame
 from tdc_estimator.tier2_component_support_export import (
     assert_component_support_source_window_ready,
@@ -19,9 +19,9 @@ from tdc_estimator.tier2_interest_release_manifest import (
 )
 
 
-def _candidate() -> pd.DataFrame:
+def _candidate(dates: list[str] | None = None) -> pd.DataFrame:
     rows = []
-    for date in default_component_release_dates():
+    for date in dates or default_component_release_dates():
         for sector, value in [("bank", 120.0), ("row", 50.0), ("credit_union", 10.0)]:
             rows.append(
                 {
@@ -34,9 +34,9 @@ def _candidate() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _constraints() -> pd.DataFrame:
+def _constraints(dates: list[str] | None = None) -> pd.DataFrame:
     rows = []
-    for date in default_component_release_dates():
+    for date in dates or default_component_release_dates():
         rows.extend(
             [
                 {
@@ -211,3 +211,38 @@ def test_component_support_manifest_blocks_tampered_support_file(tmp_path: Path)
                 )
             ],
         )
+
+
+def test_component_support_window_follows_the_measurement_vintage(tmp_path: Path) -> None:
+    # The certified window used to end at a hard-coded 2025Q4, so a later vintage could not
+    # load its own support without patching the code.
+    vintage = MEASUREMENT_VINTAGES["2026q2"]
+    dates = default_component_release_dates(vintage)
+    assert dates[0] == "2022-03-31" and dates[-1] == "2026-06-30"
+    _candidate(dates).to_csv(tmp_path / "candidate.csv", index=False)
+    _constraints(dates).to_csv(tmp_path / "constraints.csv", index=False)
+    out_dir = tmp_path / "raw"
+    write_tier2_component_support_exports(
+        candidate_path=tmp_path / "candidate.csv",
+        out_dir=out_dir,
+        markdown_path=tmp_path / "support.md",
+        source_constraints_path=tmp_path / "constraints.csv",
+        vintage=vintage,
+    )
+    spec = LocalSeries(key="bank_tier2_component_interest_proxy", description="Bank support", agg="sum")
+    frame, _ = build_quarterly_frame(out_dir, specs=[], local_specs=[spec])
+    assert frame["bank_tier2_component_interest_proxy"].dropna().index.max() == pd.Timestamp("2026-06-30")
+
+    # A window that matches no registered vintage is refused at load.
+    unregistered = dates[:-1]
+    _candidate(unregistered).to_csv(tmp_path / "candidate.csv", index=False)
+    _constraints(unregistered).to_csv(tmp_path / "constraints.csv", index=False)
+    write_tier2_component_support_exports(
+        candidate_path=tmp_path / "candidate.csv",
+        out_dir=out_dir,
+        markdown_path=tmp_path / "support.md",
+        source_constraints_path=tmp_path / "constraints.csv",
+        expected_dates=unregistered,
+    )
+    with pytest.raises(ValueError, match="matches no registered measurement vintage"):
+        build_quarterly_frame(out_dir, specs=[], local_specs=[spec])

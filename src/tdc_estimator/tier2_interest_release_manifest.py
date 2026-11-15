@@ -7,13 +7,13 @@ from typing import Mapping
 
 import pandas as pd
 
+from .catalog import DEFAULT_VINTAGE, MEASUREMENT_VINTAGES, MeasurementVintage
 from .utils import write_json
 
 
 MANIFEST_FILENAME = "support__tier2_component_release_manifest.json"
 MANIFEST_SCHEMA_VERSION = "tier2_component_support_release_v1"
 DEFAULT_RELEASE_START = "2022-03-31"
-DEFAULT_RELEASE_END = "2025-12-31"
 
 COMPONENT_SUPPORT_COLUMNS = {
     "bank": "bank_tier2_component_interest_proxy",
@@ -26,13 +26,22 @@ COMPONENT_SUPPORT_FILENAMES = {
 COMPONENT_SUPPORT_KEYS = set(COMPONENT_SUPPORT_COLUMNS.values())
 
 
-def default_component_release_dates(
-    *,
-    start: str | pd.Timestamp = DEFAULT_RELEASE_START,
-    end: str | pd.Timestamp = DEFAULT_RELEASE_END,
-) -> list[str]:
-    dates = pd.date_range(pd.Timestamp(start), pd.Timestamp(end), freq="QE-DEC")
+def default_component_release_dates(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> list[str]:
+    """Quarter-end dates of the certified component window, which ends at the vintage endpoint."""
+    dates = pd.date_range(pd.Timestamp(DEFAULT_RELEASE_START), pd.Timestamp(vintage.quarter_end_date), freq="QE-DEC")
     return [date.date().isoformat() for date in dates]
+
+
+def registered_component_release_dates(manifest_dates: list[str]) -> list[str]:
+    """The window of the registered measurement vintage that a manifest declares, or an error."""
+    for vintage in MEASUREMENT_VINTAGES.values():
+        expected = default_component_release_dates(vintage)
+        if manifest_dates == expected:
+            return expected
+    raise ValueError(
+        "Tier 2 component support manifest date window matches no registered measurement vintage: "
+        f"{manifest_dates[:1]}..{manifest_dates[-1:]}"
+    )
 
 
 def file_sha256(path: Path | str) -> str:
@@ -137,8 +146,8 @@ def validate_tier2_component_release_manifest(
     manifest = read_tier2_component_release_manifest(manifest_file)
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         raise ValueError(f"Unsupported Tier 2 component support manifest schema: {manifest.get('schema_version')}")
-    expected = expected_dates or default_component_release_dates()
     manifest_dates = list(manifest.get("expected_dates") or [])
+    expected = expected_dates or registered_component_release_dates(manifest_dates)
     if manifest_dates != expected:
         raise ValueError(f"Tier 2 component support manifest date window mismatch: {manifest_dates}")
     outputs = manifest.get("outputs")

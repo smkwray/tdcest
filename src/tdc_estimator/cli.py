@@ -1287,6 +1287,7 @@ def cmd_tier2_component_support_export(args: argparse.Namespace) -> int:
         or (paths.processed / "tier2_component_anchored_support_exports.md"),
         source_constraints_path=args.source_constraints_file or (paths.processed / "tier2_interest_source_constraints.csv"),
         require_source_window_ready=True,
+        vintage=MEASUREMENT_VINTAGES[args.vintage],
     )
     for sector, path in written_paths.items():
         print(f"Wrote Tier 2 component support export for {sector} to {path}")
@@ -1657,6 +1658,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tdc",
         description="Estimate the Treasury-attributed component of deposits (TDC).",
     )
+    vintage_help = "Measurement vintage whose endpoint bounds the sample (v1 is the admitted default)."
 
     root_parent = argparse.ArgumentParser(add_help=False)
     root_parent.add_argument("--root", default=".", help="Project root (defaults to current working directory).")
@@ -2658,6 +2660,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Tier 2 source constraints CSV. Defaults to data/processed/tier2_interest_source_constraints.csv and is required for fail-closed export.",
     )
+    p_component_support.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_component_support.set_defaults(func=cmd_tier2_component_support_export)
 
     p_tier2_regression_backcast = sub.add_parser(
@@ -2725,7 +2728,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_legs.add_argument("--quarterly-sha256", required=True)
     p_legs.add_argument("--regression-sha256", required=True)
-    vintage_help = "Measurement vintage whose endpoint bounds the sample (v1 is the admitted default)."
     p_legs.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_legs.set_defaults(func=cmd_regression_leg_export)
 

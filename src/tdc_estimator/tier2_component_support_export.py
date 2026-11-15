@@ -6,6 +6,7 @@ import uuid
 
 import pandas as pd
 
+from .catalog import DEFAULT_VINTAGE, MeasurementVintage
 from .interest_source_window_validation import ALLOWED_USABLE_CONSTRAINT_STATUSES, build_interest_source_window_validation
 from .tier2_interest_release_manifest import (
     COMPONENT_SUPPORT_COLUMNS,
@@ -175,8 +176,9 @@ def write_tier2_component_support_exports(
     source_constraints_path: Path | str | None = None,
     require_source_window_ready: bool = True,
     expected_dates: list[str] | None = None,
+    vintage: MeasurementVintage = DEFAULT_VINTAGE,
 ) -> tuple[dict[str, Path], Path, dict[str, pd.DataFrame]]:
-    expected = expected_dates or default_component_release_dates()
+    expected = expected_dates or default_component_release_dates(vintage)
     candidate = pd.read_csv(candidate_path)
     if require_source_window_ready:
         if source_constraints_path is None:

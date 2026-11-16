@@ -1392,7 +1392,8 @@ def cmd_deficit_comparison_export(args: argparse.Namespace) -> int:
 
 
 def cmd_interest_rate_debt_export(args: argparse.Namespace) -> int:
-    receipt = write_interest_rate_debt_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256)
+    receipt = write_interest_rate_debt_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256,
+                                              allocation_sha256=args.allocation_sha256)
     print(json.dumps(receipt, indent=2))
     return 0
 
@@ -2784,9 +2785,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_interest = sub.add_parser(
         "interest-rate-debt-export", parents=[root_parent],
-        help="Export fiscal-year interest on marketable Treasury debt split into debt and rate effects.",
+        help="Export quarterly interest on marketable Treasury debt split into debt and rate effects and by holder.",
     )
     p_interest.add_argument("--inputs-manifest-sha256", required=True)
+    p_interest.add_argument("--allocation-sha256", required=True)
     p_interest.set_defaults(func=cmd_interest_rate_debt_export)
 
     p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],

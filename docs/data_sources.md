@@ -129,11 +129,12 @@ The weekly TRC adds SOMA holdings snapshots, Treasury auction results, DTS Table
 
 `scripts/acquire_trc_inputs.py --registry interest-rate-debt` fetches two FiscalData tables into `data/raw/fiscus/interest_rate_debt/`:
 
-- `fiscaldata.interest_expense`, the monthly interest expense on the public debt by line (USD). Marketable interest is the "INTEREST EXPENSE ON PUBLIC ISSUES" lines for Treasury bills, notes, bonds, FRNs and TIPS, under accrued interest, amortized discount and amortized premium, plus TIPS inflation compensation. Savings bonds, SLGS, the foreign and domestic series, matured debt, miscellaneous interest and the Government Account Series are excluded.
 - `fiscaldata.mspd_table_3_market`, Monthly Statement of the Public Debt Table 3 (USD million). Marketable debt is the embedded Total Marketable row less the Federal Financing Bank row. Securities reopened in a month appear on several rows, so CUSIP rows are not summed; the total is checked against the class subtotals instead.
+- `fiscaldata.interest_expense`, the monthly interest expense on the public debt by line (USD). It reconciles the interest pool: the "INTEREST EXPENSE ON PUBLIC ISSUES" lines for Treasury bills, notes, bonds, FRNs and TIPS, grouped into the component families of the Tier 2 interest allocation.
 
-The request windows cover the fiscal years in `INTEREST_RATE_DEBT_SAMPLE` in `catalog.py`, with the September month-end before the first one.
+The request windows cover the quarters in `INTEREST_RATE_DEBT_SAMPLE` in `catalog.py`, with the month-end before the first one. Interest itself and its holder split come from the Tier 2 interest allocation, `tier2_interest_component_candidate.csv`.
 
+## Monetary cross-check series
 
 Optional FRED series used by the monetary diagnostics. Targets are read as quarter-end (last-observation) values.
 

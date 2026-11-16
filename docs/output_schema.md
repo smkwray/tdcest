@@ -84,15 +84,15 @@ Written by `tdc deficit-comparison-export`, with receipt `tdc_deficit_comparison
 
 The two totals have different scopes. Measured TDC includes secondary-market Treasury-security settlements, Treasury cash changes and interest and remittance terms; the deficit is a budget measure on a modified cash basis. The ratio is not the share of deficit dollars that stayed in deposits.
 
-### Interest on marketable debt: `interest_rate_debt_fy_v1.csv`
+### Interest on marketable debt: `interest_rate_debt_q_v1.csv` and `interest_rate_debt_holders_q_v1.csv`
 
-Written by `tdc interest-rate-debt-export`, with receipt `interest_rate_debt_fy_v1_receipt.json`. One row per fiscal year (October through September); amounts are USD billion.
+Written by `tdc interest-rate-debt-export`, with receipt `interest_rate_debt_q_v1_receipt.json`. It reads the Tier 2 interest allocation and MSPD Table 3, and it reconciles the allocation's pools to FiscalData interest expense. Rows are calendar quarters; amounts are USD billion.
 
-- `interest` is the fiscal-year sum of marketable interest expense, including amortized discount and premium and TIPS inflation compensation (`tips_inflation_compensation`). `avg_marketable_debt` averages the thirteen month-ends from the prior September, with the two Septembers at half weight. `effective_rate_pct` is interest over average debt.
-- The counterfactual starts in the base year. `trend_debt` continues the log-linear trend of average debt over the fit window from the base-year level, and `trend_interest` applies the base-year effective rate to it. The sample, fit window and base year are set in `catalog.py`.
-- `debt_effect` and `rate_effect` split `interest - trend_interest` sequentially, debt first at the base rate. The `_even` columns split it symmetrically, and the `_avg_rate` columns use the pooled fit-window rate as the base rate. `rate_effect_tips` is TIPS inflation compensation in excess of its base-year share of debt.
+- `interest_rate_debt_q_v1.csv`, one row per quarter. `interest` is the official pool of the allocation, summed once over coupon accrual, bill discount and FRN interest; it excludes TIPS inflation compensation and the amortized discount and premium on coupon securities, which `pool_minus_fiscaldata` shows against `fiscaldata_interest_ex_tips_ic`. `avg_marketable_debt` averages the prior quarter-end and the quarter's three month-ends, with the two ends at half weight. `effective_rate_pct` is interest over average debt, annualized on the quarter's calendar `days`.
+- The counterfactual starts in the base quarter. `trend_debt` continues the log-linear trend of average debt over the fit window from the base-quarter level, and `trend_interest` applies the base-quarter rate to it. `debt_effect` and `rate_effect` split `interest - trend_interest` sequentially, debt first at the base rate; the `_even` columns split it symmetrically.
+- `interest_rate_debt_holders_q_v1.csv`, one row per quarter and holder. The Fed's interest is its exact component amount; foreign holders and banks with credit unions carry their allocated amounts and bounds; deposit users are the residual of the pool. `share` is the holder's share of interest. From the base quarter, `trend_interest` is the base share of aggregate trend interest, `base_share_part` the base share of interest above trend, and `shift` the change in share times interest, so that `interest - trend_interest = base_share_part + shift` and the shifts sum to zero.
 
-The split is descriptive accounting. Interest is gross, including interest on securities held by the Federal Reserve, and the effective rate is not a market yield.
+The sample, fit window, base quarter, pool families and holders are set in `catalog.py`. The split is descriptive accounting of interest received. Interest is gross, including interest on securities held by the Federal Reserve, and the effective rate is not a market yield.
 
 ## Files
 

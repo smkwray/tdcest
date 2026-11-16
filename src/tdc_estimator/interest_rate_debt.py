@@ -1,17 +1,21 @@
-"""Interest on marketable Treasury debt by fiscal year, split into debt and rate effects.
+"""Quarterly interest on marketable Treasury debt, split into debt and rate effects and by holder.
 
-Interest is the fiscal-year sum of the FiscalData interest-expense lines that
-``treasury_interest_components`` classifies as marketable public issues: bills, notes,
-bonds, FRNs and TIPS, including amortized discount, amortized premium (negative) and TIPS
-inflation compensation. Debt is month-end MSPD Table 3 Total Marketable less the Federal
-Financing Bank, averaged over the thirteen month-ends of the fiscal year with the two end
-months at half weight. The counterfactual keeps average debt on its log-linear trend over
-the fit window and the effective rate at its base-year level; sample, fit window and base
-year are defined once in the catalog.
+Interest is the official component pool of the Tier 2 interest allocation: accrued coupon
+interest on notes, bonds and TIPS, bill discount amortization and FRN interest, taken once per
+component family. Each family-quarter pool is reconciled to the FiscalData lines of the same
+family. Debt is month-end MSPD Table 3 Total Marketable less the Federal Financing Bank,
+averaged over the quarter's four month-ends with the two ends at half weight. The effective
+rate is annualized on calendar days. The counterfactual keeps average debt on its log-linear
+trend over the fit window and the rate at its base-quarter level. The holder split assigns
+the Fed its exact component amounts, foreign holders and banks with credit unions their
+allocated amounts, and deposit users the residual, then decomposes each holder's interest
+above trend into a base-share part and a share shift. Sample, fit window, base quarter,
+families and holders are defined once in the catalog.
 """
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -24,23 +28,44 @@ from .reserve_factor_ledger import _sha256
 from .tier2_regression_series import read_pinned_input, require_clean_commit
 from .trc_export import load_fiscus_inputs
 from .trc_reserve_component import _numeric
-from .treasury_interest_components import _component_key, _is_marketable_treasury_public_issue
+from .treasury_interest_components import (
+    _component_family,
+    _component_key,
+    _is_marketable_treasury_public_issue,
+)
 
-SCHEMA_VERSION = "interest_rate_debt_fy_v1"
+SCHEMA_VERSION = "interest_rate_debt_q_v1"
 INTEREST_KEY, DEBT_KEY = "interest_expense", "mspd_marketable"
-OUTPUT_FILES = {"table": "interest_rate_debt_fy_v1.csv", "receipt": "interest_rate_debt_fy_v1_receipt.json"}
+ALLOCATION_FILE = "tier2_interest_component_candidate.csv"
+OUTPUT_FILES = {
+    "aggregate": "interest_rate_debt_q_v1.csv",
+    "holders": "interest_rate_debt_holders_q_v1.csv",
+    "receipt": "interest_rate_debt_q_v1_receipt.json",
+}
 INTEREST_COLUMNS = ["record_date", "expense_catg_desc", "expense_group_desc", "expense_type_desc",
                     "month_expense_amt"]
 DEBT_COLUMNS = ["record_date", "security_class1_desc", "security_class2_desc", "outstanding_amt"]
+POOL, FED, ALLOCATION_POOL = "official_component_pool_mil", "fed_exact_component_mil", "allocation_pool_mil"
+MID, LOW, HIGH = ("component_anchored_interest_mil", "component_anchored_interest_low_mil",
+                  "component_anchored_interest_high_mil")
+ALLOCATION_COLUMNS = ["date", "sector_group", "component_family", POOL, FED, ALLOCATION_POOL, MID, LOW, HIGH]
 MARKETABLE_TOTAL, FFB = "Total Marketable", "Federal Financing Bank"
 CUSIP = r"[0-9A-Z]{9}"
 IDENTITY_TOLERANCE = 1e-9
 BOUNDARIES = [
     "Descriptive accounting split of interest into debt and rate effects; no causal claim",
     "Interest is gross: it includes interest paid on marketable debt held by the Federal Reserve",
-    "The effective rate is fiscal-year interest over average outstanding marketable debt, not a market yield",
-    "The counterfactual holds debt on its fit-window trend and the rate at its base-year level; it is not a "
+    "Interest is the official component pool: accrued coupon interest on notes, bonds and TIPS, bill discount "
+    "amortization and FRN interest. It excludes TIPS inflation compensation and the amortized discount and premium "
+    "on notes, bonds, TIPS and FRNs",
+    "The effective rate is annualized quarterly interest over average outstanding marketable debt, not a market yield",
+    "The counterfactual holds debt on its fit-window trend and the rate at its base-quarter level; it is not a "
     "forecast of either",
+    "The holder split is a shift-share accounting of interest received, with holders defined as in the Tier 2 "
+    "interest allocation and deposit users as the residual. Interest to deposit users is the part credited to "
+    "covered deposits",
+    "The allocation to foreign holders, banks and credit unions is modeled; the Fed's is exact. Where a "
+    "family-quarter has no exact Fed amount, the Fed's weighted share stays in the deposit-user residual",
 ]
 
 
@@ -50,40 +75,36 @@ def _require(frame: pd.DataFrame, columns: list[str], label: str) -> None:
         raise ValueError(f"{label}: missing columns {missing}")
 
 
-def _fiscal_year(months: pd.PeriodIndex | pd.Series) -> np.ndarray:
-    months = pd.PeriodIndex(months)
-    return np.asarray(months.year + (months.month >= 10).astype(int))
+def _strip(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    return frame[columns].astype(str).apply(lambda column: column.str.strip())
 
 
-def fiscal_year_interest(frame: pd.DataFrame, years: range) -> tuple[pd.DataFrame, list[list[str]]]:
-    """Marketable interest and its TIPS inflation-compensation part by fiscal year, USD billion.
+def fiscaldata_families(frame: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.DataFrame:
+    """Marketable FiscalData interest by component family and quarter, USD million.
 
-    Every month of every fiscal year must carry every marketable line seen in the window; the
-    included (group, type) lines are returned with the table.
+    Every month of every quarter must carry every marketable line seen in the window.
     """
     _require(frame, INTEREST_COLUMNS, INTEREST_KEY)
-    text = frame[INTEREST_COLUMNS].astype(str).apply(lambda column: column.str.strip())
+    text = _strip(frame, INTEREST_COLUMNS)
     month = pd.to_datetime(text["record_date"], format="%Y-%m-%d", errors="raise").dt.to_period("M")
-    months = pd.period_range(f"{years[0] - 1}-10", f"{years[-1]}-09", freq="M")
-    keep = [_is_marketable_treasury_public_issue(c, t)
-            for c, t in zip(text["expense_catg_desc"], text["expense_type_desc"], strict=True)]
-    rows = text[np.asarray(keep, dtype=bool) & month.isin(months).to_numpy()].assign(month=month)
+    months = pd.period_range(quarters[0].asfreq("M", "start"), quarters[-1].asfreq("M", "end"), freq="M")
+    keep = np.array([_is_marketable_treasury_public_issue(c, t)
+                     for c, t in zip(text["expense_catg_desc"], text["expense_type_desc"], strict=True)], dtype=bool)
+    rows = text[keep & month.isin(months).to_numpy()].assign(month=month)
     line = ["expense_group_desc", "expense_type_desc"]
     if rows.duplicated(["month", *line]).any():
         raise ValueError(f"{INTEREST_KEY}: duplicate marketable lines within a month")
-    lines = rows[line].drop_duplicates()
+    n_lines = len(rows[line].drop_duplicates())
     present = rows.groupby("month").size().reindex(months, fill_value=0)
-    short = present.index[present.eq(0) | present.lt(len(lines))]
+    short = present.index[present.eq(0) | present.lt(n_lines)]
     if len(short):
         raise ValueError(f"{INTEREST_KEY}: months {[str(m) for m in short[:5]]} lack marketable lines; "
-                         f"a fiscal year needs all 12 months")
-    amount = _numeric(rows["month_expense_amt"], INTEREST_KEY) / 1e9
-    tips = np.array([_component_key(g, t) == "tips_inflation_compensation"
-                     for g, t in zip(rows["expense_group_desc"], rows["expense_type_desc"], strict=True)], dtype=bool)
-    fy = _fiscal_year(rows["month"])
-    out = pd.DataFrame({"interest": amount.groupby(fy).sum(),
-                        "tips_inflation_compensation": amount.where(tips, 0.0).groupby(fy).sum()})
-    return out.loc[list(years)], sorted(map(list, lines.itertuples(index=False)))
+                         "a quarter needs all three months")
+    family = [_component_family(_component_key(g, t))
+              for g, t in zip(rows["expense_group_desc"], rows["expense_type_desc"], strict=True)]
+    amount = _numeric(rows["month_expense_amt"], INTEREST_KEY) / 1e6
+    quarter = pd.PeriodIndex(rows["month"]).asfreq("Q")
+    return amount.groupby([quarter, family]).sum().unstack(fill_value=0.0).reindex(quarters)
 
 
 def month_end_marketable_debt(frame: pd.DataFrame, months: pd.PeriodIndex) -> tuple[pd.Series, dict]:
@@ -94,7 +115,7 @@ def month_end_marketable_debt(frame: pd.DataFrame, months: pd.PeriodIndex) -> tu
     nonnegative parts of the class total and its label varies across months.
     """
     _require(frame, DEBT_COLUMNS, DEBT_KEY)
-    text = frame[DEBT_COLUMNS].astype(str).apply(lambda column: column.str.strip())
+    text = _strip(frame, DEBT_COLUMNS)
     dates = pd.to_datetime(text["record_date"], format="%Y-%m-%d", errors="raise")
     if not dates.dt.is_month_end.all():
         raise ValueError(f"{DEBT_KEY}: record dates must be month-ends")
@@ -118,7 +139,7 @@ def month_end_marketable_debt(frame: pd.DataFrame, months: pd.PeriodIndex) -> tu
     sub = sub[sub["outstanding_amt"] != "*"]  # the published placeholder for an empty matured-bill subtotal
     values = _numeric(sub["outstanding_amt"], f"{DEBT_KEY} subtotals")
     classes = values.groupby([month[sub.index], sub["security_class1_desc"]]).max().groupby(level=0).sum()
-    gap = (total.loc[months] - ffb.loc[months] - classes.reindex(months)).abs()
+    gap = (debt - classes.reindex(months)).abs()
     worst = gap.idxmax() if gap.notna().all() else gap.index[gap.isna()][0]
     if not gap.notna().all() or gap[worst] > catalog.MSPD_SUBTOTAL_TOLERANCE_USD_MILLION:
         raise ValueError(f"{DEBT_KEY}: {MARKETABLE_TOTAL} less {FFB} differs from the class subtotals by "
@@ -128,53 +149,149 @@ def month_end_marketable_debt(frame: pd.DataFrame, months: pd.PeriodIndex) -> tu
     return debt, check
 
 
-def fiscal_year_average_debt(debt: pd.Series, years: range) -> pd.Series:
-    """Average of the 13 month-ends September y-1 through September y, ends at half weight, USD billion."""
-    weights = np.r_[0.5, np.ones(11), 0.5] / 12
-    return pd.Series({year: float(weights @ debt.loc[pd.Period(f"{year - 1}-09", "M"):pd.Period(f"{year}-09", "M")]
-                                  .to_numpy()) / 1000 for year in years})
+def quarter_average_debt(debt: pd.Series, quarters: pd.PeriodIndex) -> pd.Series:
+    """Mean of the prior quarter-end and the quarter's three month-ends, ends at half weight, USD billion."""
+    weights = np.array([0.5, 1.0, 1.0, 0.5]) / 3
+    return pd.Series([float(weights @ debt.loc[q.asfreq("M", "start") - 1:q.asfreq("M", "end")].to_numpy()) / 1000
+                      for q in quarters], index=quarters)
 
 
-def build_interest_rate_debt(interest: pd.DataFrame, mspd: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """The fiscal-year table and its fit, base-rate and check record."""
-    first, last = catalog.INTEREST_RATE_DEBT_SAMPLE
-    fit_first, fit_last = catalog.INTEREST_RATE_DEBT_FIT_WINDOW
-    base = catalog.INTEREST_RATE_DEBT_BASE_YEAR
+def holder_interest(allocation: pd.DataFrame, quarters: pd.PeriodIndex) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Holder interest with bounds (USD billion, quarter x holder), pools by family (USD million), and a record."""
+    _require(allocation, ALLOCATION_COLUMNS, "interest allocation")
+    families = list(catalog.INTEREST_POOL_FAMILIES)
+    groups = sorted({group for sector_groups in catalog.INTEREST_ALLOCATED_HOLDERS.values() for group in sector_groups})
+    frame = allocation[ALLOCATION_COLUMNS].copy()
+    dates = pd.to_datetime(frame["date"], format="%Y-%m-%d", errors="raise")
+    frame["quarter"] = pd.PeriodIndex(dates, freq="Q")
+    if not dates.eq(frame["quarter"].dt.end_time.dt.normalize()).all():
+        raise ValueError("interest allocation: dates must be quarter-ends")
+    frame = frame[frame["quarter"].isin(quarters) & frame["component_family"].isin(families)
+                  & frame["sector_group"].isin(groups)]
+    key = ["quarter", "component_family", "sector_group"]
+    if frame.duplicated(key).any():
+        raise ValueError("interest allocation: duplicate quarter, family and sector rows")
+    expected = pd.MultiIndex.from_product([quarters, families, groups], names=key)
+    missing = expected.difference(pd.MultiIndex.from_frame(frame[key]))
+    if len(missing):
+        raise ValueError(f"interest allocation: missing rows {[tuple(map(str, m)) for m in missing[:3]]}")
+    for column in [POOL, ALLOCATION_POOL, MID, LOW, HIGH]:
+        frame[column] = pd.to_numeric(frame[column], errors="raise")
+        if not np.isfinite(frame[column]).all():
+            raise ValueError(f"interest allocation: missing or nonfinite {column}")
+    frame[FED] = pd.to_numeric(frame[FED], errors="raise")
+    if not ((frame[LOW] <= frame[MID]) & (frame[MID] <= frame[HIGH])).all():
+        raise ValueError("interest allocation: allocated interest outside its bounds")
+
+    family = frame.groupby(["quarter", "component_family"])
+    if (family[[POOL, ALLOCATION_POOL]].nunique() > 1).any().any() or (family[FED].nunique(dropna=False) > 1).any():
+        raise ValueError("interest allocation: pool or Fed amount differs across sectors of one family-quarter")
+    pools = family[[POOL, FED, ALLOCATION_POOL]].first()
+    # A missing exact Fed amount is accepted only where the producer kept the whole pool for allocation.
+    absent = pools[FED].isna()
+    tolerance = catalog.INTEREST_POOL_TOLERANCE_USD_MILLION
+    if (pools.loc[absent, ALLOCATION_POOL] - pools.loc[absent, POOL]).abs().gt(tolerance).any():
+        raise ValueError("interest allocation: no exact Fed amount but the allocation pool is not the whole pool")
+    present = pools[~absent]
+    if (present[ALLOCATION_POOL] - (present[POOL] - present[FED])).abs().gt(tolerance).any():
+        raise ValueError("interest allocation: allocation pool differs from the pool less the Fed's exact amount")
+    fed_absent = [{"component_family": name, "quarters": int(len(block)), "first": str(block.min()),
+                   "last": str(block.max())}
+                  for name, block in pools[absent].reset_index().groupby("component_family")["quarter"]]
+
+    pool = pools[POOL].groupby(level="quarter").sum() / 1000
+    fed = pools[FED].fillna(0.0).groupby(level="quarter").sum() / 1000
+    sums = frame.groupby(["sector_group", "quarter"])[[MID, LOW, HIGH]].sum() / 1000
+    names = ["interest", "interest_low", "interest_high"]
+    holders = {holder: sum(sums.loc[group] for group in sector_groups).set_axis(names, axis=1)
+               for holder, sector_groups in catalog.INTEREST_ALLOCATED_HOLDERS.items()}
+    others = sum(holders.values())
+    available = pool - fed
+    holders["fed"] = pd.DataFrame({"interest": fed, "interest_low": fed, "interest_high": fed})
+    holders["deposit_users"] = pd.DataFrame({"interest": available - others["interest"],
+                                             "interest_low": available - others["interest_high"],
+                                             "interest_high": available - others["interest_low"]})
+    negative = holders["deposit_users"]["interest"] < 0
+    if negative.any():
+        raise ValueError(f"interest allocation: allocated and Fed interest exceed the pool in "
+                         f"{[str(q) for q in negative.index[negative][:5]]}")
+    table = pd.concat([holders[holder].reindex(quarters).assign(holder=holder)
+                       for holder in catalog.INTEREST_HOLDERS])
+    table = table.rename_axis("quarter").reset_index()
+    order = {holder: n for n, holder in enumerate(catalog.INTEREST_HOLDERS)}
+    table = table.sort_values(["quarter", "holder"], key=lambda c: c.map(order) if c.name == "holder" else c,
+                              kind="stable").reset_index(drop=True)
+    return table[["quarter", "holder", *names]], pools[POOL].unstack().reindex(quarters), {"fed_exact_absent":
+                                                                                            fed_absent}
+
+
+def build_interest_rate_debt(
+    interest: pd.DataFrame, mspd: pd.DataFrame, allocation: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """The aggregate and holder tables and their fit, base, reconciliation and check record."""
+    first, last = (pd.Period(q, "Q") for q in catalog.INTEREST_RATE_DEBT_SAMPLE)
+    fit_first, fit_last = (pd.Period(q, "Q") for q in catalog.INTEREST_RATE_DEBT_FIT_WINDOW)
+    base = pd.Period(catalog.INTEREST_RATE_DEBT_BASE_QUARTER, "Q")
     if not (first <= fit_first < fit_last <= last and first <= base <= last):
-        raise ValueError("fit window and base year must lie inside the sample")
-    years = range(first, last + 1)
-    flows, lines = fiscal_year_interest(interest, years)
+        raise ValueError("fit window and base quarter must lie inside the sample")
+    quarters = pd.period_range(first, last, freq="Q")
+    holders, family_pools, holder_record = holder_interest(allocation, quarters)
+    fiscal = fiscaldata_families(interest, quarters)
+    families = list(catalog.INTEREST_POOL_FAMILIES)
+    missing = sorted(set(families) - set(fiscal.columns))
+    if missing:
+        raise ValueError(f"{INTEREST_KEY}: no lines for families {missing}")
+    family_gap = (family_pools[families] - fiscal[families]).abs()
+    if family_gap.max().max() > catalog.INTEREST_POOL_TOLERANCE_USD_MILLION:
+        q, name = family_gap.stack().idxmax()
+        raise ValueError(f"interest allocation pool differs from FiscalData {name} by {family_gap.loc[q, name]} "
+                         f"USD million in {q}")
+    ex_tips_ic = fiscal.drop(columns="tips_inflation_compensation", errors="ignore").sum(axis=1) / 1000
     monthly, debt_check = month_end_marketable_debt(
-        mspd, pd.period_range(f"{first - 1}-09", f"{last}-09", freq="M"))
-    D = fiscal_year_average_debt(monthly, years)
-    I_y, IC = flows["interest"], flows["tips_inflation_compensation"]
-    r, ric = I_y / D, IC / D
+        mspd, pd.period_range(first.asfreq("M", "start") - 1, last.asfreq("M", "end"), freq="M"))
 
-    fit = list(range(fit_first, fit_last + 1))
-    g = float(np.polyfit(np.array(fit, dtype=float), np.log(D.loc[fit].to_numpy()), 1)[0])
-    rc, ricc = float(r[base]), float(ric[base])
-    pooled = float(I_y.loc[fit].sum() / D.loc[fit].sum())
-    index = pd.Index(list(years))
-    after = pd.Series(index >= base, index=index)
-    Dc = pd.Series(D[base] * np.exp(g * (index - base)), index=index).where(after)
-    table = pd.DataFrame({
-        "fiscal_year": index,
-        "interest": I_y, "tips_inflation_compensation": IC, "avg_marketable_debt": D, "effective_rate_pct": 100 * r,
-        "trend_debt": Dc, "trend_interest": Dc * rc, "debt_only_interest": (D * rc).where(after),
-        "debt_effect": (D - Dc) * rc, "rate_effect": (I_y - D * rc).where(after),
-        "debt_effect_even": (D - Dc) * (r + rc) / 2, "rate_effect_even": (r - rc) * (D + Dc) / 2,
-        "rate_effect_tips": (IC - D * ricc).where(after),
-        "debt_effect_avg_rate": (D - Dc) * pooled, "rate_effect_avg_rate": (I_y - D * pooled).where(after),
-    }, index=index)
+    I_q = family_pools[families].sum(axis=1) / 1000
+    D = quarter_average_debt(monthly, quarters)
+    days = pd.Series((quarters.end_time.normalize() - quarters.start_time).days + 1, index=quarters)
+    year = days / 365
+    r = I_q / (D * year)
+    position = pd.Series([(q - base).n for q in quarters], index=quarters, dtype=float)
+    fit = (quarters >= fit_first) & (quarters <= fit_last)
+    g = float(np.polyfit(position[fit].to_numpy(), np.log(D[fit].to_numpy()), 1)[0])
+    rc = float(r[base])
+    after = pd.Series(quarters >= base, index=quarters)
+    Dc = (D[base] * np.exp(g * position)).where(after)
+    trend = Dc * rc * year
+    debt_only = (D * rc * year).where(after)
+    aggregate = pd.DataFrame({
+        "quarter": quarters.astype(str), "days": days, "interest": I_q, "avg_marketable_debt": D,
+        "effective_rate_pct": 100 * r, "trend_debt": Dc, "trend_interest": trend, "debt_only_interest": debt_only,
+        "debt_effect": debt_only - trend, "rate_effect": I_q - debt_only,
+        "debt_effect_even": (D - Dc) * (r + rc) / 2 * year, "rate_effect_even": (r - rc) * (D + Dc) / 2 * year,
+        "fiscaldata_interest_ex_tips_ic": ex_tips_ic, "pool_minus_fiscaldata": I_q - ex_tips_ic,
+    }, index=quarters)
 
-    span = table[after]
+    total = holders["quarter"].map(I_q).to_numpy()
+    share = holders["interest"].to_numpy() / total
+    base_share = pd.Series(share[(holders["quarter"] == base).to_numpy()],
+                           index=holders.loc[holders["quarter"] == base, "holder"])
+    theta_b = holders["holder"].map(base_share).to_numpy()
+    trend_q = holders["quarter"].map(trend).to_numpy()
+    long = holders.assign(share=share, trend_interest=theta_b * trend_q,
+                          base_share_part=theta_b * (total - trend_q), shift=total * (share - theta_b))
+    is_after = (holders["quarter"] >= base).to_numpy()
+    long.loc[~is_after, ["trend_interest", "base_share_part", "shift"]] = np.nan
+
+    span, post = aggregate[after], long[is_after]
     identities = {
         "debt_effect + rate_effect = interest - trend_interest":
             span.debt_effect + span.rate_effect - (span.interest - span.trend_interest),
         "debt_effect_even + rate_effect_even = interest - trend_interest":
             span.debt_effect_even + span.rate_effect_even - (span.interest - span.trend_interest),
-        "debt_effect_avg_rate + rate_effect_avg_rate = interest - trend_debt * pooled_rate":
-            span.debt_effect_avg_rate + span.rate_effect_avg_rate - (span.interest - span.trend_debt * pooled),
+        "holder interest - holder trend_interest = base_share_part + shift":
+            post["interest"] - post["trend_interest"] - post["base_share_part"] - post["shift"],
+        "sum over holders of shift = 0": post.groupby("quarter")["shift"].sum(),
+        "sum over holders of interest = interest": long.groupby("quarter")["interest"].sum() - I_q,
     }
     checks = {}
     for name, gap in identities.items():
@@ -182,77 +299,116 @@ def build_interest_rate_debt(interest: pd.DataFrame, mspd: pd.DataFrame) -> tupl
         if not worst <= IDENTITY_TOLERANCE:
             raise ValueError(f"identity fails by {worst}: {name}")
         checks[name] = {"tolerance": IDENTITY_TOLERANCE, "max_abs_gap_usd_billion": worst}
+    long["quarter"] = long["quarter"].astype(str)
+    gaps = aggregate["pool_minus_fiscaldata"]
     record = {
-        "sample": {"first_fiscal_year": first, "last_fiscal_year": last, "n": len(years),
-                   "fiscal_year": "October of the prior calendar year through September"},
+        "sample": {"first_quarter": str(first), "last_quarter": str(last), "n": len(quarters)},
         "counterfactual": {
-            "fit_window": [fit_first, fit_last], "base_year": base,
-            "g": g, "g_definition": "OLS slope of ln avg_marketable_debt on fiscal year over the fit window",
-            "trend_growth_pct_per_year": 100 * (np.exp(g) - 1),
-            "rc": rc, "rc_pct": 100 * rc, "ricc": ricc, "ricc_pct": 100 * ricc,
-            "pooled_rate": pooled, "pooled_rate_pct": 100 * pooled,
-            "pooled_rate_definition": "sum of fit-window interest over sum of fit-window average debt",
+            "fit_window": [str(fit_first), str(fit_last)], "base_quarter": str(base),
+            "g": g, "g_definition": "OLS slope of ln avg_marketable_debt on the quarter index over the fit window, "
+                                    "per quarter",
+            "trend_growth_pct_per_year": float(100 * (np.exp(4 * g) - 1)),
+            "rc": rc, "rc_pct": 100 * rc, "rc_definition": "annualized effective rate in the base quarter",
+            "base_shares": {holder: float(base_share[holder]) for holder in catalog.INTEREST_HOLDERS},
         },
-        "interest_lines": lines,
+        "holders": {
+            "fed": "Exact Fed component amounts summed over the pool families",
+            **{holder: f"Allocated interest of sector groups {list(groups)}, with its low and high bounds"
+               for holder, groups in catalog.INTEREST_ALLOCATED_HOLDERS.items()},
+            "deposit_users": "Pool less the Fed and the allocated holders; low and high bounds use the allocated "
+                             "holders' high and low bounds",
+            **holder_record,
+        },
+        "reconciliation": {
+            "family_pool_vs_fiscaldata": {
+                "families": families, "tolerance_usd_million": catalog.INTEREST_POOL_TOLERANCE_USD_MILLION,
+                "max_abs_gap_usd_million": float(family_gap.max().max())},
+            "pool_minus_fiscaldata_ex_tips_ic_usd_billion": {
+                "explained_by": "amortized discount net of premium on notes, bonds, TIPS and FRNs, outside the pool",
+                "min": float(gaps.min()), "max": float(gaps.max()),
+                "by_quarter": {str(q): float(v) for q, v in gaps.items()}},
+        },
         "checks": {"identities": checks, "mspd_subtotals": debt_check},
     }
-    return table.reset_index(drop=True), record
+    return aggregate.reset_index(drop=True), long, record
 
 
 def column_metadata() -> dict:
-    base = catalog.INTEREST_RATE_DEBT_BASE_YEAR
-    fit = "FY{}-FY{}".format(*catalog.INTEREST_RATE_DEBT_FIT_WINDOW)
-    blank = f"; blank before FY{base}"
-    return {
-        "fiscal_year": "Fiscal year ending in September",
-        "interest": "I: fiscal-year sum of marketable interest-expense lines (accrued interest, amortized discount, "
-                    "amortized premium, TIPS inflation compensation), USD billion",
-        "tips_inflation_compensation": "IC: the TIPS inflation-compensation line of interest, USD billion",
-        "avg_marketable_debt": "D: (v0/2 + v1 + ... + v11 + v12/2)/12 over month-ends September y-1 to September y "
+    base = catalog.INTEREST_RATE_DEBT_BASE_QUARTER
+    fit = "{}-{}".format(*catalog.INTEREST_RATE_DEBT_FIT_WINDOW)
+    blank = f"; blank before {base}"
+    aggregate = {
+        "quarter": "Calendar quarter",
+        "days": "Calendar days in the quarter",
+        "interest": "I: official pool interest summed once over the component families "
+                    f"{list(catalog.INTEREST_POOL_FAMILIES)}, USD billion",
+        "avg_marketable_debt": "D: (v0/2 + v1 + v2 + v3/2)/3 over the prior quarter-end and the quarter's month-ends "
                                "of MSPD Total Marketable less the Federal Financing Bank, USD billion",
-        "effective_rate_pct": "r = I / D, percent",
-        "trend_debt": f"Dc = D_{base} * exp(g * (y - {base})), g the {fit} log-linear trend{blank}",
-        "trend_interest": f"Dc * rc, rc = r_{base}{blank}",
-        "debt_only_interest": f"D * rc{blank}",
-        "debt_effect": f"(D - Dc) * rc{blank}",
-        "rate_effect": f"I - D * rc{blank}",
-        "debt_effect_even": f"(D - Dc) * (r + rc) / 2{blank}",
-        "rate_effect_even": f"(r - rc) * (D + Dc) / 2{blank}",
-        "rate_effect_tips": f"IC - D * ricc, ricc = IC_{base} / D_{base}{blank}",
-        "debt_effect_avg_rate": f"(D - Dc) * pooled_rate, pooled_rate = sum I / sum D over {fit}{blank}",
-        "rate_effect_avg_rate": f"I - D * pooled_rate{blank}",
+        "effective_rate_pct": "r = I / (D * days / 365), percent per year",
+        "trend_debt": f"Dc = D_{base} * exp(g * quarters since {base}), g the {fit} log-linear trend{blank}",
+        "trend_interest": f"Dc * rc * days / 365, rc = r_{base}{blank}",
+        "debt_only_interest": f"D * rc * days / 365{blank}",
+        "debt_effect": f"debt_only_interest - trend_interest{blank}",
+        "rate_effect": f"I - debt_only_interest{blank}",
+        "debt_effect_even": f"(D - Dc) * (r + rc) / 2 * days / 365{blank}",
+        "rate_effect_even": f"(r - rc) * (D + Dc) / 2 * days / 365{blank}",
+        "fiscaldata_interest_ex_tips_ic": "FiscalData marketable interest lines less TIPS inflation compensation, "
+                                          "USD billion",
+        "pool_minus_fiscaldata": "interest - fiscaldata_interest_ex_tips_ic: minus the amortized discount net of "
+                                 "premium on notes, bonds, TIPS and FRNs",
     }
+    holders = {
+        "quarter": "Calendar quarter",
+        "holder": f"One of {list(catalog.INTEREST_HOLDERS)}",
+        "interest": "I_g: holder interest, USD billion",
+        "interest_low": "Low bound of I_g",
+        "interest_high": "High bound of I_g",
+        "share": "theta_g = I_g / I",
+        "trend_interest": f"theta_g,{base} * trend_interest{blank}",
+        "base_share_part": f"theta_g,{base} * (I - trend_interest){blank}",
+        "shift": f"I * (theta_g - theta_g,{base}){blank}",
+    }
+    return {"aggregate": aggregate, "holders": holders}
 
 
-def write_interest_rate_debt_export(*, root: Path | str, inputs_manifest_sha256: str) -> dict:
-    """Bind the table to a clean commit and the pinned fiscus manifest."""
+def write_interest_rate_debt_export(*, root: Path | str, inputs_manifest_sha256: str, allocation_sha256: str) -> dict:
+    """Bind the tables to a clean commit, the pinned allocation and the pinned fiscus manifest."""
     registry = catalog.FISCUS_REGISTRIES["interest-rate-debt"]
     paths = project_paths(root)
     root = paths.root
     producer_commit = require_clean_commit(root)
-    manifest_path = root / registry.manifest
+    allocation_path, manifest_path = paths.processed / ALLOCATION_FILE, root / registry.manifest
+    allocation_raw, allocation_record = read_pinned_input(root, allocation_path, allocation_sha256,
+                                                          "interest_allocation")
     manifest_raw, manifest_record = read_pinned_input(root, manifest_path, inputs_manifest_sha256, "inputs_manifest")
     manifest = json.loads(manifest_raw)
     frames, input_records = load_fiscus_inputs(root, manifest, registry)
 
-    table, record = build_interest_rate_debt(frames[INTEREST_KEY], frames[DEBT_KEY])
-    payload = table.to_csv(index=False, lineterminator="\n").encode("utf-8")
+    aggregate, holders, record = build_interest_rate_debt(
+        frames[INTEREST_KEY], frames[DEBT_KEY], pd.read_csv(io.BytesIO(allocation_raw)))
+    payloads = {role: frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
+                for role, frame in [("aggregate", aggregate), ("holders", holders)]}
     output_paths = {role: paths.processed / name for role, name in OUTPUT_FILES.items()}
+    protected = {allocation_path.resolve(), manifest_path.resolve()}
+    if {path.resolve() for path in output_paths.values()} & protected:
+        raise ValueError("Output paths cannot overwrite inputs")
     receipt = {
         "schema_version": SCHEMA_VERSION,
         "producer_commit": producer_commit,
-        "units": {"amounts": "USD billion", "effective_rate_pct": "percent"},
+        "units": {"amounts": "USD billion", "effective_rate_pct": "percent per year", "share": "fraction"},
         **record,
         "boundaries": BOUNDARIES,
-        "inputs": {"inputs_manifest": {**manifest_record, "fiscus": manifest.get("fiscus", {}),
+        "inputs": {"interest_allocation": allocation_record,
+                   "inputs_manifest": {**manifest_record, "fiscus": manifest.get("fiscus", {}),
                                        "acquired_at_utc": manifest.get("acquired_at_utc")},
                    "fiscus_inputs": input_records},
-        "outputs": {"table": {"path": str(output_paths["table"].relative_to(root)), "sha256": _sha256(payload),
-                              "byte_count": len(payload)}},
+        "outputs": {role: {"path": str(output_paths[role].relative_to(root)), "sha256": _sha256(data),
+                           "byte_count": len(data)} for role, data in payloads.items()},
         "columns": column_metadata(),
     }
     text = json.dumps(receipt, indent=2, allow_nan=False) + "\n"
-    output_paths["table"].parent.mkdir(parents=True, exist_ok=True)
-    output_paths["table"].write_bytes(payload)
+    for role, data in payloads.items():
+        output_paths[role].parent.mkdir(parents=True, exist_ok=True)
+        output_paths[role].write_bytes(data)
     output_paths["receipt"].write_text(text, encoding="utf-8")
     return receipt

@@ -1369,19 +1369,28 @@ def deficit_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusReg
     )
 
 
-# Interest on marketable Treasury debt by fiscal year, split against a counterfactual in which
-# average marketable debt stays on its fit-window trend and the effective rate at its base-year
-# level. Fiscal year Y runs October Y-1 through September Y.
-INTEREST_RATE_DEBT_SAMPLE = (2015, 2026)
-INTEREST_RATE_DEBT_FIT_WINDOW = (2016, 2019)
-INTEREST_RATE_DEBT_BASE_YEAR = 2019
+# Interest on marketable Treasury debt by calendar quarter, split against a counterfactual in
+# which average marketable debt stays on its fit-window trend and the effective rate at its
+# base-quarter level, and split by holder with the Tier 2 interest allocation.
+INTEREST_RATE_DEBT_SAMPLE = ("2015Q1", "2026Q2")
+INTEREST_RATE_DEBT_FIT_WINDOW = ("2016Q1", "2019Q4")
+INTEREST_RATE_DEBT_BASE_QUARTER = "2019Q4"
 # MSPD Table 3 subtotal rows are published to USD 0.0001 million; a few months carry a
 # USD 1 million inconsistency between a class subtotal and its components.
 MSPD_SUBTOTAL_TOLERANCE_USD_MILLION = 5.0
+# The allocation's official pools are FiscalData lines summed by component family, so each
+# family-quarter pool matches its FiscalData sum to floating-point error (at most 3e-11 USD
+# million over 2015Q1-2026Q2). A larger gap means the two inputs come from different releases.
+INTEREST_POOL_TOLERANCE_USD_MILLION = 0.01
+# Component families of the official pool, and the allocation sector groups each modeled
+# holder sums. The Fed takes the exact component amounts; deposit users are the residual.
+INTEREST_POOL_FAMILIES = ("coupon_accrual", "bill_discount", "frn_interest")
+INTEREST_ALLOCATED_HOLDERS = {"foreign": ("row",), "banks_credit_unions": ("bank", "credit_union")}
+INTEREST_HOLDERS = ("deposit_users", "fed", *INTEREST_ALLOCATED_HOLDERS)
 
 
 def interest_rate_debt_registry() -> FiscusRegistry:
-    first, last = INTEREST_RATE_DEBT_SAMPLE
+    first, last = (_quarter_bounds(quarter) for quarter in INTEREST_RATE_DEBT_SAMPLE)
     page = ("--param", "page[size]=10000", "--max-pages", "100")
     return FiscusRegistry(
         name="interest-rate-debt", input_dir=Path("data/raw/fiscus/interest_rate_debt"),
@@ -1390,16 +1399,26 @@ def interest_rate_debt_registry() -> FiscusRegistry:
         inputs=(
             FiscusInput("interest_expense", "fiscaldata.interest_expense", (
                 "fiscaldata-query", "fiscaldata.interest_expense", "--param",
-                f"filter=record_date:gte:{first - 1}-10-01,record_date:lte:{last}-09-30", *page),
-                0.000001, "fiscal_month_flow", "Interest expense on the public debt outstanding, monthly by line",
+                f"filter=record_date:gte:{first[0]},record_date:lte:{last[1]}", *page),
+                0.000001, "calendar_month_flow", "Interest expense on the public debt outstanding, monthly by line",
                 native_units="USD"),
             FiscusInput("mspd_marketable", "fiscaldata.mspd_table_3_market", (
                 "fiscaldata-query", "fiscaldata.mspd_table_3_market", "--param",
-                f"filter=record_date:gte:{first - 1}-09-30,record_date:lte:{last}-09-30", *page),
+                f"filter=record_date:gte:{first[2]},record_date:lte:{last[1]}", *page),
                 1.0, "month_end_level", "MSPD Table 3 marketable securities outstanding, CUSIP rows and subtotals",
                 native_units="USD million, field-specific"),
         ),
     )
+
+
+def _quarter_bounds(quarter: str) -> tuple[str, str, str]:
+    """First day, last day, and the prior quarter's last day of a calendar quarter such as "2015Q1"."""
+    year, q = int(quarter[:4]), int(quarter[-1])
+    last_month = 3 * q
+    prior_year, prior_month = (year, last_month - 3) if q > 1 else (year - 1, 12)
+    return (f"{year}-{last_month - 2:02d}-01",
+            f"{year}-{last_month:02d}-{calendar.monthrange(year, last_month)[1]:02d}",
+            f"{prior_year}-{prior_month:02d}-{calendar.monthrange(prior_year, prior_month)[1]:02d}")
 
 
 FISCUS_REGISTRIES = {registry.name: registry for registry in (

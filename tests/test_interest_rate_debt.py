@@ -46,7 +46,15 @@ LINES = [  # (group, type, family, USD per month at month index t)
     (ACCRUED, "Int. Expense Inflation Compensation (TIPS)", "tips_ic", lambda t: 2e9 + 1e9 * np.sin(t)),
     (DISCOUNT, "Treasury Notes", "amortization", lambda t: 0.6e9 + 0.0 * t),
     (PREMIUM, "Treasury Bonds", "amortization", lambda t: -0.3e9 - 0.001e9 * t),
+    # Required lines that carry zero in this fixture are still published every month.
+    (DISCOUNT, "Treasury Bonds", "amortization", lambda t: 0.0 * t),
+    (DISCOUNT, "Treasury Floating Rate Notes (FRN)", "amortization", lambda t: 0.0 * t),
+    (DISCOUNT, "Treasury Inflation Protected Securities (TIPS)", "amortization", lambda t: 0.0 * t),
+    (PREMIUM, "Treasury Notes", "amortization", lambda t: 0.0 * t),
+    (PREMIUM, "Treasury Floating Rate Notes (FRN)", "amortization", lambda t: 0.0 * t),
+    (PREMIUM, "Treasury Inflation Protected Securities (TIPS)", "amortization", lambda t: 0.0 * t),
 ]
+assert sorted((group, typ) for group, typ, *_ in LINES) == sorted(catalog.INTEREST_MARKETABLE_LINES)
 EXCLUDED = [  # (category, group, type): nonmarketable or off-perimeter lines
     (PUBLIC, "SAVINGS BONDS", "Series I"),
     (PUBLIC, ACCRUED, "State & Local Government-C/I's, Notes & Bonds"),
@@ -181,6 +189,13 @@ def test_aggregate_columns_follow_the_stated_method_and_the_splits_add_to_the_ga
     np.testing.assert_allclose(after["trend_debt"], trend_debt, rtol=1e-10)
     np.testing.assert_allclose(after["trend_interest"], trend_debt * rc * year, rtol=1e-10)
     np.testing.assert_allclose(after["debt_only_interest"], after["avg_marketable_debt"] * rc * year, rtol=1e-12)
+    # Each term of both splits, written out: swapping the sequential and even pairs keeps their sums.
+    D, Dc, interest, r = after["avg_marketable_debt"], trend_debt, after["interest"], after["effective_rate_pct"] / 100
+    np.testing.assert_allclose(after["debt_effect"], (D - Dc) * rc * year, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(after["rate_effect"], interest - D * rc * year, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(after["debt_effect_even"], (D - Dc) * (r + rc) / 2 * year, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(after["rate_effect_even"], (r - rc) * (D + Dc) / 2 * year, rtol=1e-9, atol=1e-12)
+    assert (after["debt_effect"] - after["debt_effect_even"]).abs().max() > 0.1  # the fixture tells them apart
     gap = after["interest"] - after["trend_interest"]
     for debt, rate in [("debt_effect", "rate_effect"), ("debt_effect_even", "rate_effect_even")]:
         assert (after[debt] + after[rate] - gap).abs().max() <= 1e-9, debt
@@ -198,9 +213,9 @@ def test_annualizing_on_calendar_days_keeps_a_constant_daily_rate_flat():
     def per_month(t):
         return daily * days_in_month[np.asarray(t, dtype=int)]
 
-    lines = [(ACCRUED, "Treasury Notes", "coupon_accrual", per_month),
-             (DISCOUNT, "Treasury Bills", "bill_discount", per_month),
-             (ACCRUED, "Treasury Floating Rate Notes (FRN)", "frn_interest", per_month)]
+    accruing = {(ACCRUED, "Treasury Notes"), (DISCOUNT, "Treasury Bills"), (ACCRUED, "Treasury Floating Rate Notes (FRN)")}
+    lines = [(group, typ, family, per_month if (group, typ) in accruing else (lambda t: 0.0 * t))
+             for group, typ, family, _ in LINES]
     pools = pd.DataFrame({family: [daily * ((q.end_time - q.start_time).days + 1) / 1e6 for q in QUARTERS]
                           for family in FAMILIES}, index=QUARTERS)
     aggregate, _, _ = build(make_interest(lines=lines), make_mspd(debt=np.full(len(DEBT_MONTHS), 20_000_000.0)),
@@ -267,7 +282,12 @@ def test_shift_share_split_attributes_interest_above_trend_by_base_share_and_sha
     agg = aggregate.set_index("quarter")
     gap = post.index.get_level_values("quarter").map(agg["interest"] - agg["trend_interest"]).to_numpy()
     theta_b = post.index.get_level_values("holder").map(base["share"]).to_numpy()
+    total = post.index.get_level_values("quarter").map(agg["interest"]).to_numpy()
+    trend = post.index.get_level_values("quarter").map(agg["trend_interest"]).to_numpy()
+    np.testing.assert_allclose(post["trend_interest"], theta_b * trend, rtol=1e-12)
     np.testing.assert_allclose(post["base_share_part"], theta_b * gap, rtol=1e-12)
+    np.testing.assert_allclose(post["shift"], total * (post["share"] - theta_b), rtol=1e-12, atol=1e-12)
+    assert (post["shift"].abs() > 0.01).any()  # shares move in the fixture, so the shift is not trivially zero
     np.testing.assert_allclose(post["interest"] - post["trend_interest"], post["base_share_part"] + post["shift"],
                                rtol=0, atol=1e-9)
     assert post.groupby(level="quarter")["shift"].sum().abs().max() < 1e-9
@@ -317,12 +337,29 @@ def test_ffb_and_nonmarketable_lines_are_excluded():
 
 def test_a_missing_month_or_line_raises_instead_of_truncating():
     interest, mspd = make_interest(), make_mspd()
-    with pytest.raises(ValueError, match=r"months \['2021-03'\] lack marketable lines"):
+    with pytest.raises(ValueError, match=r"required line .* missing in \['2021-03'\]$"):
         build(interest[interest["record_date"] != "2021-03-31"], mspd)
     one_line = interest.drop(interest.index[(interest["record_date"] == "2016-11-30")
-                                            & (interest["expense_group_desc"] == PREMIUM)])
-    with pytest.raises(ValueError, match=r"months \['2016-11'\] lack marketable lines"):
+                                            & (interest["expense_group_desc"] == PREMIUM)
+                                            & (interest["expense_type_desc"] == "Treasury Bonds")])
+    with pytest.raises(ValueError, match=r"AMORTIZED PREMIUM / Treasury Bonds missing in \['2016-11'\]$"):
         build(one_line, mspd)
+    # A zero-valued line is still a required line.
+    zero = interest.drop(interest.index[(interest["record_date"] == "2024-05-31")
+                                        & (interest["expense_group_desc"] == PREMIUM)
+                                        & (interest["expense_type_desc"] == "Treasury Notes")])
+    with pytest.raises(ValueError, match=r"AMORTIZED PREMIUM / Treasury Notes missing in \['2024-05'\]$"):
+        build(zero, mspd)
+    stray = pd.concat([interest, interest.iloc[:1].assign(expense_group_desc="AMORTIZED PREMIUM",
+                                                          expense_type_desc="Treasury Bills")], ignore_index=True)
+    with pytest.raises(ValueError, match="marketable lines outside the catalog"):
+        build(stray, mspd)
+    # A line missing from every month is as incomplete as one missing from a single month: without
+    # the Treasury-note amortized discount, pool_minus_fiscaldata understates the gap in every quarter.
+    whole = interest[~((interest["expense_group_desc"] == DISCOUNT) & (interest["expense_type_desc"] == "Treasury Notes"))]
+    assert set(whole["record_date"]) == set(interest["record_date"])
+    with pytest.raises(ValueError, match=r"AMORTIZED DISCOUNT / Treasury Notes missing in \['2015-01', '2015-02'"):
+        build(whole, mspd)
     blank = interest.copy()
     blank.loc[3, "month_expense_amt"] = ""
     with pytest.raises(ValueError, match="missing or nonnumeric"):

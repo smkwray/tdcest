@@ -32,6 +32,7 @@ from .treasury_interest_components import (
     _component_family,
     _component_key,
     _is_marketable_treasury_public_issue,
+    _norm,
 )
 
 SCHEMA_VERSION = "interest_rate_debt_q_v1"
@@ -63,9 +64,10 @@ BOUNDARIES = [
     "forecast of either",
     "The holder split is a shift-share accounting of interest received, with holders defined as in the Tier 2 "
     "interest allocation and deposit users as the residual. Interest to deposit users is the part credited to "
-    "covered deposits",
-    "The allocation to foreign holders, banks and credit unions is modeled; the Fed's is exact. Where a "
-    "family-quarter has no exact Fed amount, the Fed's weighted share stays in the deposit-user residual",
+    "covered deposits, except where a family-quarter has no exact Fed amount: there the Fed's weighted share "
+    "stays in the deposit-user residual",
+    "The allocation to foreign holders, banks and credit unions is modeled; the Fed's is exact where the "
+    "allocation records it",
 ]
 
 
@@ -82,7 +84,8 @@ def _strip(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
 def fiscaldata_families(frame: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.DataFrame:
     """Marketable FiscalData interest by component family and quarter, USD million.
 
-    Every month of every quarter must carry every marketable line seen in the window.
+    Every month of every quarter must carry every line in ``catalog.INTEREST_MARKETABLE_LINES``
+    and no other marketable line.
     """
     _require(frame, INTEREST_COLUMNS, INTEREST_KEY)
     text = _strip(frame, INTEREST_COLUMNS)
@@ -94,12 +97,18 @@ def fiscaldata_families(frame: pd.DataFrame, quarters: pd.PeriodIndex) -> pd.Dat
     line = ["expense_group_desc", "expense_type_desc"]
     if rows.duplicated(["month", *line]).any():
         raise ValueError(f"{INTEREST_KEY}: duplicate marketable lines within a month")
-    n_lines = len(rows[line].drop_duplicates())
-    present = rows.groupby("month").size().reindex(months, fill_value=0)
-    short = present.index[present.eq(0) | present.lt(n_lines)]
-    if len(short):
-        raise ValueError(f"{INTEREST_KEY}: months {[str(m) for m in short[:5]]} lack marketable lines; "
-                         "a quarter needs all three months")
+    required = {tuple(map(_norm, pair)): pair for pair in catalog.INTEREST_MARKETABLE_LINES}
+    pairs = pd.Series(list(zip(rows["expense_group_desc"].map(_norm), rows["expense_type_desc"].map(_norm))),
+                      index=rows.index)
+    unknown = sorted(set(pairs) - set(required))
+    if unknown:
+        raise ValueError(f"{INTEREST_KEY}: marketable lines outside the catalog {unknown[:3]}")
+    present = set(zip(rows["month"], pairs))
+    for key, (group, typ) in required.items():
+        absent = [str(m) for m in months if (m, key) not in present]
+        if absent:
+            raise ValueError(f"{INTEREST_KEY}: required line {group} / {typ} missing in {absent[:5]}"
+                             f"{f' and {len(absent) - 5} more months' if len(absent) > 5 else ''}")
     family = [_component_family(_component_key(g, t))
               for g, t in zip(rows["expense_group_desc"], rows["expense_type_desc"], strict=True)]
     amount = _numeric(rows["month_expense_amt"], INTEREST_KEY) / 1e6
@@ -316,7 +325,8 @@ def build_interest_rate_debt(
             **{holder: f"Allocated interest of sector groups {list(groups)}, with its low and high bounds"
                for holder, groups in catalog.INTEREST_ALLOCATED_HOLDERS.items()},
             "deposit_users": "Pool less the Fed and the allocated holders; low and high bounds use the allocated "
-                             "holders' high and low bounds",
+                             "holders' high and low bounds. In the family-quarters listed under fed_exact_absent "
+                             "the residual also holds the Fed's weighted share",
             **holder_record,
         },
         "reconciliation": {

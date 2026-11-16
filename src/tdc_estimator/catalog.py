@@ -1385,6 +1385,25 @@ INTEREST_POOL_TOLERANCE_USD_MILLION = 0.01
 # Component families of the official pool, and the allocation sector groups each modeled
 # holder sums. The Fed takes the exact component amounts; deposit users are the residual.
 INTEREST_POOL_FAMILIES = ("coupon_accrual", "bill_discount", "frn_interest")
+# The marketable public-issue lines of FiscalData interest expense, (expense_group_desc,
+# expense_type_desc) as published. Every month of the sample must carry each of them, and
+# no other marketable line may appear.
+INTEREST_MARKETABLE_LINES = (
+    ("ACCRUED INTEREST EXPENSE", "Inflation Protected Securities (TIPS)"),
+    ("ACCRUED INTEREST EXPENSE", "Int. Expense Inflation Compensation (TIPS)"),
+    ("ACCRUED INTEREST EXPENSE", "Treasury Bonds"),
+    ("ACCRUED INTEREST EXPENSE", "Treasury Floating Rate Notes (FRN)"),
+    ("ACCRUED INTEREST EXPENSE", "Treasury Notes"),
+    ("AMORTIZED DISCOUNT", "Treasury Bills"),
+    ("AMORTIZED DISCOUNT", "Treasury Bonds"),
+    ("AMORTIZED DISCOUNT", "Treasury Floating Rate Notes (FRN)"),
+    ("AMORTIZED DISCOUNT", "Treasury Inflation Protected Securities (TIPS)"),
+    ("AMORTIZED DISCOUNT", "Treasury Notes"),
+    ("AMORTIZED PREMIUM", "Treasury Bonds"),
+    ("AMORTIZED PREMIUM", "Treasury Floating Rate Notes (FRN)"),
+    ("AMORTIZED PREMIUM", "Treasury Inflation Protected Securities (TIPS)"),
+    ("AMORTIZED PREMIUM", "Treasury Notes"),
+)
 INTEREST_ALLOCATED_HOLDERS = {"foreign": ("row",), "banks_credit_unions": ("bank", "credit_union")}
 INTEREST_HOLDERS = ("deposit_users", "fed", *INTEREST_ALLOCATED_HOLDERS)
 

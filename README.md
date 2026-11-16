@@ -91,6 +91,7 @@ The baseline needs only the downloaded series. Tiers 1 and 2 also need support f
 | `scripts/export_trc_monthly.py` | Monthly TRC on a last-Wednesday clock |
 | `tdc bank-composition-export` | Descriptive U.S.-chartered bank balance-sheet composition |
 | `tdc deficit-comparison-export` | Descriptive comparison of measured TDC with the federal budget deficit |
+| `tdc interest-rate-debt-export` | Fiscal-year interest on marketable Treasury debt split into debt and rate effects |
 
 The `tdc` export commands take SHA-256 pins for their inputs, either directly or through an acquisition manifest, and stop if an input does not match. They must run from a clean committed checkout, so that each JSON receipt names the commit that produced it. The monthly script records input and output hashes in its receipt. Source files are acquired with `scripts/acquire_trc_inputs.py`, which runs [fiscus](https://github.com/smkwray/fiscus) through [uv](https://docs.astral.sh/uv/) and records every retrieval in a manifest. The weekly series has no preferred variant; see [weekly TRC conventions](docs/weekly_trc.md).
 

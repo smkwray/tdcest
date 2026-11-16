@@ -74,6 +74,7 @@ def test_build_parser_exposes_expected_commands():
         "reserve-factor-ledger-export",
         "bank-composition-export",
         "deficit-comparison-export",
+        "interest-rate-debt-export",
         "weekly-trc-export",
         "tdc-empirical-anchor",
         "du-ru-methodology",

@@ -1369,8 +1369,42 @@ def deficit_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusReg
     )
 
 
+# Interest on marketable Treasury debt by fiscal year, split against a counterfactual in which
+# average marketable debt stays on its fit-window trend and the effective rate at its base-year
+# level. Fiscal year Y runs October Y-1 through September Y.
+INTEREST_RATE_DEBT_SAMPLE = (2015, 2026)
+INTEREST_RATE_DEBT_FIT_WINDOW = (2016, 2019)
+INTEREST_RATE_DEBT_BASE_YEAR = 2019
+# MSPD Table 3 subtotal rows are published to USD 0.0001 million; a few months carry a
+# USD 1 million inconsistency between a class subtotal and its components.
+MSPD_SUBTOTAL_TOLERANCE_USD_MILLION = 5.0
+
+
+def interest_rate_debt_registry() -> FiscusRegistry:
+    first, last = INTEREST_RATE_DEBT_SAMPLE
+    page = ("--param", "page[size]=10000", "--max-pages", "100")
+    return FiscusRegistry(
+        name="interest-rate-debt", input_dir=Path("data/raw/fiscus/interest_rate_debt"),
+        manifest=Path("data/raw/fiscus/interest_rate_debt/inputs_manifest.json"),
+        schema_version="interest_rate_debt_fiscus_inputs_v1",
+        inputs=(
+            FiscusInput("interest_expense", "fiscaldata.interest_expense", (
+                "fiscaldata-query", "fiscaldata.interest_expense", "--param",
+                f"filter=record_date:gte:{first - 1}-10-01,record_date:lte:{last}-09-30", *page),
+                0.000001, "fiscal_month_flow", "Interest expense on the public debt outstanding, monthly by line",
+                native_units="USD"),
+            FiscusInput("mspd_marketable", "fiscaldata.mspd_table_3_market", (
+                "fiscaldata-query", "fiscaldata.mspd_table_3_market", "--param",
+                f"filter=record_date:gte:{first - 1}-09-30,record_date:lte:{last}-09-30", *page),
+                1.0, "month_end_level", "MSPD Table 3 marketable securities outstanding, CUSIP rows and subtotals",
+                native_units="USD million, field-specific"),
+        ),
+    )
+
+
 FISCUS_REGISTRIES = {registry.name: registry for registry in (
-    TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY, deficit_registry())}
+    TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY, deficit_registry(),
+    interest_rate_debt_registry())}
 
 
 def fiscus_registries(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict[str, FiscusRegistry]:

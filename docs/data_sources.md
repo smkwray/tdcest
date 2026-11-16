@@ -125,7 +125,15 @@ The weekly TRC adds SOMA holdings snapshots, Treasury auction results, DTS Table
 
 `scripts/acquire_trc_inputs.py --registry deficit` fetches FRED `MTSDS133FMS`, the Monthly Treasury Statement total federal surplus or deficit (USD millions, not seasonally adjusted, negative in deficit months), into `data/raw/fiscus/deficit/`. Treasury's own MTS Table 1 on FiscalData starts in 2015, so the FRED copy supplies the months before it. The request window runs from the first comparison quarter to the vintage endpoint.
 
-## Monetary cross-check series
+## Interest on marketable debt
+
+`scripts/acquire_trc_inputs.py --registry interest-rate-debt` fetches two FiscalData tables into `data/raw/fiscus/interest_rate_debt/`:
+
+- `fiscaldata.interest_expense`, the monthly interest expense on the public debt by line (USD). Marketable interest is the "INTEREST EXPENSE ON PUBLIC ISSUES" lines for Treasury bills, notes, bonds, FRNs and TIPS, under accrued interest, amortized discount and amortized premium, plus TIPS inflation compensation. Savings bonds, SLGS, the foreign and domestic series, matured debt, miscellaneous interest and the Government Account Series are excluded.
+- `fiscaldata.mspd_table_3_market`, Monthly Statement of the Public Debt Table 3 (USD million). Marketable debt is the embedded Total Marketable row less the Federal Financing Bank row. Securities reopened in a month appear on several rows, so CUSIP rows are not summed; the total is checked against the class subtotals instead.
+
+The request windows cover the fiscal years in `INTEREST_RATE_DEBT_SAMPLE` in `catalog.py`, with the September month-end before the first one.
+
 
 Optional FRED series used by the monetary diagnostics. Targets are read as quarter-end (last-observation) values.
 

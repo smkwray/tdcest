@@ -52,7 +52,7 @@ export FRED_API_KEY=your_key_here
 "$HOME/venvs/tdcest/bin/python" scripts/acquire_trc_inputs.py --registry trc --fiscus-project ../fiscus
 ```
 
-The `--registry` option selects the input set: `trc`, `h41-ledger`, `weekly-trc`, `bank-composition` or `deficit`.
+The `--registry` option selects the input set: `trc`, `h41-ledger`, `weekly-trc`, `bank-composition`, `deficit` or `interest-rate-debt`.
 
 ## Local files
 

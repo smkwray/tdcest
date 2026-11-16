@@ -2,7 +2,7 @@
 
 Run from the repository root with the package importable, for example
 
-    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger|weekly-trc|bank-composition|deficit] [--fiscus-project ../fiscus] [--refresh]
+    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger|weekly-trc|bank-composition|deficit|interest-rate-debt] [--fiscus-project ../fiscus] [--refresh]
         [--root DATA_ROOT --vintage NAME]
 
 Every input comes from one registry in `tdc_estimator.catalog.FISCUS_REGISTRIES`

@@ -99,6 +99,7 @@ from .tier2_tips_treatment_decision import write_tier2_tips_treatment_decision
 from .reserve_factor_ledger import write_reserve_factor_ledger_export
 from .bank_composition import write_bank_composition_export
 from .deficit_comparison import write_deficit_comparison_export
+from .interest_rate_debt import write_interest_rate_debt_export
 from .trc_export import write_trc_export
 from .weekly_trc import write_weekly_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
@@ -1386,6 +1387,12 @@ def cmd_deficit_comparison_export(args: argparse.Namespace) -> int:
     receipt = write_deficit_comparison_export(root=args.root, legs_sha256=args.legs_sha256,
                                               inputs_manifest_sha256=args.inputs_manifest_sha256,
                                               vintage=MEASUREMENT_VINTAGES[args.vintage])
+    print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_interest_rate_debt_export(args: argparse.Namespace) -> int:
+    receipt = write_interest_rate_debt_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256)
     print(json.dumps(receipt, indent=2))
     return 0
 
@@ -2774,6 +2781,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_deficit.add_argument("--inputs-manifest-sha256", required=True)
     p_deficit.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_deficit.set_defaults(func=cmd_deficit_comparison_export)
+
+    p_interest = sub.add_parser(
+        "interest-rate-debt-export", parents=[root_parent],
+        help="Export fiscal-year interest on marketable Treasury debt split into debt and rate effects.",
+    )
+    p_interest.add_argument("--inputs-manifest-sha256", required=True)
+    p_interest.set_defaults(func=cmd_interest_rate_debt_export)
 
     p_weekly_trc = sub.add_parser("weekly-trc-export", parents=[root_parent],
                                  help="Export cash-corrected weekly core proxy and signed route scenarios on the H.4.1 Wednesday clock.")

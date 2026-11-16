@@ -84,6 +84,16 @@ Written by `tdc deficit-comparison-export`, with receipt `tdc_deficit_comparison
 
 The two totals have different scopes. Measured TDC includes secondary-market Treasury-security settlements, Treasury cash changes and interest and remittance terms; the deficit is a budget measure on a modified cash basis. The ratio is not the share of deficit dollars that stayed in deposits.
 
+### Interest on marketable debt: `interest_rate_debt_fy_v1.csv`
+
+Written by `tdc interest-rate-debt-export`, with receipt `interest_rate_debt_fy_v1_receipt.json`. One row per fiscal year (October through September); amounts are USD billion.
+
+- `interest` is the fiscal-year sum of marketable interest expense, including amortized discount and premium and TIPS inflation compensation (`tips_inflation_compensation`). `avg_marketable_debt` averages the thirteen month-ends from the prior September, with the two Septembers at half weight. `effective_rate_pct` is interest over average debt.
+- The counterfactual starts in the base year. `trend_debt` continues the log-linear trend of average debt over the fit window from the base-year level, and `trend_interest` applies the base-year effective rate to it. The sample, fit window and base year are set in `catalog.py`.
+- `debt_effect` and `rate_effect` split `interest - trend_interest` sequentially, debt first at the base rate. The `_even` columns split it symmetrically, and the `_avg_rate` columns use the pooled fit-window rate as the base rate. `rate_effect_tips` is TIPS inflation compensation in excess of its base-year share of debt.
+
+The split is descriptive accounting. Interest is gross, including interest on securities held by the Federal Reserve, and the effective rate is not a market yield.
+
 ## Files
 
 ### `bundle.json`

@@ -1137,6 +1137,8 @@ class TreasuryFedTransferRules:
     equity_match_max_postings: int = 4
     llc_mspd_class: str = "SPV Demand"
     zero_coupon_mspd_prefix: str = "Zero-coupon Treasury Bond"
+    other_holder_mspd_classes: tuple[str, ...] = ("Fixed Term Certificates",)  # 2005-2008, below USD 0.5 million
+    mspd_below_half_million: str = "*"  # MSPD prints amounts under USD 0.5 million as "*"
     domestic_series_class: str = "Domestic Series"
     domestic_series_total_class: str = "Total Domestic Series"
     # An LLC issue no larger than the interest its holdings could earn since the previous issue at this

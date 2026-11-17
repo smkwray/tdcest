@@ -81,12 +81,15 @@ def mspd_frame(zero_coupon=(("2019-10-15", 4522.0), ("2020-07-15", 5026.13), ("2
         spv -= 35200.0 if month >= pd.Timestamp("2021-01-31") else 0.0
         if spv:
             detail.append(("SPV Demand", "null", spv))
+        if month < pd.Timestamp("2020-01-01"):
+            detail.append(("Fixed Term Certificates", "null", "*"))  # another holder, printed below half a million
         for line, (label, maturity, amount) in enumerate(detail):
             rows.append(dict(record_date=str(month.date()), security_class1_desc="Domestic Series", security_class2_desc=label,
-                             maturity_date=maturity, current_month_outstanding_amt=f"{amount:.6f}", src_line_nbr=str(line)))
+                             maturity_date=maturity, current_month_outstanding_amt=amount if amount == "*" else f"{amount:.6f}",
+                             src_line_nbr=str(line)))
+        total = sum(a for *_, a in detail if a != "*")
         rows.append(dict(record_date=str(month.date()), security_class1_desc="Total Domestic Series", security_class2_desc="null",
-                         maturity_date="null", current_month_outstanding_amt=f"{sum(a for *_, a in detail):.6f}",
-                         src_line_nbr="99"))
+                         maturity_date="null", current_month_outstanding_amt=f"{total:.6f}", src_line_nbr="99"))
     return pd.DataFrame(rows)
 
 
@@ -178,6 +181,10 @@ def test_failed_z1_reconciliation_or_unknown_holder_raises():
         build(mspd_frame=mspd_frame(zero_coupon=(("2019-10-15", 4522.0), ("2030-01-15", 5002.232))))
     with pytest.raises(ValueError, match="before any DTS LLC posting"):
         build(z1_frame=z1_frame({**Z1, "2019Q4": 10}))
+    starred = mspd_frame()
+    starred.loc[starred.security_class2_desc.eq("SPV Demand").idxmax(), "current_month_outstanding_amt"] = "*"
+    with pytest.raises(ValueError, match="printed below half a million"):
+        build(mspd_frame=starred)
     unknown = mspd_frame()
     unknown.loc[0, "security_class2_desc"] = "Another holder"
     with pytest.raises(ValueError, match="unknown holder classes"):

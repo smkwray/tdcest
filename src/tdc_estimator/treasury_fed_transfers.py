@@ -227,8 +227,10 @@ def domestic_series_rows(frame: pd.DataFrame) -> pd.DataFrame:
 def mspd_domestic_series(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Timestamp]:
     """Zero-coupon maturities (amount outstanding before maturity) and the first month the LLCs held securities.
 
-    Every Domestic Series row must belong to the LLC class or the zero-coupon class, and the
-    classes must add to the published Domestic Series total every month.
+    Every Domestic Series row must belong to the LLC class, the zero-coupon class or a declared
+    other-holder class, and the classes must add to the published Domestic Series total every
+    month. An outstanding amount MSPD prints as below USD 0.5 million counts as zero and widens
+    that month's tolerance by its half million.
     """
     required = {"record_date", "security_class1_desc", "security_class2_desc", "maturity_date",
                 "current_month_outstanding_amt", "src_line_nbr"}
@@ -236,20 +238,27 @@ def mspd_domestic_series(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Timestam
         raise ValueError(f"MSPD Domestic Series: missing columns {sorted(required - set(frame.columns))}")
     rows = _dedupe(frame[sorted(required)].copy(), ["record_date", "src_line_nbr"], "MSPD Domestic Series")
     rows["record_date"] = pd.to_datetime(rows["record_date"], format="%Y-%m-%d", errors="raise")
-    rows["outstanding"] = _numeric(rows["current_month_outstanding_amt"], "MSPD Domestic Series outstanding")
+    below = rows["current_month_outstanding_amt"].eq(RULES.mspd_below_half_million)
+    rows["outstanding"] = _numeric(rows["current_month_outstanding_amt"].mask(below, "0"),
+                                   "MSPD Domestic Series outstanding")
+    rows["below_half_million"] = below
     totals = rows.loc[rows["security_class1_desc"].eq(RULES.domestic_series_total_class)]
     detail = rows.loc[rows["security_class1_desc"].eq(RULES.domestic_series_class)]
     if len(totals) + len(detail) != len(rows):
         raise ValueError("MSPD Domestic Series: rows outside the Domestic Series classes")
     llc = detail["security_class2_desc"].eq(RULES.llc_mspd_class)
     zero = detail["security_class2_desc"].str.startswith(RULES.zero_coupon_mspd_prefix)
-    if not (llc | zero).all():
-        raise ValueError(f"MSPD Domestic Series: unknown holder classes {sorted(set(detail.loc[~(llc | zero), 'security_class2_desc']))}")
+    other = detail["security_class2_desc"].isin(RULES.other_holder_mspd_classes)
+    if not (llc | zero | other).all():
+        raise ValueError(f"MSPD Domestic Series: unknown holder classes {sorted(set(detail.loc[~(llc | zero | other), 'security_class2_desc']))}")
+    if (llc | zero).loc[detail["below_half_million"]].any() or totals["below_half_million"].any():
+        raise ValueError("MSPD Domestic Series: an LLC, zero-coupon or total amount is printed below half a million")
     by_month = detail.groupby("record_date")["outstanding"].sum()
+    tolerance = 0.01 + 0.5 * detail.groupby("record_date")["below_half_million"].sum()
     total = totals.set_index("record_date")["outstanding"]
     if totals["record_date"].duplicated().any() or not by_month.index.equals(total.sort_index().index):
         raise ValueError("MSPD Domestic Series: every month needs one total row and its detail")
-    if (by_month - total.reindex(by_month.index)).abs().max() > 0.01:
+    if ((by_month - total.reindex(by_month.index)).abs() > tolerance).any():
         raise ValueError("MSPD Domestic Series: holder classes do not add to the published total")
     zeros = detail.loc[zero].copy()
     zeros["maturity"] = pd.to_datetime(zeros["maturity_date"], format="%Y-%m-%d", errors="raise")

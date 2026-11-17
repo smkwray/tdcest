@@ -69,11 +69,22 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         *BANK_DEPOSITORY_TX_KEYS,
         "row_tsy_tx",
         "treasury_operating_cash_tx",
+        "treasury_fed_internal_cash_tx",
         "fed_remit_or_deferred",
     ]
     missing = [col for col in required if col not in quarterly.columns]
     if missing:
         raise ValueError(f"Missing required inputs for base estimator: {missing}")
+    internal_unobserved = (
+        quarterly["treasury_operating_cash_tx"].notna()
+        & quarterly["treasury_fed_internal_cash_tx"].isna()
+        & (pd.to_datetime(quarterly.index) >= pd.Timestamp(tx_start))
+    )
+    if internal_unobserved.any():
+        raise ValueError(
+            "Treasury-Fed internal cash support missing in transaction-era quarters "
+            f"{[str(pd.Timestamp(d).date()) for d in quarterly.index[internal_unobserved][:5]]}"
+        )
 
     components = pd.DataFrame(index=quarterly.index)
     components["fed_tsy_tx"] = quarterly["fed_tsy_tx"]
@@ -110,7 +121,10 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     components["ru_broad_depository_full_cu_tsy_tx"] = components[
         ["fed_tsy_tx", "broad_depository_full_cu_tsy_tx", "row_tsy_tx"]
     ].sum(axis=1, min_count=3)
-    components["minus_treasury_operating_cash_tx"] = -quarterly["treasury_operating_cash_tx"]
+    # Treasury-Fed internal transfers move Treasury operating cash without reaching a deposit.
+    components["minus_treasury_operating_cash_tx"] = -(
+        quarterly["treasury_operating_cash_tx"] - quarterly["treasury_fed_internal_cash_tx"]
+    )
 
     # Remittances are missing, not zero, in quarters the remittance series does not cover.
     # Only the historical level-change backfill before the transaction era treats a missing
@@ -964,7 +978,9 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "transaction_series_key": "treasury_operating_cash_tx",
             "level_series_key": "treasury_operating_cash_level",
             "component_key": "minus_treasury_operating_cash_tx",
-            "definition": "Tier 0 subtracts Treasury operating cash, not a TGA-only cash balance.",
+            "internal_transfer_series_key": "treasury_fed_internal_cash_tx",
+            "definition": "Tier 0 subtracts Treasury operating cash, not a TGA-only cash balance, net of Treasury-Federal Reserve internal transfers: minus_treasury_operating_cash_tx = -(treasury_operating_cash_tx - treasury_fed_internal_cash_tx).",
+            "internal_transfer_treatment": "The internal-transfer series is required in every transaction-era quarter; the component is missing in earlier quarters, where it is not defined. The level-change sensitivity columns use raw operating-cash level changes.",
             "historical_treatment": "When historical Treasury Tax and Loan balances were material, they belong inside the operating-cash concept rather than as a separate additive Tier 0 term.",
             "diagnostic_only_series": ["tga_weekly"],
         },

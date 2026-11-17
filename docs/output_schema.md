@@ -37,7 +37,7 @@ A hash-bound decomposition of the preferred regression row into accounting legs,
 |---|---|
 | `C` | `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow` |
 | `R` | Rest-of-world net Treasury purchases less allocated rest-of-world interest |
-| `O` | Minus Treasury operating cash transactions |
+| `O` | Minus Treasury operating cash transactions net of Treasury–Fed internal transfers, `-(treasury_operating_cash_tx - treasury_fed_internal_cash_tx)` |
 | `J` | Remainder, `C − R − O`; `J_expanded` rebuilds it from its inputs |
 | `*_reconstruction_gap`, `C_adding_up_gap` | Arithmetic checks; the receipt records their maximum absolute values |
 

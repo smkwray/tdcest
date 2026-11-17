@@ -5,7 +5,7 @@ from decimal import Decimal as D
 import pandas as pd
 import pytest
 
-from test_weekly_trc import auction, fixture, holding, registry_ending_with, target
+from test_weekly_trc import auction, fixture, holding, registry_ending_with, target, transfer_ledger
 from tdc_estimator.weekly_trc import (
     allocate_route_capacity,
     bill_total_par,
@@ -245,6 +245,7 @@ def internal_h(facility=0, sdr=0, gold=0):
 
 
 def dts_cash(amount, kind="Withdrawals", account="Treasury General Account (TGA)"):
+    """One DTS Table II row; tests relabel its category."""
     return pd.DataFrame(
         [
             dict(
@@ -258,27 +259,40 @@ def dts_cash(amount, kind="Withdrawals", account="Treasury General Account (TGA)
     )
 
 
-@pytest.mark.parametrize("cash,candidate", [(100, -100), (-100, 100)])
+def ledger_week(date=END, **values):
+    return transfer_ledger([date], {str(date.date()): values})
+
+
+@pytest.mark.parametrize("cash,candidate", [(-100, -100), (100, 100)])
 def test_internal_cash_and_return_neutral(cash, candidate):
-    j = internal_postings(internal_h(candidate), END, dts_cash(cash))
-    assert j["j_applied"] == candidate and D(cash) + j["j_applied"] == 0
+    # Equity paid (TGA -100, liability +100) or returned: applied cash offsets c_h exactly.
+    j = internal_postings(internal_h(candidate), END, ledger_week(facility_equity_cash_tx=cash, esf_cash_tx=cash))
+    assert j["j_applied"] == cash and -D(cash) + j["j_applied"] == 0
     assert j["j_candidate_only"] == 0
+    assert j["j_treasury_contributions_to_credit_facilities_status"] == "applied_dated_ledger_facility_equity"
 
 
 def test_internal_reclassification_without_cash_stays_candidate():
-    j = internal_postings(internal_h(-100), END, dts_cash(0))
+    j = internal_postings(internal_h(-100), END, ledger_week())
     assert j["j_applied"] == 0 and j["j_candidate_only"] == -100
-    assert "mismatch" in j["j_treasury_contributions_to_credit_facilities_status"]
+    assert j["j_treasury_contributions_to_credit_facilities_status"] == "h41_remainder_only_no_dated_equity"
 
 
 def test_certificate_account_not_automatically_tga():
-    j = internal_postings(
-        internal_h(sdr=100, gold=2),
-        END,
-        dts_cash(100, account="Special Treasury account"),
-    )
+    j = internal_postings(internal_h(sdr=100, gold=2), END, ledger_week())
     assert j["j_applied"] == 0 and j["j_candidate_only"] == 102
     assert "special_account" in j["j_sdr_certificate_account_status"]
+
+
+def test_llc_treasury_securities_apply_without_an_h41_contribution_change():
+    j = internal_postings(internal_h(), END, ledger_week(llc_treasury_securities_cash_tx=95625))
+    assert j["j_applied"] == 95625 and j["j_candidate_only"] == 0
+    assert j["j_facility_llc_treasury_securities_applied"] == 95625
+
+
+def test_missing_ledger_week_fails_closed():
+    with pytest.raises(ValueError, match="no week ending 2022-01-05"):
+        internal_postings(internal_h(), END, ledger_week(pd.Timestamp("2022-01-12")))
 
 
 def test_coupon_entitlement_primary_before_payment_and_accrued_interest_once():
@@ -406,6 +420,7 @@ def test_incomplete_quarter_never_partial_sum():
                 fed_tsy_coupon_interest_proxy="0",
                 fed_remit_positive="0",
                 trc_core="0",
+                treasury_fed_internal_cash_tx="0",
             )
         ]
     )
@@ -596,23 +611,26 @@ def test_holiday_payment_and_nominal_maturity_month_separate():
     assert r["redemptions_par"] == 100 and r["settlement_clock_adjustment"] == -100
 
 
-def test_internal_cash_partial_verified_dated_transfer():
-    frame = dts_cash(37500)
-    frame["record_date"] = "2020-05-11"
-    j = internal_postings(internal_h(-47500), pd.Timestamp("2020-05-13"), frame)
+def test_h41_reporting_lag_leaves_a_stock_remainder_not_core():
+    # 2020-04-13 equity reaches H.4.1 only in the 2020-05-13 week; the cash applies on its DTS week.
+    april = pd.Timestamp("2020-04-15")
+    j = internal_postings(internal_h(0), april, ledger_week(april, facility_equity_cash_tx=-10000))
+    assert j["j_applied"] == -10000 and j["j_candidate_only"] == 10000
+    may = pd.Timestamp("2020-05-13")
+    j = internal_postings(internal_h(-47500), may, ledger_week(may, facility_equity_cash_tx=-37500))
     assert j["j_applied"] == -37500 and j["j_candidate_only"] == -10000
-    assert (
-        j["j_treasury_contributions_to_credit_facilities_status"]
-        == "applied_dated_cash_partial_stock_remainder_candidate"
-    )
+    assert j["j_treasury_contributions_to_credit_facilities_status"] == (
+        "applied_dated_ledger_facility_equity_h41_remainder")
 
 
-def test_internal_cash_individual_return_not_netted_with_unrelated_esf():
-    a = dts_cash(-41294)
-    b = dts_cash(177)
-    b["record_date"] = "2022-01-03"
-    j = internal_postings(internal_h(41294), END, pd.concat([a, b]))
+def test_unmatched_esf_cash_is_reported_and_stays_in_core():
+    j = internal_postings(internal_h(41294), END, ledger_week(
+        facility_equity_cash_tx=41294, esf_cash_tx=41117, esf_unmatched_cash_tx=-177, esf_unmatched_abs=177,
+        esf_unmatched_dates="2022-01-03:-177"))
     assert j["j_applied"] == 41294 and j["j_facility_dts_cash_candidate"] == 41117
+    assert j["j_facility_dts_cash_candidate_only"] == -177
+    assert j["j_facility_dts_cash_candidate_dates"] == "2022-01-03:-177"
+    assert j["j_facility_dts_cash_status"] == "unmatched_esf_cash_stays_in_core"
 
 
 def test_tips_contract_index_preferred_over_revised_cpi():
@@ -721,6 +739,7 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
     ledger["delta_reserve_balances"] = "1"
     ledger["rho"] = "1"
     ledger["reserve_balances"] = [str(1001 + i) for i in range(len(dates))]
+    sources["treasury_fed_weekly"] = transfer_ledger(dates)
     sources["soma"] = pd.DataFrame(
         [
             row
@@ -786,6 +805,7 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
                 fed_tsy_coupon_interest_proxy="0",
                 fed_remit_positive="0",
                 trc_core="0",
+                treasury_fed_internal_cash_tx="0",
             )
         ]
     )
@@ -803,33 +823,6 @@ def test_substitution_preserves_all_consumers_complete_quarter_and_telescoping()
         missing.trc_core is None
         and "missing_consecutive_snapshot" in missing.unavailable_reasons
     )
-
-
-def test_unmatched_dts_cash_with_zero_stock_change_is_reported_not_applied():
-    frame = dts_cash(10000)
-    frame["record_date"] = "2020-04-13"
-    j = internal_postings(internal_h(), pd.Timestamp("2020-04-15"), frame)
-    assert j["j_applied"] == 0 and j["j_candidate_only"] == 0
-    assert j["j_facility_dts_cash_candidate"] == -10000
-    assert j["j_facility_dts_cash_candidate_only"] == -10000
-    assert j["j_facility_dts_cash_candidate_dates"] == "2020-04-13:-10000"
-    assert (
-        j["j_facility_dts_cash_status"]
-        == "cash_candidate_only_no_same_week_stock_crosswalk"
-    )
-    # A possibly delayed counterpart cannot consume the previous week's cash again.
-    later = internal_postings(internal_h(-10000), pd.Timestamp("2020-04-22"), frame)
-    assert later["j_applied"] == 0 and later["j_candidate_only"] == -10000
-    assert later["j_facility_dts_cash_candidate_only"] == 0
-
-
-def test_matched_cash_excluded_once_and_other_dated_cash_retained():
-    a, b = dts_cash(-41294), dts_cash(177)
-    b["record_date"] = "2022-01-03"
-    j = internal_postings(internal_h(41294), END, pd.concat([a, b]))
-    assert j["j_applied"] == 41294
-    assert j["j_facility_dts_cash_candidate_only"] == -177
-    assert j["j_facility_dts_cash_candidate_dates"] == "2022-01-03:-177"
 
 
 def test_auction_only_unknown_pre_payment_coupon_entitlement_is_unavailable():
@@ -850,11 +843,10 @@ def test_auction_only_unknown_pre_payment_coupon_entitlement_is_unavailable():
     assert value is None and "NEW: unavailable primary coupon entitlement" in status
 
 
-def test_cash_candidate_missing_input_or_query_coverage_is_unavailable():
-    frame = dts_cash(100)
-    frame.attrs["query_window"] = ("2020-01-01", "2025-12-31")
-    for source in (None, frame):
-        j = internal_postings(internal_h(-100), pd.Timestamp("2019-12-25"), source)
-        assert j["j_applied"] == 0 and j["j_candidate_only"] == -100
-        assert j["j_facility_dts_cash_candidate_only"] is None
-        assert j["j_facility_dts_cash_status"] == "unavailable_dated_cash_input"
+def test_cash_candidate_outside_the_dts_window_is_unavailable():
+    week = ledger_week(pd.Timestamp("2019-12-25"), esf_cash_tx="", esf_unmatched_cash_tx="", esf_unmatched_abs="",
+                       equity_basis="zero_h41_contribution_liability_zero")
+    j = internal_postings(internal_h(), pd.Timestamp("2019-12-25"), week)
+    assert j["j_applied"] == 0 and j["j_candidate_only"] == 0
+    assert j["j_facility_dts_cash_candidate"] is None and j["j_facility_dts_cash_candidate_only"] is None
+    assert j["j_facility_dts_cash_status"] == "unavailable_dated_cash_input"

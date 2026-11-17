@@ -59,7 +59,7 @@ MODERN_SPLICE_TOLERANCE_MILLIONS = 1e-6
 LEG_CANONICAL_COLUMN = "tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow"
 LEG_QUARTERLY_COLUMNS = [
     "fed_tsy_tx", *BANK_DEPOSITORY_TX_KEYS, "row_tsy_tx",
-    "treasury_operating_cash_tx", "fed_remit_or_deferred",
+    "treasury_operating_cash_tx", "treasury_fed_internal_cash_tx", "fed_remit_or_deferred",
 ]
 LEG_REGRESSION_COLUMNS = [
     LEG_CANONICAL_COLUMN, "tdc_tier2_regression_bank_only_ru_flow",
@@ -138,7 +138,8 @@ def build_regression_leg_table(
     out["quarter"] = out.index.astype(str)
     out["C"] = out[LEG_CANONICAL_COLUMN]
     out["R"] = out["row_tsy_tx"] - out["row_tier2_regression_interest_proxy"]
-    out["O"] = -out["treasury_operating_cash_tx"]
+    # Treasury-Fed internal transfers move operating cash without reaching a deposit.
+    out["O"] = -(out["treasury_operating_cash_tx"] - out["treasury_fed_internal_cash_tx"])
     out["J"] = out["C"] - out["R"] - out["O"]
     out["fed_remit_positive"] = out["fed_remit_or_deferred"]
     out["effective_mmf_rrp_adjustment_prop"] = out["mmf_rrp_adjustment_prop"].where(
@@ -204,7 +205,8 @@ def write_regression_leg_table(
         "method_tier_counts": frame.row_method_tier.value_counts().sort_index().to_dict(),
         "structural_pre_mechanism_mmf_missing_quarters": int(frame.mmf_adjustment_raw_missing.sum()),
         "labels": {"R": "ROW net Treasury purchases net of allocated debt service",
-                   "J": "remainder treatment leg", "O": "minus Treasury operating cash transactions"},
+                   "J": "remainder treatment leg",
+                   "O": "minus Treasury operating cash transactions net of Treasury-Fed internal transfers"},
         "source_resolution": {leg: {"delta_usd_million": None, "status": "unestablished",
             "reason": "Derived CSV precision and arithmetic reconciliation do not establish source quantization bounds"}
             for leg in ["R", "J", "O"]},

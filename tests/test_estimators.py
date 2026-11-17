@@ -19,6 +19,7 @@ def test_base_estimator_formula_and_credit_union_ladder():
             "ncua_capitalization_deposit_tx": [0.1, 0.2],
             "row_tsy_tx": [30.0, 28.0],
             "treasury_operating_cash_tx": [5.0, -8.0],
+            "treasury_fed_internal_cash_tx": [0.0, 0.0],
             "fed_remit_or_deferred": [2.0, 0.0],
             "fed_tsy_coupon_interest_proxy": [1.5, 2.0],
             "fed_tier1_component_extension_proxy": [0.15, 0.2],
@@ -275,6 +276,7 @@ def test_tier2_requires_bank_and_row_support_inputs():
             "ncua_capitalization_deposit_tx": [0.1],
             "row_tsy_tx": [30.0],
             "treasury_operating_cash_tx": [5.0],
+            "treasury_fed_internal_cash_tx": [0.0],
             "fed_remit_or_deferred": [2.0],
             "fed_tsy_coupon_interest_proxy": [1.5],
         },
@@ -302,6 +304,7 @@ def test_tier3_requires_fiscal_support_inputs():
             "ncua_capitalization_deposit_tx": [0.1],
             "row_tsy_tx": [30.0],
             "treasury_operating_cash_tx": [5.0],
+            "treasury_fed_internal_cash_tx": [0.0],
             "fed_remit_or_deferred": [2.0],
             "fed_tsy_coupon_interest_proxy": [1.5],
             "bank_tsy_coupon_interest_proxy": [0.7],
@@ -331,6 +334,7 @@ def test_historical_extension_backfills_from_level_sensitivity_before_transactio
             "ncua_capitalization_deposit_tx": [float("nan"), float("nan"), 0.1],
             "row_tsy_tx": [float("nan"), float("nan"), 30.0],
             "treasury_operating_cash_tx": [float("nan"), float("nan"), 5.0],
+            "treasury_fed_internal_cash_tx": [float("nan"), float("nan"), 0.0],
             "fed_remit_or_deferred": [float("nan"), float("nan"), 2.0],
             "fed_tsy_level": [100.0, 120.0, 140.0],
             "us_chartered_tsy_level": [200.0, 230.0, 260.0],
@@ -373,6 +377,7 @@ def test_transaction_history_starts_2002q1_when_mts_remittance_backfill_is_avail
             "ncua_capitalization_deposit_tx": [0.1, 0.1, 0.1],
             "row_tsy_tx": [30.0, 31.0, 32.0],
             "treasury_operating_cash_tx": [5.0, 5.0, 5.0],
+            "treasury_fed_internal_cash_tx": [0.0, 0.0, 0.0],
             "fed_remit_or_deferred": [2.0, 2.0, 2.0],
         },
         index=idx,
@@ -400,6 +405,7 @@ def test_canonical_row_is_never_filled_from_h15_coupon_only_rows():
             "ncua_capitalization_deposit_tx": [0.1, 0.2],
             "row_tsy_tx": [30.0, 28.0],
             "treasury_operating_cash_tx": [5.0, -8.0],
+            "treasury_fed_internal_cash_tx": [0.0, 0.0],
             "fed_remit_or_deferred": [2.0, 0.0],
             "fed_tsy_coupon_interest_proxy": [1.5, 2.0],
             "bank_tsy_coupon_interest_proxy": [0.7, 0.9],
@@ -432,6 +438,7 @@ def test_decomposition_proxy_puts_h8_billions_on_the_z1_million_scale():
             "affiliated_areas_tsy_tx": [0.0, 0.0],
             "row_tsy_tx": [0.0, 0.0],
             "treasury_operating_cash_tx": [0.0, 0.0],
+            "treasury_fed_internal_cash_tx": [0.0, 0.0],
             "fed_remit_or_deferred": [0.0, 0.0],
             "m2": [21000.0, 21100.0],
             "currency": [2300.0, 2310.0],
@@ -458,6 +465,7 @@ def _fail_closed_frame(dates: list[str]) -> pd.DataFrame:
             "affiliated_areas_tsy_tx": [0.5] * n,
             "row_tsy_tx": [30.0] * n,
             "treasury_operating_cash_tx": [5.0] * n,
+            "treasury_fed_internal_cash_tx": [0.0] * n,
             "fed_remit_or_deferred": [2.0] * n,
         },
         index=pd.to_datetime(dates),
@@ -579,3 +587,47 @@ def test_canonical_metadata_requires_an_observed_quarter():
     assert estimates["tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow"].isna().all()
     assert meta["preferred_method"] is None
     assert meta["canonical_tier2_status"].startswith("unavailable")
+
+
+def _internal_transfer_frame(operating_cash, internal):
+    idx = pd.to_datetime(["2020-03-31", "2020-06-30"])
+    return pd.DataFrame(
+        {
+            "fed_tsy_tx": [10.0, 12.0],
+            "us_chartered_tsy_tx": [20.0, 25.0],
+            "foreign_offices_tsy_tx": [1.0, 2.0],
+            "affiliated_areas_tsy_tx": [0.5, 0.5],
+            "np_credit_unions_tsy_tx": [3.0, 4.0],
+            "corp_credit_unions_tsy_tx": [0.8, 1.2],
+            "ncua_capitalization_deposit_tx": [0.1, 0.2],
+            "row_tsy_tx": [30.0, 28.0],
+            "treasury_operating_cash_tx": operating_cash,
+            "treasury_fed_internal_cash_tx": internal,
+            "fed_remit_or_deferred": [2.0, 1.0],
+        },
+        index=idx,
+    )
+
+
+def test_treasury_fed_internal_transfers_leave_tdc_unchanged():
+    # Quarter two: Treasury pays 114 of equity into the facility LLCs (operating cash -114) and the
+    # LLCs buy 95.6 of nonmarketable Treasury securities (operating cash +95.6). Neither touches a deposit.
+    baseline, _, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0], [0.0, 0.0]))
+    internal = -114.0 + 95.6
+    shifted, components, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0 + internal], [0.0, internal]))
+    columns = [c for c in baseline.columns if c.endswith("_ru_flow") or c == "tdc_no_remit_bank_only"]
+    assert columns
+    pd.testing.assert_frame_equal(shifted[columns], baseline[columns])
+    assert components["minus_treasury_operating_cash_tx"].tolist() == [-5.0, 8.0]
+    # Read on raw operating cash, the transfers would add 18.4 to measured TDC.
+    raw, _, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0 + internal], [0.0, 0.0]))
+    assert raw.loc[raw.index[1], "tdc_base_bank_only_ru_flow"] - baseline.loc[baseline.index[1], "tdc_base_bank_only_ru_flow"] == pytest.approx(-internal)
+
+
+def test_operating_cash_term_requires_the_internal_transfer_series():
+    frame = _internal_transfer_frame([5.0, -8.0], [0.0, 0.0])
+    with pytest.raises(ValueError, match="treasury_fed_internal_cash_tx"):
+        compute_estimates(frame.drop(columns="treasury_fed_internal_cash_tx"))
+    frame.loc[frame.index[1], "treasury_fed_internal_cash_tx"] = float("nan")
+    with pytest.raises(ValueError, match="internal cash support missing"):
+        compute_estimates(frame)

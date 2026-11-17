@@ -2,14 +2,15 @@
 
 Run from the repository root with the package importable, for example
 
-    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger|weekly-trc|bank-composition|deficit|interest-rate-debt] [--fiscus-project ../fiscus] [--refresh]
+    PYTHONPATH=src python scripts/acquire_trc_inputs.py [--registry trc|h41-ledger|weekly-trc|bank-composition|deficit|interest-rate-debt|treasury-fed-transfers] [--fiscus-project ../fiscus] [--refresh]
         [--root DATA_ROOT --vintage NAME]
 
 Every input comes from one registry in `tdc_estimator.catalog.FISCUS_REGISTRIES`
 (`trc` by default) through `uv run --project <fiscus> fiscus ...`. Payloads are
 exported with `fiscus cache export` into the registry's input directory,
 verified against the fiscus artifact SHA-256, and described in the registry's
-manifest together with `fiscus provenance`. FRED requests use the keyless public
+manifest together with `fiscus provenance`. A registry that names datasets fiscus does not bundle
+carries its caller-owned catalog overlay, passed to fiscus as FISCUS_EXTRA_CATALOG. FRED requests use the keyless public
 route (FRED_API_KEY is removed from the child environment) so the request
 identity does not depend on a private credential.
 
@@ -30,7 +31,7 @@ import subprocess
 import sys
 
 from tdc_estimator.catalog import (
-    DEFAULT_VINTAGE, FISCUS_REGISTRIES, MEASUREMENT_VINTAGES, WEEKLY_TRC_OVERLAY, fiscus_registries,
+    DEFAULT_VINTAGE, FISCUS_REGISTRIES, MEASUREMENT_VINTAGES, fiscus_registries,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,12 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     if Path(args.fiscus_project).is_absolute():
         raise SystemExit("--fiscus-project must be relative to the repository root")
     env = {key: value for key, value in os.environ.items() if key != "FRED_API_KEY"}
-    if args.registry == "weekly-trc":
-        env["FISCUS_EXTRA_CATALOG"] = str(WEEKLY_TRC_OVERLAY)
+    registry = fiscus_registries(MEASUREMENT_VINTAGES[args.vintage])[args.registry]
+    if registry.overlay is not None:
+        env["FISCUS_EXTRA_CATALOG"] = str(registry.overlay)
     if args.snapshot_worker:
         return acquire_snapshots(args)
     fiscus = ["uv", "run", "--quiet", "--project", args.fiscus_project, "fiscus"]
-    registry = fiscus_registries(MEASUREMENT_VINTAGES[args.vintage])[args.registry]
     out_dir = args.data_root / registry.input_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 

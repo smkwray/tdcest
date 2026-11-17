@@ -194,6 +194,8 @@ def generate_synthetic_raw_bundle(raw_dir: Path | str, seed: int = 7) -> None:
     _write_series(raw_dir / "support__bank_nonborrow_receipt_proxy.csv", q, np.clip(bank_nonborrow_receipt_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__row_nonborrow_receipt_proxy.csv", q, np.clip(row_nonborrow_receipt_proxy, a_min=0.0, a_max=None))
     _write_series(raw_dir / "support__mint_cb_cash_factor_proxy.csv", q, np.clip(mint_cb_cash_factor_proxy, a_min=0.0, a_max=None))
+    # Synthetic quarters carry no Treasury-Fed internal transfers.
+    _write_series(raw_dir / "support__treasury_fed_internal_cash_tx.csv", q, np.zeros(n))
     credit_union_deposits = 950000 + np.cumsum(rng.normal(6500, 9000, n))
     thrift_deposits = 610000 + np.cumsum(rng.normal(3500, 6000, n))
     _write_series(raw_dir / "support__credit_union_deposits.csv", q, np.clip(credit_union_deposits, a_min=0.0, a_max=None))

@@ -130,22 +130,25 @@ def quarter_levels(frames: dict[str, pd.DataFrame], key: str) -> pd.Series:
                       pd.period_range("2001Q4", "2025Q4", freq="Q")], index=pd.period_range("2001Q4", "2025Q4", freq="Q"))
 
 
-def make_components(frames: dict[str, pd.DataFrame], route_extra: dict[str, float] | None = None) -> pd.DataFrame:
-    """Admitted-TRC stand-in: cash leg = H.4.1 C^H plus clock noise, arbitrary Fed bridge and route."""
+def make_components(frames: dict[str, pd.DataFrame], route_extra: dict[str, float] | None = None,
+                    internal: dict[str, float] | None = None) -> pd.DataFrame:
+    """Admitted-TRC stand-in: cash leg = H.4.1 C^H plus clock noise net of internal transfers, arbitrary Fed bridge and route."""
     route_extra = route_extra or {}
+    internal_transfers = np.array([(internal or {}).get(str(q), 0.0) for q in SHELL])
     i = np.arange(len(SHELL))
     tga = quarter_levels(frames, "treasury_general_account")
     sfp = quarter_levels(frames, "supplementary_financing_account")
     rb = quarter_levels(frames, "reserve_balances")
     c_h = (-(tga.diff()) - sfp.diff()).reindex(SHELL)
     measured = SHELL >= pd.Period("2003Q1")
-    cash = np.where(measured, c_h + 7.0 * (i % 5 - 2), np.nan)
+    cash = np.where(measured, c_h + 7.0 * (i % 5 - 2) + internal_transfers, np.nan)
     active = SHELL >= pd.Period("2013Q4")
     extra = np.array([route_extra.get(str(q), 0.0) for q in SHELL])
     comp = pd.DataFrame({
         "quarter": SHELL.astype(str),
         "delta_rb_z1": pd.to_numeric(frames["z1_reserves_transactions"]["value"]).to_numpy(),
         "trc_cash_leg": cash,
+        "treasury_fed_internal_cash_tx": internal_transfers,
         "trc_fed_bridge": 1_000.0 + 3.3 * i,
         "tga_clock": np.where(SHELL < pd.Period("2006Q1"), "h41_last_wednesday", "dts_final_business_day"),
         "mmf_route_lb": np.where(active, 10.25 + i, 0.0) + extra,
@@ -345,6 +348,33 @@ def test_mmf_purchase_funded_by_on_rrp_runoff_is_zero_trc_and_not_counted_twice(
     assert result.stats["bridges"]["identity"]["trc_preferred"]["max_abs_identity_error"] < 1e-9
 
 
+def test_facility_equity_and_llc_purchase_are_reserve_neutral_and_bridged_once(base):
+    # Treasury pays 500 of equity into a facility LLC, which buys 300 of Treasury securities from the TGA.
+    equity, purchase = 500.0, 300.0
+    truth = post(base["truth"], "2020-05-13", {"treasury_general_account": -equity + purchase,
+                                               "treasury_contributions_to_credit_facilities": equity,
+                                               "ms_facilities_llc": purchase, "reserve_balances": 0.0}, weeks=10_000)
+    frames = publish(truth)
+    internal = -equity + purchase
+    result = build_reserve_factor_ledger(frames, make_components(frames, internal={"2020Q2": internal}))
+    numeric = ["c_h", "delta_reserve_balances", "f_treasury_contributions_to_credit_facilities", "f_ms_facilities_llc"]
+    week = (weekly_row(result, "2020-05-13")[numeric].astype(float)
+            - weekly_row(base["result"], "2020-05-13")[numeric].astype(float))
+    assert week["delta_reserve_balances"] == 0 and week["c_h"] == equity - purchase
+    assert week["f_treasury_contributions_to_credit_facilities"] == -equity and week["f_ms_facilities_llc"] == purchase
+    new = result.bridges.set_index(["quarter", "trc_variant"]).loc["2020Q2"]
+    old = base["result"].bridges.set_index(["quarter", "trc_variant"]).loc["2020Q2"]
+    columns = ["x", "c_h", "c_m", "bridge_cash", "bridge_internal_transfers", "sum_other_factors", "gap"]
+    change = new[columns] - old[columns]
+    for variant in VARIANTS:
+        # TRC and the clock bridge do not move; the transfer is named once and offset by the facility factors.
+        assert change.loc[variant, ["x", "c_m", "bridge_cash", "gap"]].abs().max() == pytest.approx(0.0)
+        assert change.loc[variant, "c_h"] == pytest.approx(equity - purchase)
+        assert change.loc[variant, "bridge_internal_transfers"] == pytest.approx(-internal)
+        assert change.loc[variant, "sum_other_factors"] == pytest.approx(internal)
+    assert result.stats["bridges"]["identity"]["trc_preferred"]["max_abs_identity_error"] < 1e-9
+
+
 def test_bridge_identity_holds_row_by_row_for_every_variant(base):
     bridges = base["result"].bridges
     assert sorted(bridges.trc_variant.unique()) == sorted(VARIANTS)
@@ -354,7 +384,7 @@ def test_bridge_identity_holds_row_by_row_for_every_variant(base):
         assert len(live) == 92 and live.index[0] == "2003Q1"
         assert frame.loc[["2002Q1", "2002Q4"], "bridge_status"].eq("unavailable_no_opening_level").all()
         rhs = (live.sum_other_factors + live.n_rrp_others + live.bridge_outcome + live.bridge_cash
-               + live.bridge_securities + live.rho)
+               + live.bridge_internal_transfers + live.bridge_securities + live.rho)
         assert np.allclose(live.y_z - live.x, rhs, atol=1e-9, rtol=0)
         assert np.allclose(live.bridge_outcome, live.bridge_outcome_term_deposits + live.bridge_outcome_z1_flow_vs_level
                            + live.bridge_outcome_unattributed, atol=1e-9, rtol=0)
@@ -436,7 +466,8 @@ def test_cli_exports_hash_bound_outputs_and_never_touches_trc(tmp_path, base):
     weekly = pd.read_csv(processed / LEDGER_OUTPUT_FILES["weekly"])
     assert set(c for c in weekly.columns if c.startswith("f_")) <= set(receipt["column_clocks"]["weekly"])
     bridges = pd.read_csv(processed / LEDGER_OUTPUT_FILES["bridges"])
-    assert {"bridge_outcome", "bridge_cash", "bridge_securities"} <= set(receipt["column_clocks"]["bridges"])
+    assert {"bridge_outcome", "bridge_cash", "bridge_internal_transfers", "bridge_securities"} <= set(
+        receipt["column_clocks"]["bridges"])
     assert len(bridges) == 4 * len(SHELL)
 
     wrong = dict(hashes, components="0" * 64)

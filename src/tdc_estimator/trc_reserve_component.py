@@ -3,11 +3,13 @@
 TRC applies reserve-balance incidence to the Treasury events behind TDC. The
 measured bridge, in USD million on the Z.1 calendar quarter, is
 
-    core      = -dTGA - dSFP + fed_tsy_tx + fed_remit_positive - fed_tsy_coupon_interest_proxy
+    core      = -dTGA - dSFP + I + fed_tsy_tx + fed_remit_positive - fed_tsy_coupon_interest_proxy
     preferred = core + MMF/ON RRP route adjustment (proportional; lower/upper companions)
 
-Treasury Tax and Loan balances are commercial-bank claims and stay out of the
-cash leg; SFP enters once. The Treasury route assembler is kept apart from the
+I is the change in Treasury operating cash from Treasury-Federal Reserve
+internal transfers (facility equity and the credit-facility LLCs' Treasury
+securities), which move the TGA without moving reserves. Treasury Tax and Loan
+balances are commercial-bank claims and stay out of the cash leg; SFP enters once. The Treasury route assembler is kept apart from the
 reserve-factor diagnostics so an H.4.1 factor cannot become a Treasury
 classification. Nothing here estimates or identifies a causal effect.
 """
@@ -34,11 +36,11 @@ QUARTERLY_SOURCE_KEY = "quarterly_inputs"
 LEGACY_SOURCE_KEYS = (LEGS_SOURCE_KEY, QUARTERLY_SOURCE_KEY)
 LEG_COLUMNS = [
     "quarter", "C", "R", "fed_tsy_tx", *BANK_DEPOSITORY_TX_KEYS, "treasury_operating_cash_tx",
-    "fed_remit_positive", "fed_tsy_coupon_interest_proxy", "bank_tier2_regression_interest_proxy",
+    "treasury_fed_internal_cash_tx", "fed_remit_positive", "fed_tsy_coupon_interest_proxy", "bank_tier2_regression_interest_proxy",
     "effective_mmf_rrp_adjustment_prop", LEG_CANONICAL_COLUMN,
 ]
 QUARTERLY_COLUMNS = [
-    "date", "treasury_operating_cash_tx", "mmf_rrp_adjustment_lb", "mmf_rrp_adjustment_prop",
+    "date", "treasury_operating_cash_tx", "treasury_fed_internal_cash_tx", "mmf_rrp_adjustment_lb", "mmf_rrp_adjustment_prop",
     "mmf_rrp_adjustment_ub", "gse_tsy_tx", "gse_tsy_level", "gse_on_rrp",
 ]
 PERIOD_STARTS = ("2003Q1", "2008Q1", "2015Q1", "2020Q1")
@@ -272,14 +274,14 @@ def assemble_treasury_routes(
     out["delta_ttl"] = ttl.diff().reindex(q)
     out["ttl_change_status"] = np.where(out["delta_ttl"].isna(), "unavailable_pre_dts_history", out["ttl_status"])
 
-    for column in ["fed_tsy_tx", "fed_remit_positive", "fed_tsy_coupon_interest_proxy"]:
+    for column in ["treasury_fed_internal_cash_tx", "fed_tsy_tx", "fed_remit_positive", "fed_tsy_coupon_interest_proxy"]:
         out[column] = legs[column]
     mmf = mmf_on_rrp_route_adjustment(quarterly.reindex(q))
     gap = (mmf["mmf_route_prop"] - legs["effective_mmf_rrp_adjustment_prop"]).abs().max()
     if gap > 1e-6:
         raise ValueError(f"MMF route proportional value differs from the frozen leg table by {gap}")
     out = out.join(mmf)
-    out["trc_cash_leg"] = -out["delta_tga"] - out["delta_sfp"]
+    out["trc_cash_leg"] = -out["delta_tga"] - out["delta_sfp"] + out["treasury_fed_internal_cash_tx"]
     out["trc_fed_bridge"] = out["fed_tsy_tx"] + out["fed_remit_positive"] - out["fed_tsy_coupon_interest_proxy"]
     out["trc_core"] = out["trc_cash_leg"] + out["trc_fed_bridge"]
     out["trc_preferred"] = out["trc_core"] + out["mmf_route_prop"]
@@ -413,7 +415,8 @@ def reserve_factor_diagnostics(
             sfp_at_wednesday.append(float(row["sfp"]))
     out["delta_tga_h41"] = _difference(h41["h41_tga_wednesday"]["level"], q)
     out["delta_sfp_h41_date"] = _difference(pd.Series(sfp_at_wednesday, index=q), q)
-    h41_core = -out["delta_tga_h41"] - out["delta_sfp_h41_date"] + routes["trc_fed_bridge"]
+    h41_core = (-out["delta_tga_h41"] - out["delta_sfp_h41_date"] + routes["treasury_fed_internal_cash_tx"]
+                + routes["trc_fed_bridge"])
     out["diag_trc_h41_preferred"] = h41_core + routes["mmf_route_prop"]
     out["diag_trc_h41_lower"] = h41_core + routes["mmf_route_lb"]
     out["diag_trc_h41_upper"] = h41_core + routes["mmf_route_ub"]
@@ -455,8 +458,9 @@ def build_trc_components(inputs: TrcInputs) -> tuple[pd.DataFrame, dict]:
     legs = _legs(inputs.legs, q)
     quarterly = _quarterly(inputs.quarterly, q)
     src = inputs.sources
-    if (legs["treasury_operating_cash_tx"] - quarterly["treasury_operating_cash_tx"].reindex(q)).abs().max() != 0:
-        raise ValueError("legs and quarterly inputs disagree on Z.1 Treasury operating cash")
+    for column in ["treasury_operating_cash_tx", "treasury_fed_internal_cash_tx"]:
+        if (legs[column] - quarterly[column].reindex(q)).abs().max() != 0:
+            raise ValueError(f"legs and quarterly inputs disagree on {column}")
     daily = parse_dts_table_i(src["dts_operating_cash_balance_table_i"])
     dts_q = dts_quarter_end(daily)
     h41 = {
@@ -561,7 +565,7 @@ SERIES_SPECS: tuple[SeriesSpec, ...] = (
     SeriesSpec("z1_reserve_change", "reserve_change", AGG, None, "delta_rb_z1", None, "=source_exact",
                ("z1_reserves_transactions",), "z1_calendar_quarter_transactions", (), True),
     SeriesSpec("trc_leg_treasury_fed_deposits", "trc_component", AGG, None, "trc_cash_leg", None, "cash_leg_status",
-               ("@tga", "dts_operating_cash_balance_table_i"), "@tga_clock",
+               ("@tga", "dts_operating_cash_balance_table_i", LEGS_SOURCE_KEY), "@tga_clock",
                ("treasury_general_account", "other_treasury_fed_account"), True),
     SeriesSpec("trc_leg_fed_treasury_bridge", "trc_component", AGG, None, "trc_fed_bridge", None, "=proxy",
                (LEGS_SOURCE_KEY,), "z1_calendar_quarter", ("fed_soma",), True),

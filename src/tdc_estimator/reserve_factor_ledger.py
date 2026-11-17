@@ -15,11 +15,13 @@ quarters.
 The bridge table reconciles each admitted quarterly TRC variant ``x`` with the
 ledger, row by row:
 
-    y^Z - x = sum_{k other} F_k + N^{RRP,other} + (y^Z - y^H) + (C^H - C^M) + (S^H - B) + rho^H
+    y^Z - x = sum_{k other} F_k + N^{RRP,other} + (y^Z - y^H) + (C^H - (C^M - I)) + (-I) + (S^H - B) + rho^H
     N^{RRP,other} = -dRRP_other - Gamma
 
 so the MMF/ON RRP route already counted in TRC leaves the RRP-others factor
-exactly once. Nothing here estimates or identifies a causal effect.
+exactly once, and the Treasury-Fed internal transfers I that TRC removes from its
+cash leg appear once as their own bridge, against the H.4.1 factors (Treasury
+contributions and the facility LLCs' holdings) that carry their other side. Nothing here estimates or identifies a causal effect.
 """
 
 from __future__ import annotations
@@ -58,11 +60,11 @@ RRP_OTHER_KEY = "rrp_others"
 TRC_VARIANTS = {"trc_core": None, "trc_preferred": "mmf_route_prop", "trc_mmf_lower": "mmf_route_lb",
                 "trc_mmf_upper": "mmf_route_ub"}
 COMPONENT_COLUMNS = [
-    "quarter", "delta_rb_z1", "trc_cash_leg", "trc_fed_bridge", "tga_clock", "mmf_route_lb", "mmf_route_prop",
+    "quarter", "delta_rb_z1", "trc_cash_leg", "treasury_fed_internal_cash_tx", "trc_fed_bridge", "tga_clock", "mmf_route_lb", "mmf_route_prop",
     "mmf_route_ub", *TRC_VARIANTS, "delta_rb_h41", "delta_tga_h41",
 ]
 BRIDGE_COLUMNS = ["bridge_outcome", "bridge_outcome_term_deposits", "bridge_outcome_z1_flow_vs_level",
-                  "bridge_outcome_unattributed", "bridge_cash", "bridge_securities", "rho"]
+                  "bridge_outcome_unattributed", "bridge_cash", "bridge_internal_transfers", "bridge_securities", "rho"]
 def eras(quarter_end: str) -> list[tuple[str, str]]:
     """Fixed reporting eras; the open-ended eras run to the measured endpoint."""
     return [("2003Q1", "2008Q3"), ("2008Q4", "2008Q4"), ("2009Q1", "2015Q3"), ("2015Q4", "2015Q4"),
@@ -87,7 +89,8 @@ DEFINITIONS = {
     "s_h": "d(WSHOTSL): Table 1 'U.S. Treasury securities' held outright = bills + notes and bonds nominal + notes and bonds inflation-indexed + inflation compensation; excludes unamortized premiums and discounts (published for all securities held outright combined), repurchase agreements, securities lent, and custody holdings",
     "memo_f_treasury_inflation_compensation": "d(WSHOICL): inflation compensation already inside s_h; displayed, never summed",
     "y_z": "Admitted outcome delta_rb_z1, Z.1 FU713113003 calendar-quarter transactions",
-    "c_m": "Admitted trc_cash_leg (clock per row in c_m_clock)",
+    "c_m": "Admitted trc_cash_leg (clock per row in c_m_clock), net of Treasury-Fed internal transfers",
+    "i": "Admitted treasury_fed_internal_cash_tx: change in Treasury operating cash from Treasury-Fed internal transfers, calendar quarter of the DTS date",
     "b": "Admitted trc_fed_bridge: Z.1 Fed Treasury transactions + positive remittances - SOMA coupon proxy",
     "gamma": "Admitted MMF/ON RRP route for the variant: zero for trc_core, mmf_route_prop/lb/ub otherwise",
     "x": "Admitted TRC variant = c_m + b + gamma",
@@ -97,9 +100,10 @@ DEFINITIONS = {
     "bridge_outcome_term_deposits": "d(TERMT) on the last-Wednesday clock: Z.1 FL713113003 includes H.4.1 term deposits, which reserve balances exclude",
     "bridge_outcome_z1_flow_vs_level": "y_z - d(FL713113003): Z.1 transactions less the Z.1 level change (series breaks, including the FHLB exclusion boundaries)",
     "bridge_outcome_unattributed": "d(FL713113003) - y_h - d(TERMT): quarter-end versus last-Wednesday clock, FHLB deposits excluded from Z.1 in 2007Q1-2017Q4, and any other source difference; not attributed",
-    "bridge_cash": "c_h - c_m: Treasury-deposit clock and source bridge",
+    "bridge_cash": "c_h - (c_m - i): Treasury-deposit clock and source bridge",
+    "bridge_internal_transfers": "-i: Treasury-Fed internal transfers inside c_h that TRC removes; their other side is in the Treasury-contributions and facility-LLC factors",
     "bridge_securities": "s_h - b: securities valuation, accrual, and Fed-payment bridge",
-    "identity": "y_z - x = sum_other_factors + n_rrp_others + bridge_outcome + bridge_cash + bridge_securities + rho",
+    "identity": "y_z - x = sum_other_factors + n_rrp_others + bridge_outcome + bridge_cash + bridge_internal_transfers + bridge_securities + rho",
 }
 BOUNDARIES = [
     "Descriptive accounting ledger and reconciliation; no estimation, identification, or causal interpretation",
@@ -409,6 +413,7 @@ def build_bridges(
     base["c_h"] = ledger["c_h"]
     base["c_m"] = comp["trc_cash_leg"]
     base["c_m_clock"] = comp["tga_clock"]
+    base["i"] = comp["treasury_fed_internal_cash_tx"]
     base["s_h"] = ledger["s_h"]
     base["b"] = comp["trc_fed_bridge"]
     base[f"f_{RRP_OTHER_KEY}"] = ledger[f"f_{RRP_OTHER_KEY}"]
@@ -420,7 +425,8 @@ def build_bridges(
     d_fl = _difference(fl, q)
     base["bridge_outcome_z1_flow_vs_level"] = base["y_z"] - d_fl
     base["bridge_outcome_unattributed"] = d_fl - base["y_h"] - base["bridge_outcome_term_deposits"]
-    base["bridge_cash"] = base["c_h"] - base["c_m"]
+    base["bridge_internal_transfers"] = -base["i"]
+    base["bridge_cash"] = base["c_h"] - base["c_m"] - base["bridge_internal_transfers"]
     base["bridge_securities"] = base["s_h"] - base["b"]
     base["rho"] = ledger["rho"]
     base["memo_s_h_inflation_compensation"] = ledger["memo_f_treasury_inflation_compensation"]
@@ -437,9 +443,9 @@ def build_bridges(
         frame["n_rrp_others"] = frame[f"f_{RRP_OTHER_KEY}"] - frame["gamma"]
         frame["gap"] = frame["y_z"] - frame["x"]
         frame["identity_rhs"] = frame[["sum_other_factors", "n_rrp_others", "bridge_outcome", "bridge_cash",
-                                       "bridge_securities", "rho"]].sum(axis=1, min_count=6)
+                                       "bridge_internal_transfers", "bridge_securities", "rho"]].sum(axis=1, min_count=7)
         frame["identity_error"] = frame["gap"] - frame["identity_rhs"]
-        required = frame[["x", "gamma", "y_z", "y_h", "c_h", "c_m", "s_h", "b", "sum_other_factors", "rho",
+        required = frame[["x", "gamma", "y_z", "y_h", "c_h", "c_m", "i", "s_h", "b", "sum_other_factors", "rho",
                           "identity_error", "bridge_outcome_unattributed"]]
         available = required.notna().all(axis=1)
         if not (available | required.isna().any(axis=1)).all() or available.ne(frame["x"].notna()).any():
@@ -533,6 +539,7 @@ def column_clocks(rows: dict[str, LedgerRow]) -> dict:
         "y_h": ("fred.wrbwfrbl", quarter_clock),
         "c_h": ("fred.wdtgal + fred.wdsfal", quarter_clock),
         "c_m": ("trc_quarterly_components_v1:trc_cash_leg", "@c_m_clock"),
+        "i": ("trc_quarterly_components_v1:treasury_fed_internal_cash_tx", "calendar_quarter_dts_record_date"),
         "s_h": ("fred.wshotsl", quarter_clock),
         "b": ("trc_quarterly_components_v1:trc_fed_bridge", "z1_calendar_quarter"),
         "n_rrp_others": ("fred.wlrraol less trc_quarterly_components_v1:mmf_route_*",
@@ -543,7 +550,8 @@ def column_clocks(rows: dict[str, LedgerRow]) -> dict:
         "bridge_outcome_z1_flow_vs_level": ("Z.1 FU713113003 (admitted) - d Z.1 FL713113003", "z1_calendar_quarter"),
         "bridge_outcome_unattributed": ("d Z.1 FL713113003 - fred.wrbwfrbl - fred.termt",
                                         "z1_quarter_end_level vs h41_last_wednesday"),
-        "bridge_cash": ("c_h - c_m", "h41_last_wednesday vs @c_m_clock"),
+        "bridge_cash": ("c_h - (c_m - i)", "h41_last_wednesday vs @c_m_clock"),
+        "bridge_internal_transfers": ("-i", "calendar_quarter_dts_record_date"),
         "bridge_securities": ("s_h - b", "h41_last_wednesday vs z1_calendar_quarter"),
         "rho": ("fred.wrbwfrbl less all factor rows", quarter_clock),
         "memo_s_h_inflation_compensation": ("fred.wshoicl", quarter_clock),

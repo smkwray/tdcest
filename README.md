@@ -20,7 +20,7 @@ The baseline, in USD millions per quarter, is
 
 ```
 TDC = Treasury-security transactions by the Fed, banks and the rest of the world
-      − change in Treasury operating cash
+      − change in Treasury operating cash, net of Treasury–Fed internal transfers
       + positive Federal Reserve remittances to Treasury
 ```
 

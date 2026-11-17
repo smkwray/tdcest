@@ -15,7 +15,7 @@ def inputs():
     quarterly = pd.DataFrame({
         "date": dates, "fed_tsy_tx": 10., "us_chartered_tsy_tx": 20.,
         "foreign_offices_tsy_tx": 3., "affiliated_areas_tsy_tx": 2.,
-        "row_tsy_tx": 4., "treasury_operating_cash_tx": 6.,
+        "row_tsy_tx": 4., "treasury_operating_cash_tx": 6., "treasury_fed_internal_cash_tx": 0.,
         "fed_remit_or_deferred": 5.,
     })
     effective = (dates >= "2013-09-30").astype(float) * 7.
@@ -41,6 +41,26 @@ def test_independent_reconstruction_and_mechanism_gate():
     assert frame.filter(like="gap").eq(0).all().all()
 
 
+def test_internal_transfers_leave_the_legs_and_canonical_tdc_unchanged():
+    # 2020Q2: equity paid into the facility LLCs (-114,000) and the LLCs' Treasury purchases (+95,625)
+    # move operating cash by -18,375 without reaching a deposit, so C is unchanged and O must net them out.
+    quarterly, regression = inputs()
+    baseline = build_regression_leg_table(quarterly, regression)
+    shifted = quarterly.copy()
+    row = shifted.date == pd.Timestamp("2020-06-30")
+    shifted.loc[row, "treasury_operating_cash_tx"] += -18_375.
+    shifted.loc[row, "treasury_fed_internal_cash_tx"] = -18_375.
+    frame = build_regression_leg_table(shifted, regression)
+    pd.testing.assert_series_equal(frame.O, baseline.O)
+    pd.testing.assert_series_equal(frame.J, baseline.J)
+    # Raw operating cash alone would push the transfer into J, which no longer reconciles.
+    raw_only = shifted.assign(treasury_fed_internal_cash_tx=0.)
+    with pytest.raises(ValueError, match="J_reconstruction_gap"):
+        build_regression_leg_table(raw_only, regression)
+    with pytest.raises(ValueError, match="missing columns"):
+        build_regression_leg_table(shifted.drop(columns="treasury_fed_internal_cash_tx"), regression)
+
+
 def test_only_pre_mechanism_missing_mmf_is_structural():
     quarterly, regression = inputs()
     regression.loc[regression.date < "2013-09-30", "mmf_rrp_adjustment_prop"] = float("nan")
@@ -52,7 +72,7 @@ def test_only_pre_mechanism_missing_mmf_is_structural():
         build_regression_leg_table(quarterly, regression)
 
 
-@pytest.mark.parametrize("defect", ["missing_row", "duplicate", "bad_date", "missing_column", "nan", "inf", "blank_tier", "cash_drift", "row_drift", "fed_drift"])
+@pytest.mark.parametrize("defect", ["missing_row", "duplicate", "bad_date", "missing_column", "nan", "inf", "blank_tier", "cash_drift", "row_drift", "fed_drift", "internal_drift", "internal_nan"])
 def test_bad_inputs_fail_closed(defect):
     quarterly, regression = inputs()
     if defect == "missing_row":
@@ -67,8 +87,11 @@ def test_bad_inputs_fail_closed(defect):
         quarterly.loc[0, "fed_tsy_tx"] = float(defect)
     elif defect == "blank_tier":
         regression.loc[0, "row_method_tier"] = ""
+    elif defect == "internal_nan":
+        quarterly.loc[0, "treasury_fed_internal_cash_tx"] = float("nan")
     else:
-        column = {"cash_drift": "treasury_operating_cash_tx", "row_drift": "row_tsy_tx", "fed_drift": "fed_tsy_tx"}[defect]
+        column = {"cash_drift": "treasury_operating_cash_tx", "row_drift": "row_tsy_tx", "fed_drift": "fed_tsy_tx",
+                  "internal_drift": "treasury_fed_internal_cash_tx"}[defect]
         quarterly.loc[0, column] += .01
     with pytest.raises(ValueError):
         build_regression_leg_table(quarterly, regression)

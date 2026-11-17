@@ -38,12 +38,24 @@ def test_vintage_changes_request_endpoints_not_series_identity(name, v1_end, ref
             assert after.snapshot_window == (before.snapshot_window[0], refresh_end)
 
 
+def test_internal_transfer_registry_moves_only_its_endpoints():
+    old, new = (fiscus_registries(v)["treasury-fed-transfers"] for v in (DEFAULT_VINTAGE, REFRESH))
+    assert (old.input_dir, old.manifest, old.schema_version, old.overlay) == (
+        new.input_dir, new.manifest, new.schema_version, new.overlay)
+    for before, after in zip(old.inputs, new.inputs, strict=True):
+        assert [getattr(before, f) for f in IDENTITY_FIELDS] == [getattr(after, f) for f in IDENTITY_FIELDS]
+        # Daily and monthly Treasury sources run to the weekly endpoint; the Z.1 level to the quarter end.
+        v1_end, refresh_end = ((DEFAULT_VINTAGE.quarter_end_date, REFRESH.quarter_end_date) if before.key.startswith("z1_")
+                               else (DEFAULT_VINTAGE.weekly_end, REFRESH.weekly_end))
+        assert after.argv == tuple(t.replace(v1_end, refresh_end) for t in before.argv), before.key
+
+
 def _leg_inputs(end: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     dates = pd.period_range("2002Q1", end, freq="Q").end_time.normalize()
     quarterly = pd.DataFrame({
         "date": dates, "fed_tsy_tx": 10., "us_chartered_tsy_tx": 20., "foreign_offices_tsy_tx": 3.,
         "affiliated_areas_tsy_tx": 2., "row_tsy_tx": 4., "treasury_operating_cash_tx": 6.,
-        "fed_remit_or_deferred": 5.,
+        "treasury_fed_internal_cash_tx": 0., "fed_remit_or_deferred": 5.,
     })
     effective = (dates >= "2013-09-30").astype(float) * 7.  # MMF route is structurally zero before ON RRP
     regression = pd.DataFrame({

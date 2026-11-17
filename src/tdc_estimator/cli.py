@@ -101,6 +101,7 @@ from .bank_composition import write_bank_composition_export
 from .deficit_comparison import write_deficit_comparison_export
 from .interest_rate_debt import write_interest_rate_debt_export
 from .trc_export import write_trc_export
+from .treasury_fed_transfers import write_treasury_fed_transfer_export
 from .weekly_trc import write_weekly_trc_export
 from .treasury_interest_components import write_treasury_interest_component_pools
 from .utils import project_relative_path, write_json
@@ -1401,8 +1402,18 @@ def cmd_interest_rate_debt_export(args: argparse.Namespace) -> int:
 def cmd_weekly_trc_export(args: argparse.Namespace) -> int:
     receipt = write_weekly_trc_export(root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256,
                                       ledger_sha256=args.ledger_sha256, trc_components_sha256=args.trc_components_sha256,
+                                      transfers_weekly_sha256=args.transfers_weekly_sha256,
                                       vintage=MEASUREMENT_VINTAGES[args.vintage])
     print(json.dumps(receipt, indent=2))
+    return 0
+
+
+def cmd_treasury_fed_transfer_export(args: argparse.Namespace) -> int:
+    receipt = write_treasury_fed_transfer_export(
+        root=args.root, inputs_manifest_sha256=args.inputs_manifest_sha256,
+        weekly_trc_manifest_sha256=args.weekly_trc_manifest_sha256,
+        h41_ledger_manifest_sha256=args.h41_ledger_manifest_sha256, vintage=MEASUREMENT_VINTAGES[args.vintage])
+    print(json.dumps({"outputs": receipt["outputs"], "stats": receipt["stats"]}, indent=2))
     return 0
 
 
@@ -2796,8 +2807,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_weekly_trc.add_argument("--inputs-manifest-sha256", required=True)
     p_weekly_trc.add_argument("--ledger-sha256", required=True)
     p_weekly_trc.add_argument("--trc-components-sha256", required=True)
+    p_weekly_trc.add_argument("--transfers-weekly-sha256", required=True,
+                              help="SHA-256 of the weekly Treasury-Fed internal-transfer ledger.")
     p_weekly_trc.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
     p_weekly_trc.set_defaults(func=cmd_weekly_trc_export)
+
+    p_transfers = sub.add_parser(
+        "treasury-fed-transfer-export", parents=[root_parent],
+        help="Export the dated Treasury-Fed internal-transfer ledger and the operating-cash support series.",
+    )
+    p_transfers.add_argument("--inputs-manifest-sha256", required=True,
+                             help="SHA-256 of the treasury-fed-transfers fiscus manifest.")
+    p_transfers.add_argument("--weekly-trc-manifest-sha256", required=True,
+                             help="SHA-256 of the weekly-trc fiscus manifest (DTS ESF cash).")
+    p_transfers.add_argument("--h41-ledger-manifest-sha256", required=True,
+                             help="SHA-256 of the h41-ledger fiscus manifest (Treasury contributions liability).")
+    p_transfers.add_argument("--vintage", choices=sorted(MEASUREMENT_VINTAGES), default=DEFAULT_VINTAGE.name, help=vintage_help)
+    p_transfers.set_defaults(func=cmd_treasury_fed_transfer_export)
 
     p_component_comparison = sub.add_parser(
         "tier2-component-anchor-comparison",

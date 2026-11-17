@@ -65,6 +65,7 @@ class FiscusRegistry:
     input_dir: Path
     manifest: Path
     schema_version: str
+    overlay: Path | None = None  # caller-owned fiscus catalog overlay naming datasets fiscus does not bundle
 
 
 BASE_FRED_SERIES: list[FredSeries] = [
@@ -750,6 +751,19 @@ LOCAL_SUPPORT_SERIES: list[LocalSeries] = [
         notes="Optional local support series. Positive values offset Treasury operating-cash changes that did not come from deposit-user taxes or deposit-user Treasury purchases and are added in Tier 3 fiscal-corrected variants.",
     ),
     LocalSeries(
+        key="treasury_fed_internal_cash_tx",
+        description="Quarterly change in Treasury operating cash from Treasury-Federal Reserve internal transfers.",
+        agg="sum",
+        notes=(
+            "Required local support series written by `tdc treasury-fed-transfer-export`, USD million, calendar "
+            "quarters by Daily Treasury Statement date. Treasury equity paid into and returned from the Federal "
+            "Reserve credit-facility LLCs and the LLCs' purchases and redemptions of nonmarketable Treasury "
+            "securities run between Treasury and Federal Reserve accounts; negative when equity leaves Treasury "
+            "cash, positive when an LLC buys Treasury securities. The estimator removes it from the operating-cash "
+            "term."
+        ),
+    ),
+    LocalSeries(
         key="credit_union_deposits",
         description="Quarterly federally insured credit-union shares and deposits bridge from NCUA Call Report ZIPs.",
         agg="last",
@@ -1061,13 +1075,6 @@ H41_LEDGER_REGISTRY = FiscusRegistry(
 )
 # Weekly inputs retain event clocks; monthly fund positions never enter this registry.
 WEEKLY_TRC_OVERLAY = Path("config/fiscus_weekly_trc.yml")
-# Event crosswalk only where a dated Treasury statement independently names facility cash.
-# The DTS row must still match the amount/account/date; factor residuals stay candidate-only.
-WEEKLY_TRC_INTERNAL_MATCHES = (
-    {"date": "2020-05-11", "transaction_type": "Withdrawals", "amount": "37500",
-     "source_url": "https://home.treasury.gov/news/press-releases/sm1007",
-     "meaning": "Treasury's May 12 statement identifies 37.5 billion transmitted the preceding day to the corporate-credit SPV"},
-)
 WEEKLY_TRC_START = "2003-07-02"
 
 
@@ -1076,7 +1083,7 @@ def weekly_trc_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> Fiscus
     return FiscusRegistry(
         name="weekly-trc", input_dir=Path("data/raw/fiscus/weekly_trc"),
         manifest=Path("data/raw/fiscus/weekly_trc/inputs_manifest.json"),
-        schema_version="weekly_trc_fiscus_inputs_v1",
+        schema_version="weekly_trc_fiscus_inputs_v1", overlay=WEEKLY_TRC_OVERLAY,
         inputs=(
             FiscusInput("soma", "soma.treasury_holdings", ("soma-holdings",), 0.000001,
                         "wednesday_asof_snapshot", "CUSIP-level SOMA par and inflation compensation",
@@ -1111,6 +1118,62 @@ def weekly_trc_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> Fiscus
 
 
 WEEKLY_TRC_REGISTRY = weekly_trc_registry()
+
+
+# Treasury-Federal Reserve internal transfers that move Treasury operating cash: Treasury equity in
+# the Federal Reserve credit-facility LLCs (DTS Table II, matched to the H.4.1 Treasury-contributions
+# liability) and the LLCs' nonmarketable Domestic Series Treasury securities (DTS Table III-A,
+# classified by the MSPD holder class and reconciled to the Z.1 LLC holdings level).
+@dataclass(frozen=True)
+class TreasuryFedTransferRules:
+    esf_category: str = "ESF - Economic Recovery Programs"
+    tga_accounts: tuple[str, ...] = ("Federal Reserve Account", "Treasury General Account (TGA)")
+    # H.4.1 records a facility payment up to a month after its DTS date (2020-04-13 in the 2020-05-13 week).
+    equity_lookback_days: int = 35
+    # A returned equity tranche can carry the facility's earnings or bear its losses (2021-11-19: cash
+    # 5,601 against an H.4.1 change of 5,139); a match accepts cash within this share of the change.
+    equity_match_relative_tolerance: float = 0.10
+    equity_match_rounding: float = 1.0  # USD million: two published, rounded amounts
+    equity_match_max_postings: int = 4
+    llc_mspd_class: str = "SPV Demand"
+    zero_coupon_mspd_prefix: str = "Zero-coupon Treasury Bond"
+    domestic_series_class: str = "Domestic Series"
+    domestic_series_total_class: str = "Total Domestic Series"
+    # An LLC issue no larger than the interest its holdings could earn since the previous issue at this
+    # annual rate (plus DTS rounding) is reinvested interest, which leaves the Treasury cash balance unchanged.
+    capitalized_interest_max_annual_rate: float = 0.10
+    capitalized_interest_rounding: float = 1.0
+    zero_coupon_match_rounding: float = 1.0
+    start_quarter: str = "2002Q1"
+
+
+TREASURY_FED_TRANSFER_RULES = TreasuryFedTransferRules()
+
+
+def treasury_fed_transfers_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusRegistry:
+    end = vintage.weekly_end
+    page = ("--param", "page[size]=10000", "--max-pages", "100")
+    return FiscusRegistry(
+        name="treasury-fed-transfers", input_dir=Path("data/raw/fiscus/treasury_fed_transfers"),
+        manifest=Path("data/raw/fiscus/treasury_fed_transfers/inputs_manifest.json"),
+        schema_version="treasury_fed_transfers_fiscus_inputs_v1", overlay=WEEKLY_TRC_OVERLAY,
+        inputs=(
+            FiscusInput("dts_domestic_series", "fiscaldata.dts_public_debt_transactions", (
+                "fiscaldata-query", "fiscaldata.dts_public_debt_transactions", "--param",
+                f"filter=record_date:gte:2005-10-01,record_date:lte:{end},security_type:eq:Domestic Series", *page),
+                1.0, "dts_record_date", "DTS Table III-A nonmarketable Domestic Series issues and redemptions"),
+            FiscusInput("mspd_domestic_series", "fiscaldata.mspd_table_3_nonmarket", (
+                "fiscaldata-query", "fiscaldata.mspd_table_3_nonmarket", "--param",
+                f"filter=record_date:gte:2005-09-30,record_date:lte:{end},"
+                "security_class1_desc:in:(Domestic Series,Total Domestic Series)", *page),
+                1.0, "month_end_level", "MSPD nonmarketable Domestic Series by holder class and maturity",
+                native_units="USD million, field-specific"),
+            _z1_input("z1_llc_treasury_level", "FL503069203.Q",
+                      "Other financial business; nonmarketable Treasury securities held by Federal Reserve credit "
+                      "facility LLCs (MSPD); asset, level",
+                      window=("2001-10-01", vintage.quarter_end_date), clock="z1_calendar_quarter_end_level"),
+        ),
+    )
 
 
 # Bank balance-sheet composition: a descriptive illustration of non-Treasury deposit
@@ -1345,8 +1408,9 @@ DEFICIT_FUNDING_LEGS: tuple[FundingLeg, ...] = (
                (("row_tsy_tx", 1), ("row_tier2_regression_interest_proxy", -1))),
     FundingLeg("fed", "Federal Reserve: Treasury purchases less the SOMA coupon proxy plus positive remittances",
                (("fed_tsy_tx", 1), ("fed_tsy_coupon_interest_proxy", -1), ("fed_remit_positive", 1))),
-    FundingLeg("treasury_cash_drawdown", "Treasury cash drawdown: minus Treasury operating cash transactions (leg O)",
-               (("treasury_operating_cash_tx", -1),)),
+    FundingLeg("treasury_cash_drawdown", "Treasury cash drawdown: minus Treasury operating cash transactions net "
+               "of Treasury-Fed internal transfers (leg O)",
+               (("treasury_operating_cash_tx", -1), ("treasury_fed_internal_cash_tx", 1))),
     FundingLeg("mmf_on_rrp", "Money funds via ON RRP: effective proportional MMF/ON RRP route adjustment",
                (("effective_mmf_rrp_adjustment_prop", 1),)),
 )
@@ -1442,13 +1506,13 @@ def _quarter_bounds(quarter: str) -> tuple[str, str, str]:
 
 FISCUS_REGISTRIES = {registry.name: registry for registry in (
     TRC_REGISTRY, H41_LEDGER_REGISTRY, WEEKLY_TRC_REGISTRY, BANK_COMPOSITION_REGISTRY, deficit_registry(),
-    interest_rate_debt_registry())}
+    interest_rate_debt_registry(), treasury_fed_transfers_registry())}
 
 
 def fiscus_registries(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> dict[str, FiscusRegistry]:
     """Registries for one vintage: window-bound requests end at the vintage endpoint."""
     return {**FISCUS_REGISTRIES, "trc": trc_registry(vintage), "weekly-trc": weekly_trc_registry(vintage),
-            "deficit": deficit_registry(vintage)}
+            "deficit": deficit_registry(vintage), "treasury-fed-transfers": treasury_fed_transfers_registry(vintage)}
 
 
 def all_fred_series(include_optional: bool = True) -> list[FredSeries]:

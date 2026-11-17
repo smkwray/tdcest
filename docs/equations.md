@@ -92,6 +92,7 @@ These are the measurement approximations the code implements.
 This is the Tier 0 bank-only baseline, not the final corrected measurement row.
 
 Construction notes:
+- `\Delta TOC^{tx}_{Treasury,t}` is Z.1 `FU313024000` less `treasury_fed_internal_cash_tx`, the change in operating cash from Treasury–Federal Reserve internal transfers (credit-facility equity and the facility LLCs' nonmarketable Treasury securities), from the required support file `support__treasury_fed_internal_cash_tx.csv`
 - `Remit^{+}_{Fed,t}` is the quarter-sum of MTS Table 4 net receipts for Federal Reserve earnings deposits when `support__fed_remit_mts.csv` exists
 - without that support file, the pipeline falls back to positive-only H.4.1/FRED weekly remittances-due levels
 
@@ -335,6 +336,7 @@ TDC^{DU}_q-TRC^{RB}_q=\sum_{e\in\mathcal T_q}\left(\lambda^{DU}_e-\mu^{RB}_e\rig
 =
 -\Delta TGA_q
 -\Delta SFP_q
++I^{TF}_q
 +\Delta TS^{tx}_{Fed,q}
 +Remit^{+}_{Fed,q}
 -Coupon^{F}_q
@@ -348,6 +350,7 @@ Construction notes:
 - USD million on the Z.1 calendar quarter; the reserve outcome is Z.1 `FU713113003`
 - `ΔTGA` uses the last H.4.1 `WDTGAL` Wednesday on or before quarter end for changes through 2005Q4 and the DTS Table I final-business-day close for changes from 2006Q1; both endpoints of every change sit on one clock, and each row records its clock
 - `ΔSFP` is the DTS supplementary financing account, a structural zero before the program and after the line closes at a zero balance; Treasury Tax and Loan balances are commercial-bank claims and stay out of the cash leg, so Z.1 Treasury operating cash is not used here
+- `I^{TF}` is the change in Treasury operating cash from Treasury–Fed internal transfers (`treasury_fed_internal_cash_tx`): credit-facility equity and the facility LLCs' nonmarketable Treasury securities, which move the TGA but not reserves; the same term nets them out of the TDC cash leg
 - the Fed terms are the leg-table `fed_tsy_tx`, actual MTS cash remittances, and the SOMA coupon proxy
 - the MMF/ON RRP term carries lower, proportional, and upper companions; it is definitionally zero before the ON RRP mechanism and one-sided after it, so the preferred row is labeled `partial_one_sided_route_coverage`
 - all four 2002 rows are unavailable because no H.4.1 TGA level precedes 2002-12-18
@@ -408,14 +411,14 @@ Plain English:
 For each quarterly TRC row `x = C^M + B + Γ` (core, preferred, lower, upper) and the Z.1 outcome `y^Z`:
 
 ```math
-y^{Z}_q-x_q=\sum_{k\notin\{TGA,SFP,TS,RRP^{o}\}}F^{H}_{k,q}+N^{RRP,o}_q+\left(y^{Z}_q-y^{H}_q\right)+\left(C^{H}_q-C^{M}_q\right)+\left(S^{H}_q-B_q\right)+\rho^{H}_q,
+y^{Z}_q-x_q=\sum_{k\notin\{TGA,SFP,TS,RRP^{o}\}}F^{H}_{k,q}+N^{RRP,o}_q+\left(y^{Z}_q-y^{H}_q\right)+\left(C^{H}_q-C^{M}_q+I^{TF}_q\right)-I^{TF}_q+\left(S^{H}_q-B_q\right)+\rho^{H}_q,
 \qquad
 N^{RRP,o}_q=-\Delta RRP^{o}_q-\Gamma_q
 ```
 
 - the identity holds row by row; the MMF/ON RRP route already counted in TRC is removed from the RRP-others factor once
 - `y^Z − y^H` is the outcome perimeter, clock, and source bridge; it splits into the H.4.1 term-deposit change (Z.1 `FL713113003` includes term deposits), Z.1 transactions less the Z.1 level change, and an explicit unattributed remainder that carries the quarter-end versus last-Wednesday clock and the 2007Q1–2017Q4 FHLB exclusion
-- `C^H − C^M` is the Treasury-deposit clock and source bridge; `S^H − B` is the securities valuation, accrual, and Fed-payment bridge
+- `C^H − C^M + I^{TF}` is the Treasury-deposit clock and source bridge; `−I^{TF}` carries the internal transfers that `C^H` contains and TRC removes, offset in the Treasury-contributions and facility-LLC factors; `S^H − B` is the securities valuation, accrual, and Fed-payment bridge
 - the bridges and `ρ^H` are measured accounting differences, not estimates; no covariance or causal decomposition is computed here
 
 ## Interpretation Rule

@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from tdc_estimator.catalog import MEASUREMENT_VINTAGES, MeasurementVintage, weekly_trc_registry
+from tdc_estimator.treasury_fed_transfers import OUTPUT_FILES as TRANSFER_OUTPUT_FILES
 
 # The synthetic ledger covers 2021-12-29..2022-03-30, so the fixture vintage ends there.
 FIXTURE_VINTAGE = MeasurementVintage("fixture", "2022Q1", "2022-03-30")
@@ -91,6 +92,20 @@ def auction(
     )
 
 
+def transfer_ledger(dates, weeks=None):
+    """Treasury-Fed weekly ledger stand-in with every DTS window open: no transfers unless ``weeks`` names them."""
+    frame = pd.DataFrame({
+        "date": [str(pd.Timestamp(d).date()) for d in dates], "facility_equity_cash_tx": "0.0",
+        "llc_treasury_securities_cash_tx": "0.0", "internal_cash_tx": "0.0", "esf_cash_tx": "0.0",
+        "esf_unmatched_cash_tx": "0.0", "esf_unmatched_abs": "0.0", "esf_unmatched_dates": "",
+        "equity_basis": "dts_esf_postings_matched_to_h41", "llc_basis": "dts_domestic_series_postings",
+    }).set_index("date")
+    for date, values in (weeks or {}).items():
+        for column, value in values.items():
+            frame.loc[date, column] = str(value)
+    return frame
+
+
 def fixture():
     dates = pd.date_range("2021-12-29", "2022-03-30", freq="W-WED")
     factors = ["f_" + k for k, v in load_h41_rows().items() if v.row.role == "factor"]
@@ -156,6 +171,7 @@ def fixture():
         "on_rrp": pd.DataFrame(
             {"date": [str(d.date()) for d in days], "value": ["1"] * len(days)}
         ),
+        "treasury_fed_weekly": transfer_ledger(dates),
     }
     return ledger, sources
 
@@ -276,6 +292,32 @@ def test_postings_zero_transfers_and_signed_secondary_reserves(event):
         )
 
 
+def test_facility_equity_and_llc_treasury_purchase_leave_weekly_core_unchanged():
+    # Week ending 2022-01-05: Treasury pays 500 of equity into a facility LLC (TGA -500, Treasury
+    # contributions +500) and the LLC buys 300 of Treasury securities (TGA +300, LLC holdings +300).
+    # Reserves do not move, so neither may weekly core TRC.
+    equity, purchase = 500, 300
+    baseline = target(build_weekly_trc(*fixture(), WEEKLY_TRC_REGISTRY))
+    ledger, sources = fixture()
+    week = ledger.date.eq("2022-01-05")
+    ledger.loc[week, "c_h"] = str(equity - purchase)
+    ledger.loc[week, "f_treasury_contributions_to_credit_facilities"] = str(-equity)
+    ledger.loc[week, "f_ms_facilities_llc"] = str(purchase)
+    transfers = {"2022-01-05": {"facility_equity_cash_tx": -equity, "llc_treasury_securities_cash_tx": purchase,
+                                "internal_cash_tx": purchase - equity, "esf_cash_tx": -equity}}
+    sources["treasury_fed_weekly"] = transfer_ledger(ledger.date, transfers)
+    weekly, identity = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)[:2]
+    row = weekly.set_index("date").loc["2022-01-05"]
+    assert row.trc_core == baseline.trc_core == 0
+    assert row.j_applied == purchase - equity and row.j_facility_llc_treasury_securities_applied == purchase
+    assert row.j_treasury_contributions_to_credit_facilities_status == "applied_dated_ledger_facility_equity"
+    assert all(v == 0 for v in identity.identity_error.dropna())
+    # Without the dated ledger the TGA leg alone would read the transfers as reserve injections.
+    sources["treasury_fed_weekly"] = transfer_ledger(ledger.date)
+    raw = target(build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY))
+    assert raw.trc_core == equity - purchase
+
+
 def test_missing_snapshot_and_required_values_fail_closed():
     ledger, sources = fixture()
     sources["soma"] = sources["soma"].loc[sources["soma"].asOfDate.ne("2022-01-05")]
@@ -388,6 +430,7 @@ def test_complete_quarters_telescope_and_missing_week_is_not_partial_point():
                 fed_tsy_coupon_interest_proxy="0",
                 fed_remit_positive="0",
                 trc_core="0",
+                treasury_fed_internal_cash_tx="0",
             )
         ]
     )
@@ -429,10 +472,13 @@ def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_
                 fed_tsy_coupon_interest_proxy="0",
                 fed_remit_positive="0",
                 trc_core="0",
+                treasury_fed_internal_cash_tx="0",
             )
         ]
     )
     comp.to_csv(root / "data/processed" / TRC_OUTPUT_FILES["components"], index=False)
+    sources.pop("treasury_fed_weekly").reset_index().to_csv(
+        root / "data/processed" / TRANSFER_OUTPUT_FILES["weekly"], index=False)
     entries = {}
     for spec in WEEKLY_TRC_REGISTRY.inputs:
         p = root / WEEKLY_TRC_REGISTRY.input_dir / (spec.key + ".csv")
@@ -480,6 +526,8 @@ def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_
         sha(root / "data/processed" / LEDGER_OUTPUT_FILES["weekly"]),
         "--trc-components-sha256",
         sha(root / "data/processed" / TRC_OUTPUT_FILES["components"]),
+        "--transfers-weekly-sha256",
+        sha(root / "data/processed" / TRANSFER_OUTPUT_FILES["weekly"]),
         "--vintage",
         FIXTURE_VINTAGE.name,
     ]

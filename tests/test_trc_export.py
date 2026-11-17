@@ -49,6 +49,9 @@ REAL_2008_DTS = {  # DTS Table I closing balances, USD million
 }
 REAL_2008_Z1_TOC = {"2008Q3": 318292.0, "2008Q4": -4960.0}  # Z.1 FU313024000
 SFP_START, LINES_END = pd.Timestamp("2008-09-18"), pd.Timestamp("2022-04-15")
+# 2020Q2: Treasury pays equity into the facility LLCs and the LLCs buy Treasury securities, a net
+# -18,375 on Treasury cash that never reaches a reserve balance. Levels from then carry a 100,000 cushion.
+TRANSFER_DAY, TRANSFER, CUSHION = pd.Timestamp("2020-04-13"), -18_375.0, 100_000
 NONDEFAULT = {
     "route_bound_gse_on_rrp", "route_bound_foreign_official", "trc_route_bounded_nondefault",
     "remainder_on_rrp", "remainder_foreign_official", "memo_reserves_plus_rrp_others",
@@ -60,9 +63,12 @@ def _wiggle(day: pd.Timestamp, mult: int, mod: int) -> int:
     return (day.toordinal() * mult) % mod
 
 
-def tga(day):
+def tga(day, transfer=True):
     real = REAL_2008_DTS.get(day.strftime("%Y-%m-%d"), {})
-    return real.get("tga", 5000 + _wiggle(day, 37, 9973))
+    level = real.get("tga", 5000 + _wiggle(day, 37, 9973))
+    if day >= TRANSFER_DAY:
+        level += CUSHION + (TRANSFER if transfer else 0)
+    return level
 
 
 def sfp(day):
@@ -89,7 +95,7 @@ def last_weekday(quarter, weekday=None):
     return day
 
 
-def dts_frame() -> pd.DataFrame:
+def dts_frame(transfer=True) -> pd.DataFrame:
     days = {pd.Timestamp("2005-10-03"), *map(pd.Timestamp, REAL_2008_DTS)}
     for quarter in pd.period_range("2005Q4", "2025Q4", freq="Q"):
         days |= {last_weekday(quarter), last_weekday(quarter, 2)}
@@ -97,11 +103,11 @@ def dts_frame() -> pd.DataFrame:
     for day in sorted(days):
         accounts = []
         if day <= pd.Timestamp("2021-09-30"):
-            accounts.append(("Federal Reserve Account", tga(day), tga(day)))
+            accounts.append(("Federal Reserve Account", tga(day, transfer), tga(day, transfer)))
         elif day <= LINES_END:
-            accounts.append(("Treasury General Account (TGA)", tga(day), tga(day)))
+            accounts.append(("Treasury General Account (TGA)", tga(day, transfer), tga(day, transfer)))
         else:
-            accounts += [("Treasury General Account (TGA) Closing Balance", tga(day), "null"),
+            accounts += [("Treasury General Account (TGA) Closing Balance", tga(day, transfer), "null"),
                          ("Treasury General Account (TGA) Opening Balance", 1, "null"),
                          ("Total TGA Deposits (Table II)", 2, "null")]
         if day <= LINES_END:
@@ -125,7 +131,7 @@ def dts_level(quarter, fn):
     return 0.0 if value is None else float(value)
 
 
-def fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
+def fixture_frames(transfer=True, net_out_transfer=True) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame]]:
     wednesdays = pd.date_range("2002-12-18", "2025-12-31", freq="W-WED")
 
     def rb(d):
@@ -136,8 +142,8 @@ def fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame
 
     months = pd.date_range("2002-01-01", "2025-12-01", freq="MS")
     sources = {
-        "dts_operating_cash_balance_table_i": dts_frame(),
-        "h41_tga_wednesday": h41(tga),
+        "dts_operating_cash_balance_table_i": dts_frame(transfer),
+        "h41_tga_wednesday": h41(lambda d: tga(d, transfer)),
         "h41_reserve_balances_wednesday": h41(rb),
         "h41_rrp_others_wednesday": h41(lambda d: 0 if d < pd.Timestamp("2013-09-23") else 1000 + _wiggle(d, 11, 3000)),
         "h41_rrp_foreign_official_wednesday": h41(lambda d: 20000 + _wiggle(d, 5, 2000)),
@@ -161,16 +167,22 @@ def fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame
     active = LEVEL_QUARTERS >= pd.Period("2013Q3")
     dts_q = LEVEL_QUARTERS >= pd.Period("2005Q4")
     toc = pd.Series(100.0 * (i % 9 - 4), index=LEVEL_QUARTERS)
-    tga_l = pd.Series([dts_level(q, tga) if d else np.nan for q, d in zip(LEVEL_QUARTERS, dts_q)], index=LEVEL_QUARTERS)
+    tga_l = pd.Series([dts_level(q, lambda d: tga(d, transfer)) if d else np.nan for q, d in zip(LEVEL_QUARTERS, dts_q)],
+                      index=LEVEL_QUARTERS)
     ttl_l = pd.Series([dts_level(q, ttl) if d else np.nan for q, d in zip(LEVEL_QUARTERS, dts_q)], index=LEVEL_QUARTERS)
     partition = tga_l.diff() + sfp_levels.diff() + ttl_l.diff()
     toc[LEVEL_QUARTERS >= pd.Period("2006Q1")] = partition[LEVEL_QUARTERS >= pd.Period("2006Q1")]
     for quarter, value in REAL_2008_Z1_TOC.items():
         toc[pd.Period(quarter)] = value
+    internal = pd.Series(0.0, index=LEVEL_QUARTERS)
+    internal[pd.Period("2001Q4")] = np.nan  # the internal-transfer series starts with the legs in 2002Q1
+    if transfer and net_out_transfer:
+        internal[pd.Period(TRANSFER_DAY, freq="Q")] = TRANSFER
     quarterly = pd.DataFrame({
         "date": LEVEL_QUARTERS.end_time.strftime("%Y-%m-%d"),
         "fed_tsy_tx": 1000.0 + 10 * i, "us_chartered_tsy_tx": 200.0 + i, "foreign_offices_tsy_tx": 30.0,
         "affiliated_areas_tsy_tx": 5.0, "row_tsy_tx": 400.0 + 2 * i, "treasury_operating_cash_tx": toc.to_numpy(),
+        "treasury_fed_internal_cash_tx": internal.to_numpy(),
         "fed_remit_or_deferred": 50.0,
         "mmf_rrp_adjustment_lb": np.where(active, 10.0, np.nan),
         "mmf_rrp_adjustment_prop": np.where(active, 20.0, np.nan),
@@ -187,7 +199,7 @@ def fixture_frames() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, pd.DataFrame
     r_leg = q["row_tsy_tx"] - row_interest
     j_leg = (q["fed_tsy_tx"] + q[["us_chartered_tsy_tx", "foreign_offices_tsy_tx", "affiliated_areas_tsy_tx"]].sum(axis=1)
              + q["fed_remit_or_deferred"] - coupon - bank_interest + effective)
-    canonical = r_leg + j_leg - q["treasury_operating_cash_tx"]
+    canonical = r_leg + j_leg - (q["treasury_operating_cash_tx"] - q["treasury_fed_internal_cash_tx"])
     regression = pd.DataFrame({
         "date": q["date"], "tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow": canonical,
         "tdc_tier2_regression_bank_only_ru_flow": canonical - effective,
@@ -293,6 +305,7 @@ def test_2008_operating_cash_contains_tga_ttl_and_sfp_and_rejects_double_subtrac
     assert q3.delta_tga + q3.delta_ttl + q3.delta_sfp == q3.z1_treasury_operating_cash_tx == 318292
     assert q4.z1_treasury_operating_cash_tx - (q4.delta_tga + q4.delta_ttl + q4.delta_sfp) == 1  # published rounding
     for row in [q3, q4]:
+        assert row.treasury_fed_internal_cash_tx == 0
         assert row.trc_cash_leg == -(row.delta_tga + row.delta_sfp)
         draft = -row.z1_treasury_operating_cash_tx - row.delta_sfp
         # The draft counts SFP twice and imports TT&L into the reserve leg.
@@ -301,6 +314,31 @@ def test_2008_operating_cash_contains_tga_ttl_and_sfp_and_rejects_double_subtrac
     assert q3.trc_cash_leg == -327501
     assert q3.wedge_residual_u == pytest.approx(0.0, abs=1e-6)
     assert q4.wedge_residual_u == pytest.approx(-1.0, abs=1e-6)
+
+
+def _components(transfer, net_out_transfer=True):
+    quarterly, regression, sources = fixture_frames(transfer, net_out_transfer)
+    from tdc_estimator.tier2_regression_series import build_regression_leg_table, leg_quarters
+    legs = build_regression_leg_table(quarterly, regression, leg_quarters())
+    comp, _ = build_trc_components(TrcInputs(legs=legs, quarterly=quarterly, sources=sources))
+    return comp.set_index("quarter"), legs.set_index("quarter")
+
+
+def test_facility_equity_and_llc_treasury_purchase_leave_quarterly_tdc_and_trc_unchanged():
+    without, legs_without = _components(transfer=False)
+    with_transfer, legs_with = _components(transfer=True)
+    quarter = str(pd.Period(TRANSFER_DAY, freq="Q"))
+    # The transfers move the TGA, H.4.1 TGA and Z.1 operating cash, raw ...
+    assert with_transfer.loc[quarter, "delta_tga"] - without.loc[quarter, "delta_tga"] == TRANSFER
+    assert legs_with.loc[quarter, "treasury_operating_cash_tx"] - legs_without.loc[quarter, "treasury_operating_cash_tx"] == TRANSFER
+    # ... but not TDC, TRC, the H.4.1-clock diagnostic or the wedge, and the raw cash partition still closes.
+    for column in ["trc_cash_leg", "trc_core", "trc_preferred", "trc_mmf_lower", "trc_mmf_upper", "diag_trc_h41_preferred",
+                   "tdc_canonical", "wedge_measured", "cash_partition_gap", "nontreasury_residual"]:
+        pd.testing.assert_series_equal(with_transfer[column], without[column], check_names=False)
+    pd.testing.assert_series_equal(legs_with["C"], legs_without["C"])
+    # Read on raw operating cash, the same quarter would carry the transfer in TRC (and in TDC).
+    raw, _ = _components(transfer=True, net_out_transfer=False)
+    assert raw.loc[quarter, "trc_core"] - without.loc[quarter, "trc_core"] == -TRANSFER
 
 
 def test_remainder_cells_subtract_treasury_allocations_exactly_once(exported):

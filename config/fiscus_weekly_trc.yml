@@ -61,6 +61,125 @@ entries:
   tools:
   - fiscaldata_query
   caveats: []
+- id: fiscaldata.dts_public_debt_transactions
+  family: fiscaldata
+  title: DTS Table III-A public debt transactions
+  description: DTS Table III-A public debt transactions
+  publisher: U.S. Department of the Treasury, Bureau of the Fiscal Service
+  aliases:
+  - DTS Table III-A public debt transactions
+  tags:
+  - treasury
+  - debt
+  verified_on: '2026-11-17'
+  history:
+    start: '2005-10-03'
+  frequency: daily
+  units:
+    label: USD million
+    scale: millions
+    seasonal_adjustment: not seasonally adjusted
+    annualized: false
+    unit_class: usd_millions_nsa
+  endpoint:
+    url: https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/dts/public_debt_transactions
+    default_params:
+      format: json
+      sort: record_date,src_line_nbr
+      page[size]: '100'
+    allowed_params:
+    - fields
+    - filter
+    - sort
+    - page[size]
+  access:
+    executor: fiscaldata
+    mode: machine
+    auth:
+      mode: none
+  response:
+    format: json
+    data_path: data
+    date_fields:
+    - record_date
+    value_fields:
+    - transaction_today_amt
+    pagination:
+      kind: fiscaldata
+      default_page_size: 100
+      hard_max_pages: 100
+    vintage_strategy: http_last_modified_or_retrieval
+  refresh:
+    cadence: daily
+    notes: Published on Treasury business days.
+  semantics:
+    granularity: date and source row
+    basis: DTS Table III-A public debt transactions
+    notes: 'Caller-owned fiscus overlay; same maintained FiscalData executor. Source
+      definitions: https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/'
+  tools:
+  - fiscaldata_query
+  caveats: []
+- id: fiscaldata.mspd_table_3_nonmarket
+  family: fiscaldata
+  title: MSPD Table 3 nonmarketable securities detail
+  description: MSPD Table 3 nonmarketable securities detail
+  publisher: U.S. Department of the Treasury, Bureau of the Fiscal Service
+  aliases:
+  - MSPD Table 3 nonmarketable securities detail
+  tags:
+  - treasury
+  - debt
+  verified_on: '2026-11-17'
+  history:
+    start: '2001-01-31'
+  frequency: monthly
+  units:
+    label: USD million, field-specific
+    scale: field-specific
+    seasonal_adjustment: not seasonally adjusted
+    annualized: false
+    unit_class: field_specific_not_saar
+  endpoint:
+    url: https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/debt/mspd/mspd_table_3_nonmarket
+    default_params:
+      format: json
+      sort: record_date,src_line_nbr
+      page[size]: '100'
+    allowed_params:
+    - fields
+    - filter
+    - sort
+    - page[size]
+  access:
+    executor: fiscaldata
+    mode: machine
+    auth:
+      mode: none
+  response:
+    format: json
+    data_path: data
+    date_fields:
+    - record_date
+    - maturity_date
+    value_fields:
+    - current_month_outstanding_amt
+    pagination:
+      kind: fiscaldata
+      default_page_size: 100
+      hard_max_pages: 100
+    vintage_strategy: http_last_modified_or_retrieval
+  refresh:
+    cadence: monthly
+    notes: Published with each Monthly Statement of the Public Debt.
+  semantics:
+    granularity: reporting month and nonmarketable security class
+    basis: MSPD Table 3 nonmarketable securities detail
+    notes: 'Caller-owned fiscus overlay; same maintained FiscalData executor. Source
+      definitions: https://fiscaldata.treasury.gov/datasets/monthly-statement-public-debt/'
+  tools:
+  - fiscaldata_query
+  caveats: []
 - id: fiscaldata.frn_daily_indexes
   family: fiscaldata
   title: Treasury FRN daily indexes

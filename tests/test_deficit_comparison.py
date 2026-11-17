@@ -55,8 +55,12 @@ def make_legs(rng: np.random.Generator, tdc: np.ndarray | None = None) -> pd.Dat
                    + legs.row_tsy_tx - legs.row_tier2_regression_interest_proxy
                    + legs.fed_tsy_tx - legs.fed_tsy_coupon_interest_proxy + legs.fed_remit_positive
                    + legs.effective_mmf_rrp_adjustment_prop)
-    legs["treasury_operating_cash_tx"] = rng.normal(0, 40_000, n).round(3) if tdc is None else before_cash - tdc
-    legs["C"] = before_cash - legs["treasury_operating_cash_tx"]
+    # Treasury-Fed internal transfers move operating cash but not measured TDC (2020Q2, 2021Q1 magnitudes).
+    internal = pd.Series({pd.Period("2020Q2"): -18_375.0, pd.Period("2021Q1"): 9_122.0}).reindex(QUARTERS, fill_value=0.0)
+    legs["treasury_fed_internal_cash_tx"] = internal.to_numpy()
+    legs["treasury_operating_cash_tx"] = (rng.normal(0, 40_000, n).round(3) if tdc is None
+                                          else before_cash - tdc + legs["treasury_fed_internal_cash_tx"])
+    legs["C"] = before_cash - (legs["treasury_operating_cash_tx"] - legs["treasury_fed_internal_cash_tx"])
     legs["tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow"] = legs["C"]
     legs.insert(0, "quarter", QUARTERS.astype(str))
     return legs
@@ -79,7 +83,7 @@ def test_funding_legs_follow_the_published_leg_definitions_and_sum_to_measured_t
         - legs.bank_tier2_regression_interest_proxy,
         "foreign": legs.row_tsy_tx - legs.row_tier2_regression_interest_proxy,
         "fed": legs.fed_tsy_tx - legs.fed_tsy_coupon_interest_proxy + legs.fed_remit_positive,
-        "treasury_cash_drawdown": -legs.treasury_operating_cash_tx,
+        "treasury_cash_drawdown": -(legs.treasury_operating_cash_tx - legs.treasury_fed_internal_cash_tx),
         "mmf_on_rrp": legs.effective_mmf_rrp_adjustment_prop,
     }
     for key, values in expected.items():
@@ -138,6 +142,10 @@ def test_legs_that_do_not_reconcile_to_measured_tdc_raise(rng):
     broken.loc[60, "fed_tsy_tx"] += 1.0  # a leg moves while C does not
     with pytest.raises(ValueError, match=r"differ from C by (1\.0|0\.9999)"):
         build_comparison(broken, surplus, VINTAGE)
+    # Reading the cash leg on raw operating cash would book Treasury-Fed internal transfers as TDC.
+    raw_cash = legs.assign(treasury_fed_internal_cash_tx=0.0)
+    with pytest.raises(ValueError, match="differ from C by 18375"):
+        build_comparison(raw_cash, surplus, VINTAGE)
     relabeled = legs.copy()
     relabeled.loc[10, "tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow"] += 5.0
     with pytest.raises(ValueError, match="C differs from"):

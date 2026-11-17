@@ -76,6 +76,7 @@ def test_build_parser_exposes_expected_commands():
         "deficit-comparison-export",
         "interest-rate-debt-export",
         "weekly-trc-export",
+        "treasury-fed-transfer-export",
         "tdc-empirical-anchor",
         "du-ru-methodology",
         "route-admissibility-registry",

@@ -68,21 +68,20 @@ dates/months remain separate from holiday-shifted payment dates. A snapshot
 removal on a holiday maturity is deferred to the payment week under the same
 entitlement assumption, with its own reversing clock bridge.
 
-`J` corrects identifiable Treasury–Fed cash that has no direct reserve incidence.
-Dated DTS ESF cash must match a facility factor in sign and magnitude (weekly
-net or a single identifiable dated posting), or match an independently documented
-facility transfer in the event crosswalk. The May 11, 2020 corporate-credit
-transfer has independent Treasury confirmation: $37.5bn is applied while the
-remaining $10bn stock change stays candidate-only. Dated cash is examined even
-when the facility factor has zero change. Unmatched nonzero postings retain
-their cash dates, signed amounts and cash-candidate status separately from
-stock candidates; matched cash is excluded from that list once. A possibly
-delayed adjacent-week stock counterpart is not matched. Other cash/stock
-mismatches remain candidates. Cash-candidate coverage is limited to the pinned
-ESF query, 2020-01-01–2025-12-31; outside that window the cash input is
-unavailable, not zero. This is candidate reporting within that source and
-account perimeter, not a comprehensive Treasury–Fed cash crosswalk. SDR and gold entries lack a dated TGA/special-account cash
-crosswalk and are candidate-only. Neither a reclassification nor an unmatched
+`J` corrects Treasury–Fed cash that has no reserve incidence. It is read from
+the dated internal-transfer ledger (`tdc treasury-fed-transfer-export`) on DTS
+record dates: Treasury equity paid into or returned from the Federal Reserve
+credit-facility LLCs, identified by a match to the H.4.1 Treasury-contributions
+liability, and the LLCs' purchases and redemptions of nonmarketable Treasury
+securities. The H.4.1 contribution change less the dated equity cash in the same
+week (the reporting lag of the 2020-04-13 payment, returned earnings) stays a
+stock candidate. ESF economic-recovery postings without a contribution match are
+payments to or from nonbanks; they stay in core and are reported with their cash
+dates. Outside the DTS ESF window (from 2020-01-01) the cash candidates are
+unavailable, not zero. SDR and gold entries lack a dated Treasury-cash link: DTS
+Table II carries no posting for SDR certificate monetizations, which credit the
+Exchange Stabilization Fund's own Federal Reserve account. They stay
+candidate-only. Neither a reclassification nor an unmatched
 certificate account entry is mechanically added to core. Coin, Treasury currency,
 Treasury cash holdings, IORB and FIMA lending stay outside core.
 
@@ -182,7 +181,7 @@ same economic quantity on two clocks can be called pure timing.
 
 ## Reproduction
 
-Inputs are acquired through [fiscus](https://github.com/smkwray/fiscus), which looks up each dataset before fetching it. A local overlay, `config/fiscus_weekly_trc.yml`, adds the DTS Table II and FRN entries. The consolidated manifest pins every source file's hash, coverage, vintage and cache key, including dated Exchange Stabilization Fund cash. From the repository root, with a fiscus checkout at `../fiscus`:
+Inputs are acquired through [fiscus](https://github.com/smkwray/fiscus), which looks up each dataset before fetching it. A local overlay, `config/fiscus_weekly_trc.yml`, adds the DTS Table II, DTS Table III-A, MSPD nonmarketable and FRN entries. The consolidated manifest pins every source file's hash, coverage, vintage and cache key, including dated Exchange Stabilization Fund cash. From the repository root, with a fiscus checkout at `../fiscus`:
 
 ```
 python scripts/acquire_trc_inputs.py --registry weekly-trc --fiscus-project ../fiscus
@@ -191,7 +190,7 @@ python scripts/acquire_trc_inputs.py --registry weekly-trc --fiscus-project ../f
 Then, from a clean committed checkout:
 
 ```
-tdc weekly-trc-export --inputs-manifest-sha256 MANIFEST_SHA256 --ledger-sha256 LEDGER_SHA256 --trc-components-sha256 COMPONENTS_SHA256
+tdc weekly-trc-export --inputs-manifest-sha256 MANIFEST_SHA256 --ledger-sha256 LEDGER_SHA256 --trc-components-sha256 COMPONENTS_SHA256 --transfers-weekly-sha256 TRANSFERS_WEEKLY_SHA256
 pytest -m integration tests/test_weekly_trc.py
 ```
 
@@ -206,15 +205,17 @@ Source conventions: [Treasury settlement regulations, Appendix B](https://www.tr
 [Treasury rollovers](https://www.newyorkfed.org/markets/treasury-rollover-faq),
 [SOMA holdings](https://www.newyorkfed.org/markets/soma-holdings),
 [FRN daily indexes](https://www.treasurydirect.gov/auctions/announcements-data-results/frn-daily/),
-[DTS](https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/), and
-[Treasury's dated corporate-credit contribution](https://home.treasury.gov/news/press-releases/sm1007).
+and [DTS](https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/).
 
 
 ## Build readout
 
 The figures below come from the build with producer commit
 `1f19cc15a34d78f2627e3c274e4ca9f2a447fffe` and receipt SHA-256
-`6bcf0fc4cbb4b419fccd3d7b391b3e22d0a3df6501dd9fbfa49cc2d1f4e56fb4`.
+`6bcf0fc4cbb4b419fccd3d7b391b3e22d0a3df6501dd9fbfa49cc2d1f4e56fb4`. That build
+applied facility equity through a weekly stock match and left the facility LLCs'
+Treasury-securities purchases and redemptions in core, so its J and core figures
+for 2020–2025 differ from the internal-transfer ledger described above.
 
 All five output hashes match the receipt, and the quarterly inputs keep their
 hashes. Weekly Decimal identity errors and quarterly reserve telescoping errors
@@ -252,30 +253,6 @@ effectively par-valued.
 | 2008Q4 | 0.000 | 0.000 | unavailable | No stock candidate; dated cash unavailable |
 | 2009–2015 | 0.000 | 3.000 | unavailable | Certificate special-account cash link unobserved; dated cash unavailable |
 | 2016–2025 | -31.509 | 40.688 | 26.072 | Dated full/partial matches; stock mismatches; unmatched dated cash |
-
-Stock and cash candidate totals are separate descriptions and are not additive:
-a delayed counterpart can appear in both candidate classes. Signed net candidates
-are not uncertainty limits. Cash-candidate coverage is 313 complete weeks in the
-2020–2025 query; it is unavailable for 209 earlier/partial weeks of the 2016–2025
-era, and throughout the three earlier eras.
-
-The modern facility posting statuses comprise eleven
-`applied_dated_dts_facility_cash_match` weeks (+$5.991bn), one
-`applied_dated_cash_partial_stock_remainder_candidate` week (−$37.500bn applied,
-−$10.000bn stock remainder), and eight
-`candidate_only_dts_cash_stock_mismatch` weeks (+$40.688bn stock candidates).
-SDR candidates are +$3.000bn in 2009–2015 and +$10.000bn in 2016–2025 under
-`candidate_only_certificate_special_account_tga_link_unobserved`. Gold has zero
-signed net and $0.006bn absolute candidates in 2006Q1–2008Q3 under the same status.
-
-There are 219 weeks with `cash_candidate_only_no_same_week_stock_crosswalk`:
-+$26.072bn signed and $60.334bn absolute unmatched cash postings. Seven weeks
-have applied cash with no unmatched postings, and 87 have no nonzero cash
-candidate. Among the 219 candidate weeks, all **203 zero-stock-change weeks**
-retain their nonzero dated cash (signed net **−$15.107bn**).
-The 2020-04-13 withdrawal remains a **−$10.000bn cash candidate** in the week
-ending 2020-04-15 and is not applied. The 2020-05-11 **−$37.500bn** application
-is retained; its **−$10.000bn stock remainder** stays a candidate.
 
 | Reconciliation component | 2006Q1–2008Q3 | 2008Q4 | 2009–2015 | 2016–2025 | Total |
 | --- | --- | --- | --- | --- | --- |

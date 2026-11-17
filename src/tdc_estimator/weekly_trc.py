@@ -31,13 +31,14 @@ from pandas.tseries.holiday import (
 )
 
 from .catalog import (
-    DEFAULT_VINTAGE, WEEKLY_TRC_INTERNAL_MATCHES, WEEKLY_TRC_REGISTRY, MeasurementVintage, fiscus_registries,
+    DEFAULT_VINTAGE, WEEKLY_TRC_REGISTRY, MeasurementVintage, fiscus_registries,
 )
 from .mmf_rrp import ON_RRP_OPERATION_START
 from .reserve_factor_ledger import CASH_KEYS, RRP_OTHER_KEY, load_h41_rows
 from .tier2_regression_series import read_pinned_input, require_clean_commit
 from .trc_export import load_fiscus_inputs, TRC_OUTPUT_FILES
 from .reserve_factor_ledger import LEDGER_OUTPUT_FILES
+from .treasury_fed_transfers import OUTPUT_FILES as TRANSFER_OUTPUT_FILES, read_weekly_ledger
 from .treasury_support import extract_dts_operating_cash_balance
 
 D = Decimal
@@ -76,8 +77,8 @@ BOUNDARIES = [
     "Coupons are payment-date proxies on prior-week positions plus known primary allotments settling strictly before payment. Secondary entitlement is unobserved.",
     "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction references supply nominal payment-date CPI where available; issue ratios independently cross-check the reconstruction.",
     "FRN rates carry through a documented no-auction interval within the complete auction-query window; missing feed/rate observations remain unavailable. Published daily intervals start inclusive and end exclusive, with feed history from 2024-10-31.",
-    "Dated ESF cash is inspected independently of stock changes only within its pinned query window; outside-window candidates are unavailable. Unmatched postings retain their cash dates. No adjacent-week matching is applied.",
-    "J applies to dated DTS cash matched to the facility factor or an independently documented dated facility transfer; unmatched stock remainder stays candidate-only. Other stock changes, certificate special-account entries and unmatched DTS cash remain candidates, not zero-valued observed corrections.",
+    "J applies the dated Treasury-Fed internal-transfer ledger on DTS dates: facility equity matched to the H.4.1 Treasury-contributions liability and the credit-facility LLCs' purchases and redemptions of nonmarketable Treasury securities. The H.4.1 contribution change less the dated equity cash (reporting lag and returned earnings) stays candidate-only.",
+    "Unmatched ESF economic-recovery postings are payments to or from nonbanks and stay in core; they are reported with their cash dates within the DTS ESF window and are unavailable outside it. SDR certificate and gold stock changes remain candidates, not zero-valued observed corrections.",
     "Coin, Treasury currency, Treasury cash holdings, IORB and FIMA lending remain outside core.",
     "Secondary activity stays par-valued, with net unpriced par reported; gross secondary cash and churn are not measured.",
     "All-securities premiums/discounts are a reconciliation bridge, never a Treasury cash-price estimator.",
@@ -987,114 +988,52 @@ INTERNAL_FACTORS = (
 )
 
 
-def internal_postings(h, end, frame):
-    """Report stock and dated cash independently; only a same-week crosswalk applies J."""
-    cash = None
-    postings = []
-    window = None if frame is None else frame.attrs.get("query_window")
-    covered = window is None or (
-        pd.Timestamp(window[0]) <= end - pd.Timedelta(days=6)
-        and end <= pd.Timestamp(window[1])
-    )
-    if frame is not None and covered:
-        x = frame.loc[
-            (pd.to_datetime(frame.record_date) > end - pd.Timedelta(days=7))
-            & (pd.to_datetime(frame.record_date) <= end)
-            & frame.transaction_catg.eq("ESF - Economic Recovery Programs")
-            & frame.account_type.isin(
-                ["Federal Reserve Account", "Treasury General Account (TGA)"]
-            )
-        ]
-        if x.duplicated(["record_date", "transaction_type", "account_type"]).any():
-            raise ValueError("DTS internal cash: duplicate account/date/type")
-        if not x.transaction_type.isin(["Withdrawals", "Deposits"]).all():
-            raise ValueError("DTS internal cash: unknown transaction type")
-        postings = [
-            {
-                "date": r.record_date,
-                "transaction_type": r.transaction_type,
-                "amount": -decimal(r.transaction_today_amt)
-                if r.transaction_type == "Withdrawals"
-                else decimal(r.transaction_today_amt),
-            }
-            for r in x.itertuples()
-        ]
-        cash = sum((r["amount"] for r in postings), ZERO)
+def _ledger_value(value, label):
+    return None if value == "" else decimal(value, label)
+
+
+def internal_postings(h, end, transfers):
+    """Dated Treasury-Fed internal transfers from the ledger week; other internal factors stay candidates."""
+    key = str(end.date())
+    if key not in transfers.index:
+        raise ValueError(f"Treasury-Fed internal-transfer ledger has no week ending {key}")
+    week = transfers.loc[key]
+    equity = decimal(week.facility_equity_cash_tx, "transfer ledger facility equity")
+    securities = decimal(week.llc_treasury_securities_cash_tx, "transfer ledger LLC Treasury securities")
     out = {}
-    matched = set()
-    for key in INTERNAL_FACTORS:
-        candidate = decimal(h["f_" + key])
-        applied = ZERO
-        status = "no_stock_candidate"
-        if candidate:
-            status = "candidate_only_no_dated_tga_cash_crosswalk"
-            if key == "treasury_contributions_to_credit_facilities" and postings:
-                signed = [r["amount"] for r in postings]
-                if cash == candidate:
-                    applied = candidate
-                    matched = set(range(len(postings)))
-                    status = "applied_dated_dts_facility_cash_match"
-                elif signed.count(candidate) == 1:
-                    applied = candidate
-                    matched = {signed.index(candidate)}
-                    status = "applied_dated_dts_facility_cash_match"
-                else:
-                    status = "candidate_only_dts_cash_stock_mismatch"
-                    for match in WEEKLY_TRC_INTERNAL_MATCHES:
-                        eligible = [
-                            i
-                            for i, r in enumerate(postings)
-                            if r["date"] == match["date"]
-                            and r["transaction_type"] == match["transaction_type"]
-                            and r["amount"]
-                            == (
-                                -decimal(match["amount"])
-                                if match["transaction_type"] == "Withdrawals"
-                                else decimal(match["amount"])
-                            )
-                        ]
-                        if len(eligible) == 1:
-                            i = eligible[0]
-                            confirmed = postings[i]["amount"]
-                            if candidate * confirmed > ZERO and abs(confirmed) < abs(
-                                candidate
-                            ):
-                                applied = confirmed
-                                matched = {i}
-                                status = "applied_dated_cash_partial_stock_remainder_candidate"
-            elif key in ("sdr_certificate_account", "gold_stock"):
-                status = (
-                    "candidate_only_certificate_special_account_tga_link_unobserved"
-                )
-        out["j_" + key + "_applied"] = applied
-        out["j_" + key + "_candidate_only"] = candidate - applied
-        out["j_" + key + "_status"] = status
-    unmatched = [
-        r for i, r in enumerate(postings) if i not in matched and r["amount"] != ZERO
-    ]
+    for factor in INTERNAL_FACTORS:
+        candidate = decimal(h["f_" + factor])
+        if factor == "treasury_contributions_to_credit_facilities":
+            applied = equity
+            status = (
+                "no_stock_candidate" if not applied and not candidate
+                else "applied_dated_ledger_facility_equity" if applied == candidate
+                else "applied_dated_ledger_facility_equity_h41_remainder" if applied
+                else "h41_remainder_only_no_dated_equity"
+            )
+        else:
+            applied = ZERO
+            status = "candidate_only_certificate_special_account_tga_link_unobserved" if candidate else "no_stock_candidate"
+        out["j_" + factor + "_applied"] = applied
+        out["j_" + factor + "_candidate_only"] = candidate - applied
+        out["j_" + factor + "_status"] = status
+    out["j_facility_llc_treasury_securities_applied"] = securities
+    out["j_facility_llc_treasury_securities_status"] = week.llc_basis
+    cash = _ledger_value(week.esf_cash_tx, "transfer ledger ESF cash")
+    unmatched = _ledger_value(week.esf_unmatched_cash_tx, "transfer ledger unmatched ESF cash")
     out["j_facility_dts_cash_candidate"] = cash
-    out["j_facility_dts_cash_candidate_only"] = (
-        None if cash is None else sum((r["amount"] for r in unmatched), ZERO)
-    )
-    out["j_facility_dts_cash_candidate_only_absolute"] = (
-        None if cash is None else sum((abs(r["amount"]) for r in unmatched), ZERO)
-    )
-    out["j_facility_dts_cash_candidate_dates"] = "|".join(
-        r["date"] + ":" + str(r["amount"]) for r in unmatched
-    )
+    out["j_facility_dts_cash_candidate_only"] = unmatched
+    out["j_facility_dts_cash_candidate_only_absolute"] = _ledger_value(
+        week.esf_unmatched_abs, "transfer ledger unmatched ESF cash")
+    out["j_facility_dts_cash_candidate_dates"] = week.esf_unmatched_dates
     out["j_facility_dts_cash_status"] = (
-        "unavailable_dated_cash_input"
-        if cash is None
-        else "cash_candidate_only_no_same_week_stock_crosswalk"
-        if unmatched
-        else "applied_dated_cash_no_unmatched_postings"
-        if matched
+        "unavailable_dated_cash_input" if cash is None
+        else "unmatched_esf_cash_stays_in_core" if week.esf_unmatched_dates
+        else "applied_dated_cash_no_unmatched_postings" if equity
         else "no_nonzero_dated_cash_candidate"
     )
-    out["j_applied"] = sum((out["j_" + k + "_applied"] for k in INTERNAL_FACTORS), ZERO)
-    out["j_candidate_only"] = sum(
-        (out["j_" + k + "_candidate_only"] for k in INTERNAL_FACTORS), ZERO
-    )
+    out["j_applied"] = sum((out["j_" + k + "_applied"] for k in INTERNAL_FACTORS), ZERO) + securities
+    out["j_candidate_only"] = sum((out["j_" + k + "_candidate_only"] for k in INTERNAL_FACTORS), ZERO)
     return out
 
 
@@ -1149,18 +1088,7 @@ def build_weekly_trc(ledger, sources, registry=WEEKLY_TRC_REGISTRY):
         raise ValueError("FRN: duplicate daily accrual")
     frn_feed_semantics(sources["frn"])
     remits, remit_status = remittance_weeks(sources["remittances"], dates, holidays)
-    internal_dts = sources.get("internal_dts")
-    if internal_dts is not None:
-        internal_dts = internal_dts.copy()
-        spec = next(s for s in registry.inputs if s.key == "internal_dts")
-        query = next(
-            v.removeprefix("filter=") for v in spec.argv if v.startswith("filter=")
-        )
-        filters = dict(part.rsplit(":", 1) for part in query.split(","))
-        internal_dts.attrs["query_window"] = (
-            filters["record_date:gte"],
-            filters["record_date:lte"],
-        )
+    transfers = sources["treasury_fed_weekly"]
     daily_route = route_daily(
         sources["on_rrp"],
         auctions,
@@ -1259,7 +1187,7 @@ def build_weekly_trc(ledger, sources, registry=WEEKLY_TRC_REGISTRY):
             if fed is not None
             else None
         )
-        j = internal_postings(h, end, internal_dts)
+        j = internal_postings(h, end, transfers)
         par_core = total([cash, fed, None if coupon is None else -coupon, remit])
         clock_adjustment = (
             sum((r["settlement_clock_adjustment"] for r in changes), ZERO)
@@ -1560,12 +1488,13 @@ def quarter_tables(weekly, components):
         if quarter in comp.index:
             c = comp.loc[quarter]
             admitted_cash = decimal(c.trc_cash_leg)
+            admitted_internal = decimal(c.treasury_fed_internal_cash_tx)
             admitted_fed = decimal(c.fed_tsy_tx)
             admitted_coupon = decimal(c.fed_tsy_coupon_interest_proxy)
             admitted_remit = decimal(c.fed_remit_positive)
             row["admitted_quarterly_core"] = decimal(c.trc_core)
             row["difference_treasury_deposit_clock"] = total(
-                [row["c_h"], -admitted_cash]
+                [row["c_h"], -(admitted_cash - admitted_internal)]
             )
             row["difference_fed_source_par_vs_z1"] = total(
                 [row["fed_leg_par"], -admitted_fed]
@@ -1590,7 +1519,7 @@ def quarter_tables(weekly, components):
                 if row["redemption_inflation"] is None
                 else -row["redemption_inflation"]
             )
-            row["difference_internal_postings"] = row["j_applied"]
+            row["difference_internal_postings"] = total([row["j_applied"], -admitted_internal])
             row["difference_core"] = total(
                 [row["trc_core"], -row["admitted_quarterly_core"]]
             )
@@ -1812,7 +1741,7 @@ def column_contracts(tables):
         "route": "declared forward or reverse channel scenario; zero for core",
         "admitted_quarterly_core": "admitted trc_quarterly_components_v1:trc_core",
         "difference_core": "weekly-quarter trc_core - admitted quarterly trc_core",
-        "difference_treasury_deposit_clock": "weekly-quarter c_h - admitted trc_cash_leg",
+        "difference_treasury_deposit_clock": "weekly-quarter c_h - (admitted trc_cash_leg - admitted treasury_fed_internal_cash_tx)",
         "difference_fed_source_par_vs_z1": "weekly-quarter fed_leg_par - admitted fed_tsy_tx; source and par vs Z.1 valuation",
         "difference_coupon_measurement_clock": "admitted fed_tsy_coupon_interest_proxy - weekly-quarter soma_coupon_cash",
         "difference_remittance_source_clock": "weekly-quarter cash_remittances - admitted fed_remit_positive",
@@ -1861,20 +1790,24 @@ def column_contracts(tables):
             "bridge_internal_postings": "-j_applied",
             "difference_primary_cash_price": "weekly-quarter primary_cash_adjustment",
             "difference_redemption_inflation": "negative weekly-quarter redemption_inflation",
-            "difference_internal_postings": "weekly-quarter j_applied",
-            "j_applied": "sum supported dated Treasury-Fed cash matches",
-            "j_candidate_only": "sum signed internal factors lacking matched dated cash support; excluded from core",
-            "j_facility_dts_cash_candidate": "all signed dated DTS ESF cash independently of facility stock changes; deposits minus withdrawals",
-            "j_facility_dts_cash_candidate_only": "unmatched signed dated ESF postings after excluding matched cash once; no adjacent-week matching",
-            "j_facility_dts_cash_candidate_only_absolute": "sum absolute unmatched dated ESF postings; not an uncertainty bound",
-            "j_facility_dts_cash_candidate_dates": "cash dates and signed USD million for unmatched nonzero dated ESF postings",
+            "difference_internal_postings": "weekly-quarter j_applied - admitted treasury_fed_internal_cash_tx (DTS-date Wednesday weeks vs calendar quarter)",
+            "j_applied": "treasury_fed_transfers_weekly_v1: facility equity plus LLC Treasury-securities cash on DTS dates",
+            "j_candidate_only": "sum signed internal factors less applied dated cash; excluded from core",
+            "j_facility_llc_treasury_securities_applied": "treasury_fed_transfers_weekly_v1:llc_treasury_securities_cash_tx; LLC purchases less redemptions of nonmarketable Treasury securities",
+            "j_facility_dts_cash_candidate": "treasury_fed_transfers_weekly_v1:esf_cash_tx; all signed dated DTS ESF economic-recovery cash",
+            "j_facility_dts_cash_candidate_only": "treasury_fed_transfers_weekly_v1:esf_unmatched_cash_tx; ESF postings without an H.4.1 contribution match, kept in core",
+            "j_facility_dts_cash_candidate_only_absolute": "treasury_fed_transfers_weekly_v1:esf_unmatched_abs; not an uncertainty bound",
+            "j_facility_dts_cash_candidate_dates": "treasury_fed_transfers_weekly_v1:esf_unmatched_dates; cash dates and signed USD million",
             "rrp_others_vs_on_rrp_flow_bridge": "signed H.4.1 RRP-others factor + change in daily ON RRP principal; perimeters differ",
         }
     )
     for key in INTERNAL_FACTORS:
-        source["j_" + key + "_applied"] = "dated cash match to admitted ledger:f_" + key
+        source["j_" + key + "_applied"] = (
+            "treasury_fed_transfers_weekly_v1:facility_equity_cash_tx" if key == "treasury_contributions_to_credit_facilities"
+            else "none applied; no dated Treasury cash link"
+        )
         source["j_" + key + "_candidate_only"] = (
-            "admitted ledger:f_" + key + " less applied dated cash match"
+            "admitted ledger:f_" + key + " less applied dated cash"
         )
     metadata = {
         "date",
@@ -1928,7 +1861,8 @@ def column_contracts(tables):
 
 
 def write_weekly_trc_export(
-    *, root, inputs_manifest_sha256, ledger_sha256, trc_components_sha256, vintage: MeasurementVintage = DEFAULT_VINTAGE,
+    *, root, inputs_manifest_sha256, ledger_sha256, trc_components_sha256, transfers_weekly_sha256,
+    vintage: MeasurementVintage = DEFAULT_VINTAGE,
 ):
     registry = fiscus_registries(vintage)["weekly-trc"]
     quarter_end = vintage.weekly_quarter_end
@@ -1966,6 +1900,13 @@ def write_weekly_trc_export(
         trc_components_sha256,
         "admitted_quarterly_components",
     )
+    transfers_raw, transfers_record = read_pinned_input(
+        root,
+        root / "data/processed" / TRANSFER_OUTPUT_FILES["weekly"],
+        transfers_weekly_sha256,
+        "treasury_fed_transfers_weekly",
+    )
+    sources["treasury_fed_weekly"] = read_weekly_ledger(transfers_raw)
     weekly, identity, changes, daily = build_weekly_trc(
         pd.read_csv(io.BytesIO(ledger_raw), dtype=str), sources, registry
     )
@@ -2009,6 +1950,7 @@ def write_weekly_trc_export(
             "fiscus_inputs": records,
             "ledger": ledger_record,
             "quarterly_components": comp_record,
+            "treasury_fed_transfers_weekly": transfers_record,
         },
         "sample": {
             "first": weekly.date.iloc[0],
@@ -2136,7 +2078,6 @@ def write_weekly_trc_export(
                 if r["status"] != "source_reported"
             ],
         },
-        "internal_cash_event_crosswalk": list(WEEKLY_TRC_INTERNAL_MATCHES),
         "acquisition": {
             "fiscus": manifest.get("fiscus"),
             "manifest_sha256": inputs_manifest_sha256,

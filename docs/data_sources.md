@@ -22,7 +22,19 @@ These Financial Accounts (Z.1) series, downloaded from FRED, drive the baseline 
 
 Holdings-level counterparts of the Treasury and operating-cash series are also downloaded. They feed only the holdings-level sensitivities and diagnostics.
 
-The cash term is the Z.1 Treasury operating cash concept. Daily Treasury Statement (DTS) operating cash and the H.4.1 TGA series (`WDTGAL`) are diagnostics; neither replaces operating cash in years when Treasury Tax and Loan balances were material.
+The cash term is the Z.1 Treasury operating cash concept, net of Treasury–Federal Reserve internal transfers. Daily Treasury Statement (DTS) operating cash and the H.4.1 TGA series (`WDTGAL`) are diagnostics; neither replaces operating cash in years when Treasury Tax and Loan balances were material.
+
+## Treasury–Federal Reserve internal transfers
+
+`tdc treasury-fed-transfer-export` builds the dated ledger and writes the required support series `data/raw/support__treasury_fed_internal_cash_tx.csv` (USD million, calendar quarters by DTS date, every quarter from 2002Q1). Its inputs, acquired through fiscus with `scripts/acquire_trc_inputs.py --registry treasury-fed-transfers`, are:
+
+| Input | Source | Role |
+|---|---|---|
+| `dts_domestic_series` | DTS Table III-A public debt transactions, nonmarketable Domestic Series | LLC purchases and redemptions; zero-coupon maturities of another holder |
+| `mspd_domestic_series` | MSPD Table 3 nonmarketable detail, Domestic Series | Holder class (`SPV Demand` for the LLCs, zero-coupon bonds with maturity dates) |
+| `z1_llc_treasury_level` | Z.1 `FL503069203.Q` | LLC holdings level the DTS postings must reproduce |
+
+It also reads DTS Table II ESF economic-recovery cash (weekly-trc registry) and the H.4.1 Treasury-contributions liability `H41RESH4ENWW` (h41-ledger registry). Quarters before the DTS windows are zero because the contribution liability is zero on every published Wednesday before 2020 and the Z.1 LLC holdings level is zero; the quarterly table names that basis for each quarter.
 
 ## Federal Reserve remittances
 

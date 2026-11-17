@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tdc_estimator.catalog import TRC_FISCUS_INPUTS
+from tdc_estimator.catalog import MEASUREMENT_VINTAGES, TRC_FISCUS_INPUTS, trc_registry
 from tdc_estimator.cli import main
 from tdc_estimator.mmf_rrp import mmf_on_rrp_route_adjustment
 from tdc_estimator.settlement_routes import SettlementEvent, event_incidence, load_settlement_routes
@@ -510,24 +510,26 @@ def test_mmf_route_status_is_explicit_and_fails_closed():
         mmf_on_rrp_route_adjustment(broken)
 
 
+# The 2026q2 measurement vintage, with Treasury-Fed internal transfers out of the cash terms.
+REFRESH = MEASUREMENT_VINTAGES["2026q2"]
 FROZEN_HASHES = {
-    "tdc_regression_legs_v1.csv": "bea2379870d1f129d15ca183312a3682c863b565dcae58f18fbbd609ced340c6",
-    "quarterly_inputs.csv": "99f8a263ff5e1e9b89499f694d825954f226bf452f7626e33b2f4faa1a249bfe",
-    "tdc_tier2_regression_series.csv": "7457fdd4e8442ef2718489eb6ab0d3e7cf453496d8bc48e9eb49467355dcd6d5",
+    "tdc_regression_legs_v1.csv": "fb970059569bd7f3d8e18c84cd8a351bcbd67cdc0147cc34770efe886c3a7b1c",
+    "quarterly_inputs.csv": "1a1e06afd46412485f9e9f2314f2f95478041df2b94ddf947de6d03b1c929c49",
+    "tdc_tier2_regression_series.csv": "5e7663eb2883cb5652bf585b073d52ca006ce07239c55b4b2887772abb03e83e",
 }
 REFERENCE_EPISODES = {  # USD billion: (Z.1 reserve change, core plus proportional MMF route)
     "2008Q3": (182.8, -329.4), "2008Q4": (575.7, -28.8), "2009Q1": (-32.1, 111.4),
-    "2020Q2": (312.8, 46.5), "2021Q2": (-161.1, 530.0), "2021Q3": (347.6, 926.8),
-    "2023Q2": (-136.9, -277.1), "2023Q3": (19.8, -132.8), "2023Q4": (68.1, -1.7),
+    "2020Q2": (312.8, 28.1), "2021Q1": (677.8, 869.3), "2021Q2": (-161.1, 533.1), "2021Q3": (347.6, 928.9),
+    "2023Q2": (-136.9, -276.8), "2023Q3": (19.8, -132.8), "2023Q4": (68.1, -0.8),
 }
 # 2003-2007 is 0.011 because the 2006Q1 TGA change uses DTS at both endpoints;
 # a mixed H.4.1-to-DTS 2006Q1 change gives 0.010.
-REFERENCE_CORRELATIONS = {"2003Q1-2007Q4": 0.011, "2008Q1-2014Q4": 0.359, "2015Q1-2019Q4": 0.760, "2020Q1-2025Q4": 0.681}
+REFERENCE_CORRELATIONS = {"2003Q1-2007Q4": 0.011, "2008Q1-2014Q4": 0.359, "2015Q1-2019Q4": 0.760, "2020Q1-2026Q2": 0.679}
 
 
 @pytest.mark.integration
 def test_real_inputs_reproduce_reference_episodes(tmp_path, monkeypatch):
-    root = Path(os.environ.get("TDCEST_TRC_INTEGRATION_ROOT", ROOT))
+    root = Path(os.environ.get("TDCEST_TRC_INTEGRATION_ROOT", ROOT / "data" / "refresh_2026q2"))
     processed = root / "data" / "processed"
     required = [processed / name for name in FROZEN_HASHES] + [root / INPUTS_MANIFEST]
     missing = [str(path) for path in required if not path.exists()]
@@ -536,9 +538,10 @@ def test_real_inputs_reproduce_reference_episodes(tmp_path, monkeypatch):
     for name, expected in FROZEN_HASHES.items():
         assert sha(processed / name) == expected, name
     manifest = json.loads((root / INPUTS_MANIFEST).read_text())
-    frames, _ = load_fiscus_inputs(root, manifest)
+    frames, _ = load_fiscus_inputs(root, manifest, trc_registry(REFRESH))
     comp, stats = build_trc_components(TrcInputs(
-        pd.read_csv(processed / "tdc_regression_legs_v1.csv"), pd.read_csv(processed / "quarterly_inputs.csv"), frames))
+        pd.read_csv(processed / "tdc_regression_legs_v1.csv"), pd.read_csv(processed / "quarterly_inputs.csv"), frames,
+        REFRESH))
     comp = comp.set_index("quarter")
     for quarter, (reserves, trc) in REFERENCE_EPISODES.items():
         assert round(comp.loc[quarter, "delta_rb_z1"] / 1e3, 1) == reserves, quarter
@@ -547,6 +550,9 @@ def test_real_inputs_reproduce_reference_episodes(tmp_path, monkeypatch):
     assert {window: round(value, 3) for window, value in observed.items()} == REFERENCE_CORRELATIONS
     assert comp.loc["2002Q1":"2002Q4", "trc_preferred"].isna().all()
     assert stats["sfp_change_dts_vs_z1"]["max_abs_difference"] == 0
+    # The facility episode: TRC nets out the internal transfers that Z.1 operating cash carries.
+    assert comp.loc["2020Q2", "treasury_fed_internal_cash_tx"] == -18375
+    assert comp.loc["2020Q2", "trc_cash_leg"] == -comp.loc["2020Q2", "delta_tga"] - comp.loc["2020Q2", "delta_sfp"] - 18375
     # This branch reproduces the frozen leg table byte for byte from its pinned inputs.
     rebuilt = tmp_path / "data" / "processed"
     rebuilt.mkdir(parents=True)
@@ -559,6 +565,6 @@ def test_real_inputs_reproduce_reference_episodes(tmp_path, monkeypatch):
         regression_path=rebuilt / "tdc_tier2_regression_series.csv",
         quarterly_sha256=FROZEN_HASHES["quarterly_inputs.csv"],
         regression_sha256=FROZEN_HASHES["tdc_tier2_regression_series.csv"],
-        out_path=rebuilt / "tdc_regression_legs_v1.csv", receipt_path=rebuilt / "receipt.json",
+        out_path=rebuilt / "tdc_regression_legs_v1.csv", receipt_path=rebuilt / "receipt.json", vintage=REFRESH,
     )
     assert sha(rebuilt / "tdc_regression_legs_v1.csv") == FROZEN_HASHES["tdc_regression_legs_v1.csv"]

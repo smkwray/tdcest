@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tdc_estimator.catalog import H41_LEDGER_REGISTRY, H41_TABLE1_ROWS, H41Row
+from tdc_estimator.catalog import H41_LEDGER_REGISTRY, H41_TABLE1_ROWS, MEASUREMENT_VINTAGES, H41Row
 from tdc_estimator.cli import main
 from tdc_estimator.reserve_factor_ledger import (
     AFTER_ROW,
@@ -481,16 +481,17 @@ def test_cli_exports_hash_bound_outputs_and_never_touches_trc(tmp_path, base):
         main(ledger_args(tmp_path, hashes))
 
 
+# Quarterly TRC of the 2026q2 vintage, with Treasury-Fed internal transfers out of the cash leg.
 ADMITTED_TRC_HASHES = {
-    "trc_quarterly_components_v1.csv": "bb7058c70d88adf85fde6f64ce263390c1d310d4c70be07583960eef0d52b7e9",
-    "trc_quarterly_series_v1.csv": "f06560b0d8ae5c8dd2639956aa4d5818ab0a8eea3a6bb5ef53e64ea3c69a5de9",
-    "trc_route_registry_v1.csv": "6dd3e4f533ed749b784029366f394f0c742d0c4523527466b0cb9c801ee8ece6",
+    "trc_quarterly_components_v1.csv": "81ace27e658bf7a384fb51c2a2c0595cf92ee24c213a8cac74b51e92a7612b21",
+    "trc_quarterly_series_v1.csv": "6b2e6a4e584059cf7bcf0b22c919517130a40c06508b16f3bddbe55638cad3e2",
+    "trc_route_registry_v1.csv": "90f6374dd92b44c257dc2d37c3b823d31e709197cffc3e21c5e854e87fda0d03",
 }
 
 
 @pytest.mark.integration
 def test_real_ledger_closes_and_bridges_the_admitted_trc():
-    root = Path(os.environ.get("TDCEST_LEDGER_INTEGRATION_ROOT", ROOT))
+    root = Path(os.environ.get("TDCEST_LEDGER_INTEGRATION_ROOT", ROOT / "data" / "refresh_2026q2"))
     processed = root / "data" / "processed"
     required = [root / H41_LEDGER_REGISTRY.manifest, *(processed / name for name in ADMITTED_TRC_HASHES)]
     missing = [str(path) for path in required if not path.exists()]
@@ -500,7 +501,8 @@ def test_real_ledger_closes_and_bridges_the_admitted_trc():
         assert sha(processed / name) == expected, name
     manifest = json.loads((root / H41_LEDGER_REGISTRY.manifest).read_text())
     frames, _ = load_fiscus_inputs(root, manifest, H41_LEDGER_REGISTRY)
-    result = build_reserve_factor_ledger(frames, pd.read_csv(processed / "trc_quarterly_components_v1.csv"))
+    result = build_reserve_factor_ledger(frames, pd.read_csv(processed / "trc_quarterly_components_v1.csv"),
+                                         MEASUREMENT_VINTAGES["2026q2"])
     closure = result.stats["weekly_closure"]
     assert closure["rho_level"]["max_ratio_to_bound"] < 1 and closure["rho"]["max_ratio_to_bound"] < 1
     bridges = result.stats["bridges"]
@@ -508,7 +510,10 @@ def test_real_ledger_closes_and_bridges_the_admitted_trc():
     assert bridges["bridge_cash_max_abs_2003Q1_2005Q4_same_h41_clock"] == 0
     assert bridges["admitted_y_z_minus_fetched_fu713113003_max_abs"] == 0
     for variant in VARIANTS:
-        assert bridges["identity"][variant] == {"max_abs_identity_error": pytest.approx(0, abs=1e-6), "n_reconciled": 92}
+        assert bridges["identity"][variant] == {"max_abs_identity_error": pytest.approx(0, abs=1e-6), "n_reconciled": 94}
+    preferred = result.bridges.set_index(["quarter", "trc_variant"]).xs("trc_preferred", level="trc_variant")
+    # The 2020Q2 facility transfers sit in their own bridge, not in the Treasury-deposit clock bridge.
+    assert preferred.loc["2020Q2", "bridge_internal_transfers"] == 18375
     sfp = result.weekly.set_index("date")["f_supplementary_financing_account"]
     assert sfp.loc["2008-09-24"] == -159806  # first SFP Wednesday drains reserves
     assert result.quarterly["quarter"].iloc[0] == "2003Q1"

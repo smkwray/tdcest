@@ -272,14 +272,15 @@ def test_periods_come_from_the_single_config_definition(tmp_path, rng, monkeypat
         export(tmp_path, legs_sha, manifest_sha)
 
 
-# Full-window figures from the 2026q2 legs and FRED MTSDS133FMS read 2026-11-15, USD million.
-RETAINED_LEGS_SHA256 = "3da1a39412194932415a3000247b9f06ef0e632c6d3c566232fa997ec512ae70"
-RETAINED_FULL_WINDOW = {"tdc_cumulative": 12_797_945.6, "deficit_cumulative": 25_748_288.6,
+# Full-window figures from the 2026q2 legs (Treasury-Fed internal transfers out of the cash leg) and
+# FRED MTSDS133FMS read 2026-11-15, USD million.
+RETAINED_LEGS_SHA256 = "fb970059569bd7f3d8e18c84cd8a351bcbd67cdc0147cc34770efe886c3a7b1c"
+RETAINED_FULL_WINDOW = {"tdc_cumulative": 12_797_929.6, "deficit_cumulative": 25_748_288.6,
                         "banks_cumulative": 1_548_997.5, "foreign_cumulative": 5_718_595.4,
-                        "fed_cumulative": 3_904_479.2, "treasury_cash_drawdown_cumulative": -866_793.0,
+                        "fed_cumulative": 3_904_479.2, "treasury_cash_drawdown_cumulative": -866_809.0,
                         "mmf_on_rrp_cumulative": 2_492_666.6}
 RETAINED_RATIOS = {"2002Q1-2026Q2": 0.49704, "2002Q1-2007Q4": 0.65952, "2008Q1-2019Q4": 0.53048,
-                   "2020Q1-2021Q4": 0.85725, "2022Q1-2026Q2": 0.13601}
+                   "2020Q1-2021Q4": 0.85682, "2022Q1-2026Q2": 0.13634}
 
 
 @pytest.mark.integration

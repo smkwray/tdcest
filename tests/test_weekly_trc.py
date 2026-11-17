@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal as D
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -553,7 +554,7 @@ def test_cli_receipt_pins_clean_producer_and_preserves_all_admitted_outputs(tmp_
 
 @pytest.mark.integration
 def test_live_weekly_export_has_verified_receipt_and_exact_identity():
-    root = Path(__file__).resolve().parents[1]
+    root = Path(os.environ.get("TDCEST_WEEKLY_ROOT", Path(__file__).resolve().parents[1] / "data" / "refresh_2026q2"))
     receipt = json.loads((root / "data/processed" / OUTPUTS["receipt"]).read_text())
     for entry in receipt["outputs"].values():
         assert sha(root / entry["path"]) == entry["sha256"]
@@ -600,6 +601,13 @@ def test_live_weekly_export_has_verified_receipt_and_exact_identity():
     ).set_index("date")
     assert all(
         D(row.c_h) == D(ledger.loc[row.date, "c_h"]) for row in weekly.itertuples()
+    )
+    # J applies exactly the dated Treasury-Fed internal-transfer ledger, week by week.
+    transfers = pd.read_csv(
+        root / "data/processed" / TRANSFER_OUTPUT_FILES["weekly"], dtype=str, keep_default_na=False
+    ).set_index("date")
+    assert all(
+        D(row.j_applied) == D(transfers.loc[row.date, "internal_cash_tx"]) for row in weekly.itertuples()
     )
     for row in daily.to_dict("records"):
         assert D(row["route_baseline"]) == 0

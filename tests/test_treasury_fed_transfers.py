@@ -259,3 +259,47 @@ def test_cli_writes_hash_bound_ledger_and_support_file(tmp_path, monkeypatch):
     (tmp_path / "dirty.txt").unlink()
     with pytest.raises(ValueError, match="hash mismatch"):
         main([*args[:4], "0" * 64, *args[5:]])
+
+
+@pytest.mark.integration
+def test_retained_2026q2_inputs_reproduce_the_ledger():
+    import os
+    from pathlib import Path
+
+    from tdc_estimator.trc_export import load_fiscus_inputs
+    from tdc_estimator.treasury_fed_transfers import query_window, support_frame
+
+    root = Path(os.environ.get("TDCEST_TRANSFERS_ROOT", Path(__file__).resolve().parents[1] / "data" / "refresh_2026q2"))
+    vintage = MEASUREMENT_VINTAGES["2026q2"]
+    registries = fiscus_registries(vintage)
+    receipt_path = root / "data/processed" / OUTPUT_FILES["receipt"]
+    needed = [receipt_path, *(root / registries[n].manifest for n in ["treasury-fed-transfers", "weekly-trc", "h41-ledger"])]
+    missing = [str(p) for p in needed if not p.exists()]
+    if missing:
+        pytest.fail(f"integration inputs absent: {missing}")
+    frames = {name: load_fiscus_inputs(root, json.loads((root / registries[name].manifest).read_text()), registries[name])[0]
+              for name in ["treasury-fed-transfers", "weekly-trc", "h41-ledger"]}
+
+    def window(name, key):
+        return query_window(next(s for s in registries[name].inputs if s.key == key).argv)
+
+    ledger = build_treasury_fed_transfers(
+        esf_frame=frames["weekly-trc"]["internal_dts"], esf_window=window("weekly-trc", "internal_dts"),
+        contributions_frame=frames["h41-ledger"]["treasury_contributions_to_credit_facilities"],
+        domestic_series_frame=frames["treasury-fed-transfers"]["dts_domestic_series"],
+        domestic_series_window=window("treasury-fed-transfers", "dts_domestic_series"),
+        mspd_frame=frames["treasury-fed-transfers"]["mspd_domestic_series"],
+        z1_frame=frames["treasury-fed-transfers"]["z1_llc_treasury_level"], vintage=vintage)
+    receipt = json.loads(receipt_path.read_text())
+    payloads = {role: getattr(ledger, role).to_csv(index=False, lineterminator="\n").encode() for role in
+                ["postings", "quarterly", "weekly"]}
+    payloads["support"] = support_frame(ledger.quarterly).to_csv(index=False, lineterminator="\n").encode()
+    for role, data in payloads.items():
+        assert hashlib.sha256(data).hexdigest() == receipt["outputs"][role]["sha256"], role
+    q = ledger.quarterly.set_index("quarter")["internal_cash_tx"]
+    # 2020Q2: 114,000 of facility equity paid out less 95,625 of LLC Treasury purchases.
+    assert q["2020Q2"] == -18375 and q["2021Q1"] == 9122 and q.loc[:"2020Q1"].eq(0).all()
+    assert ledger.stats["facility_equity_matches"]["n_h41_changes"] == 21
+    assert ledger.stats["z1_reconciliation_max_ratio_to_bound"] < 1
+    assert ledger.stats["zero_coupon_maturities_in_dts_window"] == [
+        "2019-10-15:-4522", "2020-07-15:-5026", "2020-10-15:-5003", "2021-01-15:-4941"]

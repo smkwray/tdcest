@@ -59,7 +59,8 @@ OUTPUT_FILES = {
 }
 ESF_INPUT = ("weekly-trc", "internal_dts")
 CONTRIBUTIONS_INPUT = ("h41-ledger", "treasury_contributions_to_credit_facilities")
-EQUITY, LLC = "facility_equity", "llc_treasury_securities"
+# Source families of the postings; the classification column names what each posting is.
+ESF, DOMESTIC = "esf_economic_recovery", "domestic_series"
 INTERNAL_CLASSES = {"facility_equity_payment", "facility_equity_return", "llc_purchase", "llc_redemption"}
 DEFINITIONS = {
     "cash_effect": "Effect on Treasury operating cash, USD million, on the DTS record date",
@@ -128,7 +129,7 @@ def esf_postings(frame: pd.DataFrame) -> pd.DataFrame:
     amount = _numeric(rows["transaction_today_amt"], "DTS ESF cash")
     out = pd.DataFrame({
         "date": pd.to_datetime(rows["record_date"], format="%Y-%m-%d", errors="raise"),
-        "leg": EQUITY, "source": "dts_table_ii_esf_economic_recovery",
+        "family": ESF, "source": "dts_table_ii_esf_economic_recovery",
         "dts_line": rows["transaction_type"] + ":" + rows["account_type"], "amount": amount,
         "cash_effect": np.where(rows["transaction_type"].eq("Withdrawals"), -amount, amount),
     })
@@ -274,7 +275,7 @@ def classify_domestic_series(rows: pd.DataFrame, maturities: pd.DataFrame, first
                              ) -> pd.DataFrame:
     """Nonzero Domestic Series postings by holder; LLC issues split into purchases and reinvested interest."""
     postings = rows.loc[rows["amount"].ne(0)].copy()
-    postings["leg"] = LLC
+    postings["family"] = DOMESTIC
     postings["source"] = "dts_table_iiia_domestic_series"
     postings["dts_line"] = postings["transaction_type"]
     postings["cash_effect"] = np.where(postings["transaction_type"].eq("Issues"), postings["amount"], -postings["amount"])
@@ -307,7 +308,7 @@ def classify_domestic_series(rows: pd.DataFrame, maturities: pd.DataFrame, first
         postings.loc[i, "classification"] = "llc_capitalized_interest" if row["amount"] <= bound else "llc_purchase"
         outstanding += row["amount"]
         last_issue = row["date"]
-    return postings[["date", "leg", "source", "dts_line", "amount", "cash_effect", "classification"]]
+    return postings[["date", "family", "source", "dts_line", "amount", "cash_effect", "classification"]]
 
 
 def reconcile_llc_holdings(rows: pd.DataFrame, postings: pd.DataFrame, z1_level: pd.Series,
@@ -319,7 +320,7 @@ def reconcile_llc_holdings(rows: pd.DataFrame, postings: pd.DataFrame, z1_level:
     rounding of the totals it uses: half a million per total, per removed posting and for Z.1.
     """
     llc = postings.loc[postings["classification"].str.startswith("llc_")]
-    other = postings.loc[postings["leg"].eq(LLC) & ~postings["classification"].str.startswith("llc_")]
+    other = postings.loc[postings["family"].eq(DOMESTIC) & ~postings["classification"].str.startswith("llc_")]
     first = llc["date"].min() if len(llc) else None
     out = []
     for quarter in quarters:
@@ -373,14 +374,14 @@ def _sums(frame: pd.DataFrame, key: str) -> pd.DataFrame:
     unmatched = frame.loc[frame["classification"].eq("esf_unmatched")]
     labels = unmatched["date"].dt.strftime("%Y-%m-%d") + ":" + unmatched["cash_effect"].map("{:g}".format)
     return pd.DataFrame({
-        "facility_equity_cash_tx": internal.loc[internal["leg"].eq(EQUITY)].groupby(key)["cash_effect"].sum(),
-        "llc_treasury_securities_cash_tx": internal.loc[internal["leg"].eq(LLC)].groupby(key)["cash_effect"].sum(),
+        "facility_equity_cash_tx": internal.loc[internal["family"].eq(ESF)].groupby(key)["cash_effect"].sum(),
+        "llc_treasury_securities_cash_tx": internal.loc[internal["family"].eq(DOMESTIC)].groupby(key)["cash_effect"].sum(),
         "llc_capitalized_interest_memo": frame.loc[frame["classification"].eq("llc_capitalized_interest")
                                                    ].groupby(key)["amount"].sum(),
         "other_domestic_series_cash_tx": frame.loc[frame["classification"].isin(
             ["zero_coupon_maturity", "domestic_series_before_llc"])].groupby(key)["cash_effect"].sum(),
         "n_internal_postings": internal.groupby(key).size(),
-        "esf_cash_tx": frame.loc[frame["leg"].eq(EQUITY)].groupby(key)["cash_effect"].sum(),
+        "esf_cash_tx": frame.loc[frame["family"].eq(ESF)].groupby(key)["cash_effect"].sum(),
         "esf_unmatched_cash_tx": unmatched.groupby(key)["cash_effect"].sum(),
         "esf_unmatched_abs": unmatched["cash_effect"].abs().groupby(unmatched[key]).sum(),
         "esf_unmatched_dates": labels.groupby(unmatched[key]).agg("|".join),
@@ -431,7 +432,7 @@ def build_treasury_fed_transfers(
     ], ignore_index=True)
     postings["internal_cash_effect"] = np.where(
         postings["classification"].isin(INTERNAL_CLASSES), postings["cash_effect"], 0.0)
-    postings = postings.sort_values(["date", "leg", "dts_line"], kind="stable").reset_index(drop=True)
+    postings = postings.sort_values(["date", "family", "dts_line"], kind="stable").reset_index(drop=True)
     postings["quarter"] = postings["date"].dt.to_period("Q").astype(str)
     postings["week_ending"] = (postings["date"] + pd.to_timedelta((2 - postings["date"].dt.weekday) % 7, unit="D")
                                ).dt.strftime("%Y-%m-%d")

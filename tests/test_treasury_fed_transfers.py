@@ -112,7 +112,7 @@ def postings_by_date(ledger):
 
 def test_h41_lag_and_earnings_inclusive_return_classify_as_facility_equity():
     ledger = build()
-    esf = ledger.postings.loc[ledger.postings.leg.eq("facility_equity")].set_index("date")
+    esf = ledger.postings.loc[ledger.postings.family.eq("esf_economic_recovery")].set_index("date")
     # The April payment matches the 2020-05-13 H.4.1 change together with the May payment.
     assert esf.loc[["2020-04-13", "2020-05-11"], "match_wednesday"].eq("2020-05-13").all()
     assert esf.loc[["2020-04-13", "2020-05-11"], "classification"].eq("facility_equity_payment").all()

@@ -43,6 +43,8 @@ data/site/*
 
 # Versioned measurement refresh roots (raw, processed, receipts); each is a full --root tree.
 data/refresh_*/
+# Corrected v1 root (admitted v1 inputs rerun through a corrected method); a full --root tree.
+data/v1_tfx/
 
 # Plans
 *.plan.md

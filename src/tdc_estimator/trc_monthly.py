@@ -9,7 +9,9 @@ term is the calendar-month sum of the fund-month adjustments from SEC Form
 N-MFP (month-end holdings), the same fund-months whose quarterly sums enter the
 quarterly preferred TRC, so the two clocks differ by at most the days between
 the last Wednesday and month end. Before the ON RRP mechanism (2013-09) the
-route is zero by definition; after the last filed month it is missing.
+route is zero by definition; after the last filed month it is missing. The par
+sensitivity sums the uncorrected weekly par sensitivity, which keeps the
+Treasury-Fed internal transfers that core removes.
 """
 from __future__ import annotations
 

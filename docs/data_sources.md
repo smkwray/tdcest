@@ -34,7 +34,14 @@ The cash term is the Z.1 Treasury operating cash concept, net of Treasury–Fede
 | `mspd_domestic_series` | MSPD Table 3 nonmarketable detail, Domestic Series | Holder class (`SPV Demand` for the LLCs, zero-coupon bonds with maturity dates) |
 | `z1_llc_treasury_level` | Z.1 `FL503069203.Q` | LLC holdings level the DTS postings must reproduce |
 
-It also reads DTS Table II ESF economic-recovery cash (weekly-trc registry) and the H.4.1 Treasury-contributions liability `H41RESH4ENWW` (h41-ledger registry). Quarters before the DTS windows are zero because the contribution liability is zero on every published Wednesday before 2020 and the Z.1 LLC holdings level is zero; the quarterly table names that basis for each quarter.
+It also reads DTS Table II ESF economic-recovery cash and the DTS Table II Federal Reserve earnings line, published on every DTS date, as the publication calendar (weekly-trc registry), and the H.4.1 Treasury-contributions liability `H41RESH4ENWW` (h41-ledger registry). Quarters before the DTS windows are zero because the contribution liability is zero on every published Wednesday before 2020 and the Z.1 LLC holdings level is zero; the quarterly table names that basis for each quarter.
+
+Rules, with parameters in `catalog.TREASURY_FED_TRANSFER_RULES`:
+
+- Every DTS publication date in the window carries both Domestic Series lines, and each daily amount equals the step in its fiscal-year-to-date total within 1.5 million. From its first posting, every publication date carries the ESF line; ESF fiscal-year-to-date totals carry revisions and are not used.
+- An ESF receipt or payment carries facility equity when it matches an H.4.1 contribution change. Its internal part is the equity principal plus components that `catalog.TREASURY_FED_SETTLEMENT_EXCEPTIONS` documents as Federal Reserve-account settlements (each row names the facility, date, amount, settling account, component and source). Excess cash not documented that way stays in the cash term as facility earnings whose settlement account is unverified. Cash within 1 million of the principal is all principal. When the cash is smaller than the equity reduction, all of it is principal and the rest of the reduction moved no Treasury cash.
+- Unmatched ESF cash is unclassified and stays in the cash term: its counterparty and settlement account are unverified.
+- SDR certificate monetizations have no DTS Table II posting; their Treasury-cash incidence through a later ESF investment is unresolved, and they stay outside the ledger.
 
 ## Federal Reserve remittances
 

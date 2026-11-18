@@ -63,7 +63,7 @@ Written by `tdc reserve-factor-ledger-export`, with receipt `reserve_factor_ledg
 
 ### Weekly and monthly TRC
 
-The weekly outputs (`trc_weekly_*_v1.csv`, receipt `trc_weekly_v1_receipt.json`) are described in [weekly TRC conventions](weekly_trc.md). `scripts/export_trc_monthly.py` writes monthly TRC on a last-Wednesday clock with a receipt; a month is reported only when every one of its weeks has core TRC.
+The weekly outputs (`trc_weekly_*_v1.csv`, receipt `trc_weekly_v1_receipt.json`) are described in [weekly TRC conventions](weekly_trc.md). `scripts/export_trc_monthly.py` writes monthly TRC on a last-Wednesday clock with a receipt; a month is reported only when every one of its weeks has core TRC. Weekly and monthly `trc_par_sensitivity` is uncorrected: it keeps the Treasury–Fed internal transfers.
 
 ### Bank balance-sheet composition: `bank_composition_*_v1.csv`
 

@@ -266,7 +266,7 @@ def ledger_week(date=END, **values):
 @pytest.mark.parametrize("cash,candidate", [(-100, -100), (100, 100)])
 def test_internal_cash_and_return_neutral(cash, candidate):
     # Equity paid (TGA -100, liability +100) or returned: applied cash offsets c_h exactly.
-    j = internal_postings(internal_h(candidate), END, ledger_week(facility_equity_cash_tx=cash, esf_cash_tx=cash))
+    j = internal_postings(internal_h(candidate), END, ledger_week(facility_internal_cash_tx=cash, esf_cash_tx=cash))
     assert j["j_applied"] == cash and -D(cash) + j["j_applied"] == 0
     assert j["j_candidate_only"] == 0
     assert j["j_treasury_contributions_to_credit_facilities_status"] == "applied_dated_ledger_facility_equity"
@@ -614,23 +614,23 @@ def test_holiday_payment_and_nominal_maturity_month_separate():
 def test_h41_reporting_lag_leaves_a_stock_remainder_not_core():
     # 2020-04-13 equity reaches H.4.1 only in the 2020-05-13 week; the cash applies on its DTS week.
     april = pd.Timestamp("2020-04-15")
-    j = internal_postings(internal_h(0), april, ledger_week(april, facility_equity_cash_tx=-10000))
+    j = internal_postings(internal_h(0), april, ledger_week(april, facility_internal_cash_tx=-10000))
     assert j["j_applied"] == -10000 and j["j_candidate_only"] == 10000
     may = pd.Timestamp("2020-05-13")
-    j = internal_postings(internal_h(-47500), may, ledger_week(may, facility_equity_cash_tx=-37500))
+    j = internal_postings(internal_h(-47500), may, ledger_week(may, facility_internal_cash_tx=-37500))
     assert j["j_applied"] == -37500 and j["j_candidate_only"] == -10000
     assert j["j_treasury_contributions_to_credit_facilities_status"] == (
         "applied_dated_ledger_facility_equity_h41_remainder")
 
 
-def test_unmatched_esf_cash_is_reported_and_stays_in_core():
+def test_retained_esf_cash_is_reported_and_stays_in_core():
     j = internal_postings(internal_h(41294), END, ledger_week(
-        facility_equity_cash_tx=41294, esf_cash_tx=41117, esf_unmatched_cash_tx=-177, esf_unmatched_abs=177,
-        esf_unmatched_dates="2022-01-03:-177"))
+        facility_internal_cash_tx=41294, esf_cash_tx=41117, esf_retained_cash_tx=-177, esf_retained_abs=177,
+        esf_retained_dates="2022-01-03:-177"))
     assert j["j_applied"] == 41294 and j["j_facility_dts_cash_candidate"] == 41117
     assert j["j_facility_dts_cash_candidate_only"] == -177
     assert j["j_facility_dts_cash_candidate_dates"] == "2022-01-03:-177"
-    assert j["j_facility_dts_cash_status"] == "unmatched_esf_cash_stays_in_core"
+    assert j["j_facility_dts_cash_status"] == "retained_esf_cash_stays_in_core"
 
 
 def test_tips_contract_index_preferred_over_revised_cpi():
@@ -844,7 +844,7 @@ def test_auction_only_unknown_pre_payment_coupon_entitlement_is_unavailable():
 
 
 def test_cash_candidate_outside_the_dts_window_is_unavailable():
-    week = ledger_week(pd.Timestamp("2019-12-25"), esf_cash_tx="", esf_unmatched_cash_tx="", esf_unmatched_abs="",
+    week = ledger_week(pd.Timestamp("2019-12-25"), esf_cash_tx="", esf_retained_cash_tx="", esf_retained_abs="",
                        equity_basis="zero_h41_contribution_liability_zero")
     j = internal_postings(internal_h(), pd.Timestamp("2019-12-25"), week)
     assert j["j_applied"] == 0 and j["j_candidate_only"] == 0

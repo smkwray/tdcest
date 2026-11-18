@@ -96,9 +96,9 @@ def auction(
 def transfer_ledger(dates, weeks=None):
     """Treasury-Fed weekly ledger stand-in with every DTS window open: no transfers unless ``weeks`` names them."""
     frame = pd.DataFrame({
-        "date": [str(pd.Timestamp(d).date()) for d in dates], "facility_equity_cash_tx": "0.0",
+        "date": [str(pd.Timestamp(d).date()) for d in dates], "facility_internal_cash_tx": "0.0",
         "llc_treasury_securities_cash_tx": "0.0", "internal_cash_tx": "0.0", "esf_cash_tx": "0.0",
-        "esf_unmatched_cash_tx": "0.0", "esf_unmatched_abs": "0.0", "esf_unmatched_dates": "",
+        "esf_retained_cash_tx": "0.0", "esf_retained_abs": "0.0", "esf_retained_dates": "",
         "equity_basis": "dts_esf_postings_matched_to_h41", "llc_basis": "dts_domestic_series_postings",
     }).set_index("date")
     for date, values in (weeks or {}).items():
@@ -304,7 +304,7 @@ def test_facility_equity_and_llc_treasury_purchase_leave_weekly_core_unchanged()
     ledger.loc[week, "c_h"] = str(equity - purchase)
     ledger.loc[week, "f_treasury_contributions_to_credit_facilities"] = str(-equity)
     ledger.loc[week, "f_ms_facilities_llc"] = str(purchase)
-    transfers = {"2022-01-05": {"facility_equity_cash_tx": -equity, "llc_treasury_securities_cash_tx": purchase,
+    transfers = {"2022-01-05": {"facility_internal_cash_tx": -equity, "llc_treasury_securities_cash_tx": purchase,
                                 "internal_cash_tx": purchase - equity, "esf_cash_tx": -equity}}
     sources["treasury_fed_weekly"] = transfer_ledger(ledger.date, transfers)
     weekly, identity = build_weekly_trc(ledger, sources, WEEKLY_TRC_REGISTRY)[:2]

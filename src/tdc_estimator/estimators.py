@@ -652,6 +652,14 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         ):
             estimates[key] = _from_date(estimates[key], tx_start)
 
+    # Operating-cash level change for the holdings-level sensitivities: net of Treasury-Fed internal
+    # transfers in transaction-era quarters; before them, the raw level change of the historical backfill.
+    if "treasury_operating_cash_level" in quarterly.columns:
+        raw_cash_level_change = quarterly["treasury_operating_cash_level"].diff()
+        cash_level_change = raw_cash_level_change.where(
+            before_transaction_era, raw_cash_level_change - quarterly["treasury_fed_internal_cash_tx"]
+        )
+
     level_cols_bank = [
         "fed_tsy_level",
         *BANK_DEPOSITORY_LEVEL_KEYS,
@@ -666,7 +674,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         )
         estimates["tdc_level_bank_only_sensitivity"] = (
             bank_level_tsy.diff()
-            - quarterly["treasury_operating_cash_level"].diff()
+            - cash_level_change
             + remit_for_level_backfill
         )
 
@@ -686,7 +694,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
         )
         estimates["tdc_level_broad_depository_np_cu_sensitivity"] = (
             broad_np_level_tsy.diff()
-            - quarterly["treasury_operating_cash_level"].diff()
+            - cash_level_change
             + remit_for_level_backfill
         )
 
@@ -980,7 +988,7 @@ def compute_estimates(quarterly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
             "component_key": "minus_treasury_operating_cash_tx",
             "internal_transfer_series_key": "treasury_fed_internal_cash_tx",
             "definition": "Tier 0 subtracts Treasury operating cash, not a TGA-only cash balance, net of Treasury-Federal Reserve internal transfers: minus_treasury_operating_cash_tx = -(treasury_operating_cash_tx - treasury_fed_internal_cash_tx).",
-            "internal_transfer_treatment": "The internal-transfer series is required in every transaction-era quarter; the component is missing in earlier quarters, where it is not defined. The level-change sensitivity columns use raw operating-cash level changes.",
+            "internal_transfer_treatment": "The internal-transfer series is required in every transaction-era quarter; the component is missing in earlier quarters, where it is not defined. The level-change sensitivities subtract operating-cash level changes net of the internal transfers in transaction-era quarters and raw level changes before them, where no internal-transfer ledger exists.",
             "historical_treatment": "When historical Treasury Tax and Loan balances were material, they belong inside the operating-cash concept rather than as a separate additive Tier 0 term.",
             "diagnostic_only_series": ["tga_weekly"],
         },

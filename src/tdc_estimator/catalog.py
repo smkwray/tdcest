@@ -1130,8 +1130,9 @@ class TreasuryFedTransferRules:
     tga_accounts: tuple[str, ...] = ("Federal Reserve Account", "Treasury General Account (TGA)")
     # H.4.1 records a facility payment up to a month after its DTS date (2020-04-13 in the 2020-05-13 week).
     equity_lookback_days: int = 35
-    # A returned equity tranche can carry the facility's earnings or bear its losses (2021-11-19: cash
-    # 5,601 against an H.4.1 change of 5,139); a match accepts cash within this share of the change.
+    # The tolerance only finds the DTS receipt that carries an H.4.1 equity change: a receipt can
+    # include other cash on the same day. Only the equity principal and components documented in
+    # TREASURY_FED_SETTLEMENT_EXCEPTIONS as Federal Reserve-account settlements count as internal.
     equity_match_relative_tolerance: float = 0.10
     equity_match_rounding: float = 1.0  # USD million: two published, rounded amounts
     equity_match_max_postings: int = 4
@@ -1146,10 +1147,51 @@ class TreasuryFedTransferRules:
     capitalized_interest_max_annual_rate: float = 0.10
     capitalized_interest_rounding: float = 1.0
     zero_coupon_match_rounding: float = 1.0
+    # Daily Domestic Series amounts must equal fiscal-year-to-date steps: two rounded totals and one
+    # rounded daily amount bound the gap.
+    domestic_series_fytd_step_rounding: float = 1.5
     start_quarter: str = "2002Q1"
 
 
 TREASURY_FED_TRANSFER_RULES = TreasuryFedTransferRules()
+
+
+@dataclass(frozen=True)
+class SettlementException:
+    """A documented component of a facility receipt beyond its H.4.1 equity principal.
+
+    ``amount`` is USD million paid to Treasury on the DTS record date ``date``. ``treatment`` is
+    ``internal`` when the component settled from a Federal Reserve account (removed with the
+    principal) and ``retained`` when it settled from a commercial-bank account (left in the cash term).
+    """
+
+    facility: str
+    date: str
+    amount: float
+    settling_account: str
+    component: str
+    treatment: str
+    source: str
+
+
+_FRB_Q2_2021 = ("Federal Reserve Banks Combined Quarterly Financial Report, June 30, 2021 (unaudited), "
+                "https://www.federalreserve.gov/aboutthefed/2021-june-federal-reserve-banks-combined-quarterly-financial-report-unaudited.htm")
+_CPFF_2021 = ("Commercial Paper Funding Facility II LLC financial statements 2021 (Treasury income distributions 49.065, "
+              "split by the 90/10 preferred-equity allocation), https://www.federalreserve.gov/aboutthefed/files/cpffllcfinstmt2021.pdf")
+_CCF = ("Corporate Credit Facilities LLC distribution notices and control and custody agreements (operating cash held "
+        "at State Street), https://www.newyorkfed.org/medialibrary/media/markets/SMCCF_Control_Agreement.pdf")
+TREASURY_FED_SETTLEMENT_EXCEPTIONS: tuple[SettlementException, ...] = (
+    SettlementException("MMLF", "2021-04-12", 134.0, "Federal Reserve Bank of Boston",
+                        "facility fees paid with the return of Treasury's 1,500 credit protection", "internal", _FRB_Q2_2021),
+    SettlementException("CPFF II", "2021-06-29", 4.830, "Federal Reserve Bank of New York (preferred equity account)",
+                        "investment earnings on Treasury's preferred equity", "internal", _CPFF_2021),
+    SettlementException("CPFF II", "2021-06-29", 44.235, "State Street (LLC operating accounts)",
+                        "income distribution from residual LLC assets", "retained", _CPFF_2021),
+    SettlementException("CCF", "2021-11-19", 461.554699650, "State Street (LLC operating account)",
+                        "earnings distribution from remaining operating-account assets", "retained", _CCF),
+    SettlementException("CCF", "2021-12-14", 1.520983350, "State Street (LLC expense reserve)",
+                        "distribution from the remaining expense reserve", "retained", _CCF),
+)
 
 
 def treasury_fed_transfers_registry(vintage: MeasurementVintage = DEFAULT_VINTAGE) -> FiscusRegistry:

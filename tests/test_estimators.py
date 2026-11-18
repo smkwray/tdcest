@@ -604,6 +604,14 @@ def _internal_transfer_frame(operating_cash, internal):
             "treasury_operating_cash_tx": operating_cash,
             "treasury_fed_internal_cash_tx": internal,
             "fed_remit_or_deferred": [2.0, 1.0],
+            "fed_tsy_level": [100.0, 112.0],
+            "us_chartered_tsy_level": [200.0, 225.0],
+            "foreign_offices_tsy_level": [20.0, 22.0],
+            "affiliated_areas_tsy_level": [10.0, 10.5],
+            "np_credit_unions_tsy_level": [30.0, 34.0],
+            "row_tsy_level": [300.0, 328.0],
+            # Treasury operating cash moves by the transaction, including the internal transfers.
+            "treasury_operating_cash_level": [500.0, 500.0 + operating_cash[1]],
         },
         index=idx,
     )
@@ -615,13 +623,16 @@ def test_treasury_fed_internal_transfers_leave_tdc_unchanged():
     baseline, _, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0], [0.0, 0.0]))
     internal = -114.0 + 95.6
     shifted, components, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0 + internal], [0.0, internal]))
-    columns = [c for c in baseline.columns if c.endswith("_ru_flow") or c == "tdc_no_remit_bank_only"]
-    assert columns
+    columns = [c for c in baseline.columns if c.endswith("_ru_flow") or c == "tdc_no_remit_bank_only"
+               or c.startswith("tdc_level_")]
+    assert {"tdc_level_bank_only_sensitivity", "tdc_level_broad_depository_np_cu_sensitivity"} <= set(columns)
     pd.testing.assert_frame_equal(shifted[columns], baseline[columns])
     assert components["minus_treasury_operating_cash_tx"].tolist() == [-5.0, 8.0]
     # Read on raw operating cash, the transfers would add 18.4 to measured TDC.
     raw, _, _, _ = compute_estimates(_internal_transfer_frame([5.0, -8.0 + internal], [0.0, 0.0]))
     assert raw.loc[raw.index[1], "tdc_base_bank_only_ru_flow"] - baseline.loc[baseline.index[1], "tdc_base_bank_only_ru_flow"] == pytest.approx(-internal)
+    for column in ["tdc_base_bank_only_ru_flow", "tdc_level_bank_only_sensitivity", "tdc_level_broad_depository_np_cu_sensitivity"]:
+        assert raw.loc[raw.index[1], column] - baseline.loc[baseline.index[1], column] == pytest.approx(-internal), column
 
 
 def test_operating_cash_term_requires_the_internal_transfer_series():

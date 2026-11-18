@@ -6,11 +6,13 @@ balance:
 
 * facility equity: Treasury equity paid into the Federal Reserve credit-facility
   LLCs and later returned, DTS Table II category ``ESF - Economic Recovery
-  Programs``. A posting is facility equity only when it matches a change in the
-  H.4.1 Treasury-contributions liability within the lookback window and
-  tolerance of ``catalog.TREASURY_FED_TRANSFER_RULES``; every other posting in
-  the category (for example direct loans to businesses) stays in TDC and is
-  reported as unmatched.
+  Programs``. A posting carries facility equity only when it matches a change in
+  the H.4.1 Treasury-contributions liability within the lookback window and
+  tolerance of ``catalog.TREASURY_FED_TRANSFER_RULES``. The internal part of a
+  matched receipt is the equity principal (the H.4.1 change) plus components that
+  ``catalog.TREASURY_FED_SETTLEMENT_EXCEPTIONS`` documents as Federal Reserve-account
+  settlements; any other excess stays in the cash term. Every other posting in the
+  category is unclassified ESF cash and stays in the cash term.
 * LLC Treasury securities: the LLCs' purchases and redemptions of nonmarketable
   Domestic Series securities (MSPD holder class ``SPV Demand``), DTS Table
   III-A. Domestic Series redemptions of zero-coupon bonds at their MSPD maturity
@@ -19,10 +21,12 @@ balance:
 
 Each posting carries its effect on Treasury operating cash in USD million on its
 DTS date: negative when equity leaves Treasury cash or an LLC redeems, positive
-when equity returns or an LLC buys. The internal-transfer cash change is their
-sum. The LLC holdings implied by DTS fiscal-year-to-date totals must equal the
-Z.1 LLC holdings level at every quarter end within published rounding, and
-every H.4.1 contribution change must find its DTS cash; either failure raises.
+when equity returns or an LLC buys. The internal-transfer cash change is the sum
+of the internal parts. Inputs fail closed: every DTS publication date must carry
+both Domestic Series lines, each daily amount must equal its fiscal-year-to-date
+step, the LLC holdings implied by DTS must equal the Z.1 level at every quarter
+end within published rounding, and every H.4.1 contribution change must find its
+DTS cash.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ import pandas as pd
 
 from .catalog import (
     DEFAULT_VINTAGE,
+    TREASURY_FED_SETTLEMENT_EXCEPTIONS,
     TREASURY_FED_TRANSFER_RULES as RULES,
     MeasurementVintage,
     fiscus_registries,
@@ -58,18 +63,37 @@ OUTPUT_FILES = {
     "receipt": "treasury_fed_transfers_v1_receipt.json",
 }
 ESF_INPUT = ("weekly-trc", "internal_dts")
+CALENDAR_INPUT = ("weekly-trc", "remittances")  # DTS Table II row published on every DTS date
 CONTRIBUTIONS_INPUT = ("h41-ledger", "treasury_contributions_to_credit_facilities")
 # Source families of the postings; the classification column names what each posting is.
 ESF, DOMESTIC = "esf_economic_recovery", "domestic_series"
-INTERNAL_CLASSES = {"facility_equity_payment", "facility_equity_return", "llc_purchase", "llc_redemption"}
+LLC_INTERNAL_CLASSES = {"llc_purchase", "llc_redemption"}
+ESF_CALENDAR_LABEL = "DTS ESF economic-recovery cash"
 DEFINITIONS = {
     "cash_effect": "Effect on Treasury operating cash, USD million, on the DTS record date",
-    "internal_cash_effect": "cash_effect of a Treasury-Fed internal transfer; zero for a posting that stays in TDC "
-                            "or leaves the cash balance unchanged",
+    "internal_cash_effect": "Part of cash_effect that is a Treasury-Fed internal transfer and leaves the cash term",
+    "retained_cash_effect": "Part of an ESF posting's cash_effect that stays in the cash term",
+    "equity_principal_cash": "Share of the matched H.4.1 Treasury-contributions change a posting carries, capped at its cash",
+    "equity_reduced_without_cash": "Matched H.4.1 equity reduction beyond the matched cash; it moved no Treasury cash",
     "facility_equity_payment / facility_equity_return": "DTS ESF economic-recovery posting matched to an H.4.1 "
-                                                         "Treasury-contributions change",
-    "esf_unmatched": "DTS ESF economic-recovery posting with no H.4.1 contribution match: a payment to or from a "
-                     "nonbank that stays in TDC",
+                                                         "Treasury-contributions change; internal part = equity "
+                                                         "principal plus documented Federal Reserve-account settlements",
+    "facility_earnings_documented": "Unmatched ESF posting that a settlement exception documents",
+    "esf_unclassified": "Unclassified ESF cash retained in the cash term; counterparty and settlement account unverified",
+    "settlement_status": {
+        "equity_principal": "cash equals the equity principal",
+        "equity_principal_rounding": "cash differs from the equity principal by no more than the rounding of two "
+                                     "published millions; the whole posting is principal",
+        "equity_principal_shortfall": "cash is smaller than the equity reduction; all of it is principal and the "
+                                      "rest of the reduction moved no Treasury cash",
+        "facility_earnings_settlement_account_unverified_retained": "facility earnings, settlement account "
+                                                                    "unverified (retained)",
+        "facility_earnings_documented_fed_settlement": "excess documented as Federal Reserve-account settlement; internal",
+        "facility_earnings_commercial_settlement_documented_retained": "excess documented as commercial-bank "
+                                                                       "settlement; retained",
+        "facility_earnings_split_documented": "excess split by documented settlement account",
+        "unclassified_retained": "unclassified ESF cash; retained",
+    },
     "llc_purchase / llc_redemption": "Domestic Series issue or redemption of the LLCs' nonmarketable holdings",
     "llc_capitalized_interest": "Domestic Series issue of reinvested interest; Treasury credits the interest and the "
                                 "issue in the same amount, so the cash balance is unchanged",
@@ -80,15 +104,19 @@ DEFINITIONS = {
 }
 BOUNDARIES = [
     "Accounting classification of dated public postings; no estimation or causal interpretation",
-    "Facility equity is identified only by a dated match to the H.4.1 Treasury-contributions liability; the full "
-    "matched cash, including returned earnings, is an internal transfer",
+    "Facility equity is identified only by a dated match to the H.4.1 Treasury-contributions liability. The internal "
+    "part of a matched receipt is the equity principal plus components the settlement-exception table documents as "
+    "Federal Reserve-account settlements; undocumented excess stays in the cash term",
     "LLC Treasury securities are identified by the MSPD holder class; zero-coupon Domestic Series maturities stay "
     "in TDC",
     "Quarters before the DTS windows are zero because the H.4.1 contribution liability is zero on every Wednesday "
     "from its first observation (2002-12-18) to the start of the DTS ESF window and the Z.1 LLC holdings level is zero "
     "at both quarter ends; no Treasury-funded credit facility existed before 2020",
     "SDR certificate monetizations credit the Exchange Stabilization Fund's Federal Reserve account and have no DTS "
-    "Table II posting, so they never enter Treasury operating cash and stay outside this ledger",
+    "Table II posting; their cash incidence through a later ESF investment is unresolved pending a DTS Table III-A "
+    "to III-B reconciliation, so they stay outside this ledger and remain candidates in weekly TRC",
+    "ESF cash is checked for date completeness against the DTS publication calendar but not against its "
+    "fiscal-year-to-date totals, which carry revisions",
 ]
 
 
@@ -157,6 +185,8 @@ def match_facility_equity(esf: pd.DataFrame, contributions: pd.Series, window_st
     """
     esf = esf.copy()
     esf["match_wednesday"] = pd.NaT
+    esf["equity_principal_cash"] = 0.0
+    esf["equity_reduced_without_cash"] = 0.0
     changes = contributions.diff().dropna()
     changes = changes.loc[changes.ne(0)]
     records = []
@@ -182,8 +212,14 @@ def match_facility_equity(esf: pd.DataFrame, contributions: pd.Series, window_st
         if best is None:
             raise ValueError(f"H.4.1 Treasury contributions change {change:+,.0f} on {wednesday.date()} has no "
                              f"dated DTS ESF cash within {RULES.equity_lookback_days} days and tolerance {tolerance:,.1f}")
-        combo = list(best[1])
+        combo = sorted(best[1], key=lambda i: esf.loc[i, "date"])
         esf.loc[combo, "match_wednesday"] = wednesday
+        remaining = abs(target)  # equity principal, assigned to the postings in date order
+        for i in combo:
+            share = min(abs(esf.loc[i, "cash_effect"]), remaining)
+            esf.loc[i, "equity_principal_cash"] = np.sign(target) * share
+            remaining -= share
+        esf.loc[combo, "equity_reduced_without_cash"] = remaining
         cash = float(esf.loc[combo, "cash_effect"].sum())
         records.append({
             "h41_wednesday": wednesday, "h41_contributions_change": float(change), "matched_cash_effect": cash,
@@ -191,9 +227,92 @@ def match_facility_equity(esf: pd.DataFrame, contributions: pd.Series, window_st
             "posting_dates": "|".join(str(d.date()) for d in esf.loc[combo, "date"]),
         })
     esf["classification"] = np.where(
-        esf["match_wednesday"].isna(), "esf_unmatched",
+        esf["match_wednesday"].isna(), "esf_unclassified",
         np.where(esf["cash_effect"] < 0, "facility_equity_payment", "facility_equity_return"))
     return esf, pd.DataFrame(records)
+
+
+def exceptions_frame(exceptions) -> pd.DataFrame:
+    frame = pd.DataFrame([vars(e) for e in exceptions],
+                         columns=["facility", "date", "amount", "settling_account", "component", "treatment", "source"])
+    if not frame["treatment"].isin(["internal", "retained"]).all() or (frame["amount"] <= 0).any():
+        raise ValueError("settlement exceptions: treatment must be internal or retained and amounts positive")
+    frame["date"] = pd.to_datetime(frame["date"], format="%Y-%m-%d", errors="raise")
+    return frame
+
+
+def settle_esf(esf: pd.DataFrame, exceptions: pd.DataFrame) -> pd.DataFrame:
+    """Split each ESF posting into the part that leaves the cash term and the part that stays.
+
+    Matched postings: principal plus documented Federal Reserve-account settlements are internal.
+    A posting within rounding of its principal, or smaller than it, is all principal. Undocumented
+    excess stays in the cash term. Unmatched postings stay unless an exception documents them.
+    Documented components must reconcile to the excess (or, unmatched, to the cash) within rounding,
+    and every exception must fall on an ESF posting.
+    """
+    esf = esf.copy()
+    rounding = RULES.equity_match_rounding
+    used = set()
+    internal, documented_fed, documented_retained, status = [], [], [], []
+    for i, row in esf.iterrows():
+        docs = exceptions.loc[exceptions["date"].eq(row["date"])]
+        used.update(docs.index)
+        sign = np.sign(row["cash_effect"])
+        doc_fed = sign * float(docs.loc[docs["treatment"].eq("internal"), "amount"].sum()) + 0.0
+        doc_kept = sign * float(docs.loc[docs["treatment"].eq("retained"), "amount"].sum()) + 0.0
+        principal = row["equity_principal_cash"]
+        base = principal if pd.notna(row["match_wednesday"]) else 0.0
+        residual = row["cash_effect"] - base
+        if len(docs):
+            if abs(residual - doc_fed - doc_kept) > rounding:
+                raise ValueError(f"settlement exceptions on {row['date'].date()} total {doc_fed + doc_kept:,.3f} "
+                                 f"against {residual:,.3f} of cash beyond equity principal")
+            value = base + doc_fed
+            state = ("facility_earnings_documented_fed_settlement" if not doc_kept else
+                     "facility_earnings_commercial_settlement_documented_retained" if not doc_fed else
+                     "facility_earnings_split_documented")
+        elif pd.isna(row["match_wednesday"]):
+            value, state = 0.0, "unclassified_retained"
+        elif residual == 0:
+            # Principal is capped at the cash; an equity change larger than the cash moved no more Treasury cash.
+            short = row["equity_reduced_without_cash"]
+            value = row["cash_effect"]
+            state = ("equity_principal_shortfall" if short > rounding else
+                     "equity_principal_rounding" if short > 0 else "equity_principal")
+        elif abs(residual) <= rounding:
+            value, state = row["cash_effect"], "equity_principal_rounding"
+        else:
+            value, state = principal, "facility_earnings_settlement_account_unverified_retained"
+        internal.append(value)
+        documented_fed.append(doc_fed)
+        documented_retained.append(doc_kept)
+        status.append(state)
+    stale = exceptions.loc[~exceptions.index.isin(sorted(used))]
+    if len(stale):
+        raise ValueError(f"settlement exceptions without an ESF posting: {stale['date'].dt.strftime('%Y-%m-%d').tolist()}")
+    esf["documented_fed_cash"] = documented_fed
+    esf["documented_retained_cash"] = documented_retained
+    esf["internal_cash_effect"] = internal
+    esf["retained_cash_effect"] = esf["cash_effect"] - esf["internal_cash_effect"]
+    esf["settlement_status"] = status
+    documented = esf["match_wednesday"].isna() & ~esf["settlement_status"].eq("unclassified_retained")
+    esf.loc[documented, "classification"] = "facility_earnings_documented"
+    return esf
+
+
+def check_publication_calendar(dates: pd.Series, calendar: pd.DatetimeIndex, calendar_window: tuple,
+                               window: tuple, label: str, *, start: pd.Timestamp | None = None) -> None:
+    """Every DTS publication date in the window (from ``start`` if given) carries a row, and no other date does."""
+    lo = max(window[0], calendar_window[0], start if start is not None else window[0])
+    if calendar_window[1] < window[1] or (dates < calendar_window[0]).any():
+        raise ValueError(f"{label}: the DTS publication calendar does not cover the input window")
+    expected = calendar[(calendar >= lo) & (calendar <= window[1])]
+    got = pd.DatetimeIndex(dates.unique())
+    got = got[(got >= lo) & (got <= window[1])]
+    missing, extra = expected.difference(got), got.difference(expected)
+    if len(missing) or len(extra):
+        raise ValueError(f"{label}: dates differ from the DTS publication calendar; missing "
+                         f"{[str(d.date()) for d in missing[:5]]}, not published {[str(d.date()) for d in extra[:5]]}")
 
 
 def _dedupe(frame: pd.DataFrame, keys: list[str], label: str) -> pd.DataFrame:
@@ -222,6 +341,25 @@ def domestic_series_rows(frame: pd.DataFrame) -> pd.DataFrame:
     rows["fiscal_year"] = rows["record_fiscal_year"].astype(int)
     if (rows["amount"] < 0).any():
         raise ValueError("DTS Domestic Series: negative daily amount")
+    if not rows["fiscal_year"].eq(rows["date"].dt.year + (rows["date"].dt.month >= 10)).all():
+        raise ValueError("DTS Domestic Series: record_fiscal_year disagrees with the record date")
+    complete = rows.groupby("date")["transaction_type"].agg(lambda s: sorted(s) == ["Issues", "Redemptions"])
+    if not complete.all():
+        raise ValueError(f"DTS Domestic Series: dates without both Issues and Redemptions "
+                         f"{[str(d.date()) for d in complete.index[~complete][:5]]}")
+    rows = rows.sort_values(["transaction_type", "date"]).reset_index(drop=True)
+    # Each daily amount is the step in its fiscal-year-to-date total; the first row of a fiscal year
+    # steps from zero. Two rounded totals and one rounded amount bound the gap.
+    previous = rows.groupby(["transaction_type", "fiscal_year"])["fytd"].shift().fillna(0.0)
+    first_row = rows.groupby("transaction_type").cumcount().eq(0)
+    starts_fy = rows["date"].eq(rows.groupby(["transaction_type", "fiscal_year"])["date"].transform("min"))
+    step_gap = (rows["fytd"] - previous - rows["amount"]).abs()
+    checked = ~first_row | (rows["date"].dt.month.eq(10) & rows["date"].dt.day.le(7) & starts_fy)
+    breach = checked & step_gap.gt(RULES.domestic_series_fytd_step_rounding)
+    if breach.any():
+        bad = rows.loc[breach].head(3)
+        raise ValueError("DTS Domestic Series: daily amounts disagree with fiscal-year-to-date steps at "
+                         f"{list(zip(bad['record_date'], bad['transaction_type'], step_gap[breach].head(3).round(3)))}")
     return rows.sort_values(["date", "transaction_type"]).reset_index(drop=True)
 
 
@@ -369,28 +507,34 @@ def _z1_levels(frame: pd.DataFrame) -> pd.Series:
 
 
 def _sums(frame: pd.DataFrame, key: str) -> pd.DataFrame:
-    """Per-period internal-transfer cash, unmatched ESF cash and other-holder Domestic Series cash."""
-    internal = frame.loc[frame["classification"].isin(INTERNAL_CLASSES)]
-    unmatched = frame.loc[frame["classification"].eq("esf_unmatched")]
-    labels = unmatched["date"].dt.strftime("%Y-%m-%d") + ":" + unmatched["cash_effect"].map("{:g}".format)
+    """Per-period internal-transfer cash, ESF cash left in the cash term and other-holder Domestic Series cash."""
+    esf = frame.loc[frame["family"].eq(ESF)]
+    kept = esf.loc[esf["retained_cash_effect"].ne(0)]
+    facility_kept = kept.loc[~kept["classification"].eq("esf_unclassified")]
+    unclassified = esf.loc[esf["classification"].eq("esf_unclassified")]
+    labels = kept["date"].dt.strftime("%Y-%m-%d") + ":" + kept["retained_cash_effect"].map("{:g}".format)
+    domestic = frame.loc[frame["family"].eq(DOMESTIC)]
     return pd.DataFrame({
-        "facility_equity_cash_tx": internal.loc[internal["family"].eq(ESF)].groupby(key)["cash_effect"].sum(),
-        "llc_treasury_securities_cash_tx": internal.loc[internal["family"].eq(DOMESTIC)].groupby(key)["cash_effect"].sum(),
-        "llc_capitalized_interest_memo": frame.loc[frame["classification"].eq("llc_capitalized_interest")
-                                                   ].groupby(key)["amount"].sum(),
-        "other_domestic_series_cash_tx": frame.loc[frame["classification"].isin(
+        "facility_internal_cash_tx": esf.groupby(key)["internal_cash_effect"].sum(),
+        "llc_treasury_securities_cash_tx": domestic.groupby(key)["internal_cash_effect"].sum(),
+        "llc_capitalized_interest_memo": domestic.loc[domestic["classification"].eq("llc_capitalized_interest")
+                                                      ].groupby(key)["amount"].sum(),
+        "other_domestic_series_cash_tx": domestic.loc[domestic["classification"].isin(
             ["zero_coupon_maturity", "domestic_series_before_llc"])].groupby(key)["cash_effect"].sum(),
-        "n_internal_postings": internal.groupby(key).size(),
-        "esf_cash_tx": frame.loc[frame["family"].eq(ESF)].groupby(key)["cash_effect"].sum(),
-        "esf_unmatched_cash_tx": unmatched.groupby(key)["cash_effect"].sum(),
-        "esf_unmatched_abs": unmatched["cash_effect"].abs().groupby(unmatched[key]).sum(),
-        "esf_unmatched_dates": labels.groupby(unmatched[key]).agg("|".join),
+        "n_internal_postings": frame.loc[frame["internal_cash_effect"].ne(0)].groupby(key).size(),
+        "esf_cash_tx": esf.groupby(key)["cash_effect"].sum(),
+        "esf_retained_cash_tx": esf.groupby(key)["retained_cash_effect"].sum(),
+        "esf_retained_abs": kept["retained_cash_effect"].abs().groupby(kept[key]).sum(),
+        "facility_receipt_retained_tx": facility_kept.groupby(key)["retained_cash_effect"].sum(),
+        "esf_unclassified_cash_tx": unclassified.groupby(key)["cash_effect"].sum(),
+        "esf_retained_dates": labels.groupby(kept[key]).agg("|".join),
     })
 
 
-ZERO_COLUMNS = ["facility_equity_cash_tx", "llc_treasury_securities_cash_tx", "llc_capitalized_interest_memo",
+ZERO_COLUMNS = ["facility_internal_cash_tx", "llc_treasury_securities_cash_tx", "llc_capitalized_interest_memo",
                 "other_domestic_series_cash_tx", "n_internal_postings"]
-ESF_COLUMNS = ["esf_cash_tx", "esf_unmatched_cash_tx", "esf_unmatched_abs"]
+ESF_COLUMNS = ["esf_cash_tx", "esf_retained_cash_tx", "esf_retained_abs", "facility_receipt_retained_tx",
+               "esf_unclassified_cash_tx"]
 
 
 def _period_table(postings: pd.DataFrame, key: str, labels: pd.Index, esf_covered: np.ndarray) -> pd.DataFrame:
@@ -399,16 +543,36 @@ def _period_table(postings: pd.DataFrame, key: str, labels: pd.Index, esf_covere
     table[ZERO_COLUMNS] = table[ZERO_COLUMNS].fillna(0.0)
     for column in ESF_COLUMNS:
         table[column] = table[column].where(~esf_covered, table[column].fillna(0.0))
-    table["esf_unmatched_dates"] = table["esf_unmatched_dates"].fillna("")
-    table["internal_cash_tx"] = table["facility_equity_cash_tx"] + table["llc_treasury_securities_cash_tx"]
+    table["esf_retained_dates"] = table["esf_retained_dates"].fillna("")
+    table["internal_cash_tx"] = table["facility_internal_cash_tx"] + table["llc_treasury_securities_cash_tx"]
     return table
+
+
+def _esf_retained_window(postings: pd.DataFrame, end: pd.Timestamp | None) -> dict:
+    esf = postings.loc[postings["family"].eq(ESF) & (postings["date"].le(end) if end is not None else True)]
+    kept = esf.loc[esf["retained_cash_effect"].ne(0)]
+    unclassified = esf.loc[esf["classification"].eq("esf_unclassified")]
+    facility = kept.loc[~kept["classification"].eq("esf_unclassified")]
+    return {
+        "through": str(end.date()) if end is not None else str(esf["date"].max().date()),
+        "esf_unclassified": {"n": int(len(unclassified)), "net": float(unclassified["cash_effect"].sum()),
+                             "abs": float(unclassified["cash_effect"].abs().sum())},
+        "facility_receipts_retained": {"n": int(len(facility)), "net": float(facility["retained_cash_effect"].sum())},
+        "esf_retained_total": {"n": int(len(kept)), "net": float(kept["retained_cash_effect"].sum())},
+    }
 
 
 def build_treasury_fed_transfers(
     *, esf_frame: pd.DataFrame, esf_window: tuple[pd.Timestamp, pd.Timestamp], contributions_frame: pd.DataFrame,
     domestic_series_frame: pd.DataFrame, domestic_series_window: tuple[pd.Timestamp, pd.Timestamp],
-    mspd_frame: pd.DataFrame, z1_frame: pd.DataFrame, vintage: MeasurementVintage = DEFAULT_VINTAGE,
+    mspd_frame: pd.DataFrame, z1_frame: pd.DataFrame, calendar_frame: pd.DataFrame,
+    calendar_window: tuple[pd.Timestamp, pd.Timestamp], vintage: MeasurementVintage = DEFAULT_VINTAGE,
+    exceptions=TREASURY_FED_SETTLEMENT_EXCEPTIONS,
 ) -> TransferLedger:
+    calendar = pd.DatetimeIndex(sorted(pd.to_datetime(calendar_frame["record_date"], format="%Y-%m-%d",
+                                                      errors="raise").unique()))
+    if not len(calendar):
+        raise ValueError("DTS publication calendar is empty")
     contributions = wednesday_levels(contributions_frame, "H.4.1 Treasury contributions")
     if contributions.loc[contributions.index < esf_window[0]].ne(0).any():
         raise ValueError("H.4.1 Treasury contributions are nonzero before the DTS ESF window")
@@ -417,21 +581,33 @@ def build_treasury_fed_transfers(
     esf = esf_postings(esf_frame)
     if len(esf) and not (esf_window[0] <= esf["date"].min() and esf["date"].max() <= esf_window[1]):
         raise ValueError("DTS ESF cash: postings outside the query window")
+    esf_dates = pd.to_datetime(esf_frame["record_date"], format="%Y-%m-%d", errors="raise")
+    if len(esf_dates):
+        # The category begins with the 2020 facilities; from its first row every publication date carries it.
+        check_publication_calendar(esf_dates, calendar, calendar_window, esf_window, ESF_CALENDAR_LABEL,
+                                   start=esf_dates.min())
     esf, matches = match_facility_equity(esf, contributions, esf_window[0])
+    esf = settle_esf(esf, exceptions_frame(exceptions))
     rows = domestic_series_rows(domestic_series_frame)
     if not (domestic_series_window[0] <= rows["date"].min() and rows["date"].max() <= domestic_series_window[1]):
         raise ValueError("DTS Domestic Series: rows outside the query window")
+    check_publication_calendar(rows["date"], calendar, calendar_window, domestic_series_window, "DTS Domestic Series")
     maturities, first_llc_month = mspd_domestic_series(mspd_frame)
     llc = classify_domestic_series(rows, maturities, first_llc_month)
     quarters = pd.period_range(RULES.start_quarter, vintage.quarter_end, freq="Q")
     reconciliation = reconcile_llc_holdings(rows, llc, _z1_levels(z1_frame), quarters)
 
+    llc = llc.assign(
+        match_wednesday="", equity_principal_cash=0.0, equity_reduced_without_cash=0.0, documented_fed_cash=0.0,
+        documented_retained_cash=0.0,
+        internal_cash_effect=np.where(llc["classification"].isin(LLC_INTERNAL_CLASSES), llc["cash_effect"], 0.0),
+        retained_cash_effect=0.0, settlement_status="")
     postings = pd.concat([
-        esf.assign(match_wednesday=esf["match_wednesday"].dt.strftime("%Y-%m-%d").fillna("")),
-        llc.assign(match_wednesday=""),
+        esf.assign(match_wednesday=esf["match_wednesday"].dt.strftime("%Y-%m-%d").fillna("")), llc,
     ], ignore_index=True)
-    postings["internal_cash_effect"] = np.where(
-        postings["classification"].isin(INTERNAL_CLASSES), postings["cash_effect"], 0.0)
+    postings = postings[["date", "family", "source", "dts_line", "amount", "cash_effect", "match_wednesday",
+                         "classification", "equity_principal_cash", "equity_reduced_without_cash", "documented_fed_cash",
+                         "documented_retained_cash", "internal_cash_effect", "retained_cash_effect", "settlement_status"]]
     postings = postings.sort_values(["date", "family", "dts_line"], kind="stable").reset_index(drop=True)
     postings["quarter"] = postings["date"].dt.to_period("Q").astype(str)
     postings["week_ending"] = (postings["date"] + pd.to_timedelta((2 - postings["date"].dt.weekday) % 7, unit="D")
@@ -478,7 +654,16 @@ def build_treasury_fed_transfers(
         raise ValueError("internal-transfer postings fall outside the weekly calendar")
     late = postings.loc[postings["date"].gt(q_end[-1])]
 
-    unmatched = postings.loc[postings["classification"].eq("esf_unmatched")]
+    matched = postings.loc[postings["match_wednesday"].ne("") | postings["classification"].eq("facility_earnings_documented")]
+    receipts = [{
+        "date": str(r.date.date()), "match_wednesday": r.match_wednesday, "classification": r.classification,
+        "cash": float(r.cash_effect), "equity_principal": float(r.equity_principal_cash),
+        "cash_minus_principal": float(r.cash_effect - r.equity_principal_cash),
+        "equity_reduced_without_cash": float(r.equity_reduced_without_cash),
+        "documented_fed": float(r.documented_fed_cash), "documented_retained": float(r.documented_retained_cash),
+        "internal": float(r.internal_cash_effect), "retained": float(r.retained_cash_effect),
+        "settlement_status": r.settlement_status,
+    } for r in matched.itertuples()]
     stats = {
         "postings_by_classification": {
             name: {"n": int(len(g)), "cash_effect": float(g["cash_effect"].sum()),
@@ -493,11 +678,12 @@ def build_treasury_fed_transfers(
             "multi_posting_matches": [f"{r['posting_dates']}->{r['h41_wednesday'].date()}"
                                       for r in matches.to_dict("records") if r["n_postings"] > 1],
         },
-        "esf_unmatched": {
-            "n": int(len(unmatched)), "cash_effect": float(unmatched["cash_effect"].sum()),
-            "abs": float(unmatched["cash_effect"].abs().sum()),
-            "by_year": {str(y): float(v) for y, v in unmatched.groupby(unmatched["date"].dt.year)["cash_effect"].sum().items()},
-        },
+        "facility_receipts": receipts,
+        "esf_retained": {"through_quarter_end": _esf_retained_window(postings, q_end[-1]),
+                         "through_data_end": _esf_retained_window(postings, None)},
+        "esf_unclassified_by_year": {str(y): float(v) for y, v in postings.loc[
+            postings["classification"].eq("esf_unclassified")].groupby(
+            postings["date"].dt.year)["cash_effect"].sum().items()},
         "llc_capitalized_interest_total": float(postings.loc[
             postings["classification"].eq("llc_capitalized_interest"), "amount"].sum()),
         "first_llc_month": str(first_llc_month.date()) if pd.notna(first_llc_month) else None,
@@ -509,7 +695,8 @@ def build_treasury_fed_transfers(
         "internal_cash_tx_quarterly_total": float(quarterly["internal_cash_tx"].sum()),
         "internal_cash_after_quarterly_window": float(late["internal_cash_effect"].sum()),
         "dts_windows": {"esf": [str(esf_window[0].date()), str(esf_window[1].date())],
-                        "domestic_series": [str(domestic_series_window[0].date()), str(domestic_series_window[1].date())]},
+                        "domestic_series": [str(domestic_series_window[0].date()), str(domestic_series_window[1].date())],
+                        "publication_calendar": [str(calendar.min().date()), str(calendar.max().date()), int(len(calendar))]},
     }
     postings["date"] = postings["date"].dt.strftime("%Y-%m-%d")
     if len(matches):
@@ -549,8 +736,11 @@ def write_treasury_fed_transfer_export(
         domestic_series_frame=frames["treasury-fed-transfers"]["dts_domestic_series"],
         domestic_series_window=window("treasury-fed-transfers", "dts_domestic_series"),
         mspd_frame=frames["treasury-fed-transfers"]["mspd_domestic_series"],
-        z1_frame=frames["treasury-fed-transfers"]["z1_llc_treasury_level"], vintage=vintage,
+        z1_frame=frames["treasury-fed-transfers"]["z1_llc_treasury_level"],
+        calendar_frame=frames[CALENDAR_INPUT[0]][CALENDAR_INPUT[1]], calendar_window=window(*CALENDAR_INPUT),
+        vintage=vintage,
     )
+    exception_rows = [vars(e) for e in TREASURY_FED_SETTLEMENT_EXCEPTIONS]
     output_paths = {role: paths.processed / name for role, name in OUTPUT_FILES.items()}
     support_path = paths.raw / SUPPORT_FILE
     payloads = {role: getattr(ledger, role).to_csv(index=False, lineterminator="\n").encode("utf-8")
@@ -570,6 +760,11 @@ def write_treasury_fed_transfer_export(
                            "rule": "every quarter carries an explicit value; quarters before the DTS windows are "
                                    "zero on the observed bases named in the quarterly table, not filled"},
         "rules": {key: value for key, value in vars(RULES).items()},
+        "settlement_exceptions": {"sha256": _sha256(json.dumps(exception_rows, sort_keys=True).encode("utf-8")),
+                                  "rows": exception_rows},
+        "publication_calendar": {"input": f"{CALENDAR_INPUT[0]}:{CALENDAR_INPUT[1]}",
+                                 "rule": "every DTS publication date carries both Domestic Series lines and, from its "
+                                         "first row, the ESF economic-recovery line"},
         "facility_equity_matches": ledger.matches.to_dict("records"),
         "stats": ledger.stats,
         "definitions": DEFINITIONS,
@@ -586,8 +781,8 @@ def write_treasury_fed_transfer_export(
 
 def read_weekly_ledger(raw: bytes) -> pd.DataFrame:
     frame = pd.read_csv(io.BytesIO(raw), dtype=str, keep_default_na=False)
-    required = {"date", "facility_equity_cash_tx", "llc_treasury_securities_cash_tx", "internal_cash_tx",
-                "esf_cash_tx", "esf_unmatched_cash_tx", "esf_unmatched_abs", "esf_unmatched_dates", "equity_basis",
+    required = {"date", "facility_internal_cash_tx", "llc_treasury_securities_cash_tx", "internal_cash_tx",
+                "esf_cash_tx", "esf_retained_cash_tx", "esf_retained_abs", "esf_retained_dates", "equity_basis",
                 "llc_basis"}
     if required - set(frame.columns):
         raise ValueError(f"Treasury-Fed weekly ledger: missing columns {sorted(required - set(frame.columns))}")

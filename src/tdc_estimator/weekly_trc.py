@@ -77,8 +77,8 @@ BOUNDARIES = [
     "Coupons are payment-date proxies on prior-week positions plus known primary allotments settling strictly before payment. Secondary entitlement is unobserved.",
     "TIPS coupon index date is the nominal coupon date; holiday-shifted payment date assigns the cash week. Published auction references supply nominal payment-date CPI where available; issue ratios independently cross-check the reconstruction.",
     "FRN rates carry through a documented no-auction interval within the complete auction-query window; missing feed/rate observations remain unavailable. Published daily intervals start inclusive and end exclusive, with feed history from 2024-10-31.",
-    "J applies the dated Treasury-Fed internal-transfer ledger on DTS dates: facility equity matched to the H.4.1 Treasury-contributions liability and the credit-facility LLCs' purchases and redemptions of nonmarketable Treasury securities. The H.4.1 contribution change less the dated equity cash (reporting lag and returned earnings) stays candidate-only.",
-    "Unmatched ESF economic-recovery postings are payments to or from nonbanks and stay in core; they are reported with their cash dates within the DTS ESF window and are unavailable outside it. SDR certificate and gold stock changes remain candidates, not zero-valued observed corrections.",
+    "J applies the dated Treasury-Fed internal-transfer ledger on DTS dates: facility equity principal matched to the H.4.1 Treasury-contributions liability plus documented Federal Reserve-account settlements, and the credit-facility LLCs' purchases and redemptions of nonmarketable Treasury securities. The H.4.1 contribution change less the applied cash (reporting lag, equity reduced without cash) stays candidate-only.",
+    "ESF cash left in the cash term (unclassified postings, whose counterparty and settlement account are unverified, and facility receipts beyond equity principal not documented as Federal Reserve-account settlements) stays in core and is reported with its cash dates within the DTS ESF window; it is unavailable outside it. SDR certificate and gold stock changes remain candidates: their Treasury-cash incidence is unresolved.",
     "Coin, Treasury currency, Treasury cash holdings, IORB and FIMA lending remain outside core.",
     "Secondary activity stays par-valued, with net unpriced par reported; gross secondary cash and churn are not measured.",
     "All-securities premiums/discounts are a reconciliation bridge, never a Treasury cash-price estimator.",
@@ -998,7 +998,7 @@ def internal_postings(h, end, transfers):
     if key not in transfers.index:
         raise ValueError(f"Treasury-Fed internal-transfer ledger has no week ending {key}")
     week = transfers.loc[key]
-    equity = decimal(week.facility_equity_cash_tx, "transfer ledger facility equity")
+    equity = decimal(week.facility_internal_cash_tx, "transfer ledger facility internal cash")
     securities = decimal(week.llc_treasury_securities_cash_tx, "transfer ledger LLC Treasury securities")
     out = {}
     for factor in INTERNAL_FACTORS:
@@ -1020,15 +1020,15 @@ def internal_postings(h, end, transfers):
     out["j_facility_llc_treasury_securities_applied"] = securities
     out["j_facility_llc_treasury_securities_status"] = week.llc_basis
     cash = _ledger_value(week.esf_cash_tx, "transfer ledger ESF cash")
-    unmatched = _ledger_value(week.esf_unmatched_cash_tx, "transfer ledger unmatched ESF cash")
+    kept = _ledger_value(week.esf_retained_cash_tx, "transfer ledger retained ESF cash")
     out["j_facility_dts_cash_candidate"] = cash
-    out["j_facility_dts_cash_candidate_only"] = unmatched
+    out["j_facility_dts_cash_candidate_only"] = kept
     out["j_facility_dts_cash_candidate_only_absolute"] = _ledger_value(
-        week.esf_unmatched_abs, "transfer ledger unmatched ESF cash")
-    out["j_facility_dts_cash_candidate_dates"] = week.esf_unmatched_dates
+        week.esf_retained_abs, "transfer ledger retained ESF cash")
+    out["j_facility_dts_cash_candidate_dates"] = week.esf_retained_dates
     out["j_facility_dts_cash_status"] = (
         "unavailable_dated_cash_input" if cash is None
-        else "unmatched_esf_cash_stays_in_core" if week.esf_unmatched_dates
+        else "retained_esf_cash_stays_in_core" if week.esf_retained_dates
         else "applied_dated_cash_no_unmatched_postings" if equity
         else "no_nonzero_dated_cash_candidate"
     )
@@ -1771,7 +1771,7 @@ def column_contracts(tables):
             "bridge_maturity_payment_clock": "-settlement_clock_adjustment",
             "difference_maturity_payment_clock": "weekly-quarter settlement_clock_adjustment",
             "fed_leg_cash_corrected": "fed_leg_par + maturity payment-clock adjustment + supported primary_cash_adjustment - supported redemption_inflation",
-            "trc_par_sensitivity": "c_h + fed_leg_par - soma_coupon_cash + cash_remittances; no cash or J correction",
+            "trc_par_sensitivity": "c_h + fed_leg_par - soma_coupon_cash + cash_remittances; no cash or J correction, so it keeps the Treasury-Fed internal transfers",
             "primary_addons_cash": "auction SOMA par times dirty settlement price, with adjusted TIPS fields indexed once",
             "primary_cash_adjustment": "supported primary_addons_cash - primary_addons_par; null event corrections reported separately",
             "redemptions_cash": "opening par with no-intervening-trade assumption; TIPS max(par,par*nominal-maturity index ratio)",
@@ -1791,19 +1791,19 @@ def column_contracts(tables):
             "difference_primary_cash_price": "weekly-quarter primary_cash_adjustment",
             "difference_redemption_inflation": "negative weekly-quarter redemption_inflation",
             "difference_internal_postings": "weekly-quarter j_applied - admitted treasury_fed_internal_cash_tx (DTS-date Wednesday weeks vs calendar quarter)",
-            "j_applied": "treasury_fed_transfers_weekly_v1: facility equity plus LLC Treasury-securities cash on DTS dates",
+            "j_applied": "treasury_fed_transfers_weekly_v1: facility internal cash plus LLC Treasury-securities cash on DTS dates",
             "j_candidate_only": "sum signed internal factors less applied dated cash; excluded from core",
             "j_facility_llc_treasury_securities_applied": "treasury_fed_transfers_weekly_v1:llc_treasury_securities_cash_tx; LLC purchases less redemptions of nonmarketable Treasury securities",
             "j_facility_dts_cash_candidate": "treasury_fed_transfers_weekly_v1:esf_cash_tx; all signed dated DTS ESF economic-recovery cash",
-            "j_facility_dts_cash_candidate_only": "treasury_fed_transfers_weekly_v1:esf_unmatched_cash_tx; ESF postings without an H.4.1 contribution match, kept in core",
-            "j_facility_dts_cash_candidate_only_absolute": "treasury_fed_transfers_weekly_v1:esf_unmatched_abs; not an uncertainty bound",
-            "j_facility_dts_cash_candidate_dates": "treasury_fed_transfers_weekly_v1:esf_unmatched_dates; cash dates and signed USD million",
+            "j_facility_dts_cash_candidate_only": "treasury_fed_transfers_weekly_v1:esf_retained_cash_tx; ESF cash left in the cash term and in core",
+            "j_facility_dts_cash_candidate_only_absolute": "treasury_fed_transfers_weekly_v1:esf_retained_abs; not an uncertainty bound",
+            "j_facility_dts_cash_candidate_dates": "treasury_fed_transfers_weekly_v1:esf_retained_dates; cash dates and signed USD million retained",
             "rrp_others_vs_on_rrp_flow_bridge": "signed H.4.1 RRP-others factor + change in daily ON RRP principal; perimeters differ",
         }
     )
     for key in INTERNAL_FACTORS:
         source["j_" + key + "_applied"] = (
-            "treasury_fed_transfers_weekly_v1:facility_equity_cash_tx" if key == "treasury_contributions_to_credit_facilities"
+            "treasury_fed_transfers_weekly_v1:facility_internal_cash_tx" if key == "treasury_contributions_to_credit_facilities"
             else "none applied; no dated Treasury cash link"
         )
         source["j_" + key + "_candidate_only"] = (

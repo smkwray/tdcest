@@ -427,6 +427,18 @@ def run_estimation_pipeline(
             ),
         }
     )
+    # The MTS-based DU research rows read budget outlays and receipts, not the operating-cash term; whether
+    # those carry the 2020-2026 credit-facility transfers has not been reconciled.
+    for column in [
+        "tdc_du_fiscal_flow_first_pass_narrow",
+        "tdc_du_fiscal_flow_first_pass_broad",
+        "tdc_du_residual_proxy_bank_only_ru",
+        "tdc_du_residual_proxy_np_cu_ru",
+        "tdc_du_residual_proxy_np_corp_cu_ru",
+        "tdc_du_residual_proxy_full_cu_ru",
+    ]:
+        if column in method_meta["method_descriptions"]:
+            method_meta["method_descriptions"][column] += " Not audited for facility transfers."
 
     quarterly_to_write = quarterly.copy()
     quarterly_to_write.index.name = "date"

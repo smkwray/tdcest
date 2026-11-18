@@ -1,7 +1,10 @@
 # Weekly Treasury component of reserves
 
 `weekly-trc-export` builds a cash-corrected Wednesday core **proxy**, a separate
-uncorrected par sensitivity, and signed ON RRP route scenarios. It reads the
+uncorrected par sensitivity, and signed ON RRP route scenarios. The par
+sensitivity (`trc_par_sensitivity`, weekly and monthly) applies neither the cash
+corrections nor `J`, so it keeps the Treasury–Fed internal transfers; it is not a
+pricing sensitivity of corrected core. It reads the
 quarterly TRC and reserve-factor ledger outputs under pinned hashes and does not
 modify them. There is no weekly preferred series, estimator, or allocation of
 monthly fund positions.
@@ -70,18 +73,21 @@ entitlement assumption, with its own reversing clock bridge.
 
 `J` corrects Treasury–Fed cash that has no reserve incidence. It is read from
 the dated internal-transfer ledger (`tdc treasury-fed-transfer-export`) on DTS
-record dates: Treasury equity paid into or returned from the Federal Reserve
-credit-facility LLCs, identified by a match to the H.4.1 Treasury-contributions
-liability, and the LLCs' purchases and redemptions of nonmarketable Treasury
-securities. The H.4.1 contribution change less the dated equity cash in the same
-week (the reporting lag of the 2020-04-13 payment, returned earnings) stays a
-stock candidate. ESF economic-recovery postings without a contribution match are
-payments to or from nonbanks; they stay in core and are reported with their cash
-dates. Outside the DTS ESF window (from 2020-01-01) the cash candidates are
-unavailable, not zero. SDR and gold entries lack a dated Treasury-cash link: DTS
-Table II carries no posting for SDR certificate monetizations, which credit the
-Exchange Stabilization Fund's own Federal Reserve account. They stay
-candidate-only. Neither a reclassification nor an unmatched
+record dates: the equity principal of Treasury payments into and returns from the
+Federal Reserve credit-facility LLCs, identified by a match to the H.4.1
+Treasury-contributions liability, plus receipt components documented as
+Federal Reserve-account settlements, and the LLCs' purchases and redemptions of
+nonmarketable Treasury securities. The H.4.1 contribution change less the applied
+cash in the same week (the reporting lag of the 2020-04-13 payment, an equity
+reduction larger than its cash) stays a stock candidate. Other ESF
+economic-recovery cash stays in core and is reported with its dates: unclassified
+postings, whose counterparty and settlement account are unverified, and facility
+earnings not documented as Federal Reserve-account settlements. Outside the DTS
+ESF window (from 2020-01-01) the cash candidates are unavailable, not zero. SDR
+and gold entries lack a dated Treasury-cash link. SDR certificate monetizations
+credit the Exchange Stabilization Fund's Federal Reserve account and have no DTS
+Table II posting; whether a later ESF investment moves Treasury cash is unresolved
+pending a DTS Table III-A to III-B reconciliation. They stay candidate-only. Neither a reclassification nor an unmatched
 certificate account entry is mechanically added to core. Coin, Treasury currency,
 Treasury cash holdings, IORB and FIMA lending stay outside core.
 

@@ -483,8 +483,8 @@ def test_cli_exports_hash_bound_outputs_and_never_touches_trc(tmp_path, base):
 
 # Quarterly TRC of the 2026q2 vintage, with Treasury-Fed internal transfers out of the cash leg.
 ADMITTED_TRC_HASHES = {
-    "trc_quarterly_components_v1.csv": "81ace27e658bf7a384fb51c2a2c0595cf92ee24c213a8cac74b51e92a7612b21",
-    "trc_quarterly_series_v1.csv": "6b2e6a4e584059cf7bcf0b22c919517130a40c06508b16f3bddbe55638cad3e2",
+    "trc_quarterly_components_v1.csv": "76d2ed9387a9d422e4a37fd35bf436f91528fbbf59babeb946079c05fac0adbb",
+    "trc_quarterly_series_v1.csv": "278d9686ea2742523c1b4fe85f20e7c4319c87c3daa3925c51c196ffaa29b9e2",
     "trc_route_registry_v1.csv": "90f6374dd92b44c257dc2d37c3b823d31e709197cffc3e21c5e854e87fda0d03",
 }
 

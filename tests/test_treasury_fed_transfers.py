@@ -377,7 +377,9 @@ def test_retained_2026q2_inputs_reproduce_the_ledger():
         domestic_series_frame=frames["treasury-fed-transfers"]["dts_domestic_series"],
         domestic_series_window=window("treasury-fed-transfers", "dts_domestic_series"),
         mspd_frame=frames["treasury-fed-transfers"]["mspd_domestic_series"],
-        z1_frame=frames["treasury-fed-transfers"]["z1_llc_treasury_level"], vintage=vintage)
+        z1_frame=frames["treasury-fed-transfers"]["z1_llc_treasury_level"],
+        calendar_frame=frames["weekly-trc"]["remittances"], calendar_window=window("weekly-trc", "remittances"),
+        vintage=vintage)
     receipt = json.loads(receipt_path.read_text())
     payloads = {role: getattr(ledger, role).to_csv(index=False, lineterminator="\n").encode() for role in
                 ["postings", "quarterly", "weekly"]}
@@ -387,6 +389,10 @@ def test_retained_2026q2_inputs_reproduce_the_ledger():
     q = ledger.quarterly.set_index("quarter")["internal_cash_tx"]
     # 2020Q2: 114,000 of facility equity paid out less 95,625 of LLC Treasury purchases.
     assert q["2020Q2"] == -18375 and q["2021Q1"] == 9122 and q.loc[:"2020Q1"].eq(0).all()
+    # Settlement split: MMLF fees and CPFF preferred-account earnings internal; CCF and undocumented earnings kept.
+    assert q["2021Q2"] == pytest.approx(3133.83) and q["2021Q3"] == 2089 and q["2021Q4"] == 949 and q["2023Q4"] == 688
+    kept = ledger.stats["esf_retained"]["through_quarter_end"]["esf_unclassified"]
+    assert (kept["n"], kept["net"]) == (374, -6831)
     assert ledger.stats["facility_equity_matches"]["n_h41_changes"] == 21
     assert ledger.stats["z1_reconciliation_max_ratio_to_bound"] < 1
     assert ledger.stats["zero_coupon_maturities_in_dts_window"] == [

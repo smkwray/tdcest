@@ -513,14 +513,14 @@ def test_mmf_route_status_is_explicit_and_fails_closed():
 # The 2026q2 measurement vintage, with Treasury-Fed internal transfers out of the cash terms.
 REFRESH = MEASUREMENT_VINTAGES["2026q2"]
 FROZEN_HASHES = {
-    "tdc_regression_legs_v1.csv": "fb970059569bd7f3d8e18c84cd8a351bcbd67cdc0147cc34770efe886c3a7b1c",
-    "quarterly_inputs.csv": "1a1e06afd46412485f9e9f2314f2f95478041df2b94ddf947de6d03b1c929c49",
-    "tdc_tier2_regression_series.csv": "5e7663eb2883cb5652bf585b073d52ca006ce07239c55b4b2887772abb03e83e",
+    "tdc_regression_legs_v1.csv": "27552670da804aa22db58d0b439833bb80aeb5d2e75216a828bb48707d3efa99",
+    "quarterly_inputs.csv": "0f1e83fa7697027ba0c47347becd95f1a98edb7ee9cf80edca666a64f0072073",
+    "tdc_tier2_regression_series.csv": "5822325eed59d0129889e8a55bb46f3e093a237367b644e28795a85ff09fadee",
 }
 REFERENCE_EPISODES = {  # USD billion: (Z.1 reserve change, core plus proportional MMF route)
     "2008Q3": (182.8, -329.4), "2008Q4": (575.7, -28.8), "2009Q1": (-32.1, 111.4),
     "2020Q2": (312.8, 28.1), "2021Q1": (677.8, 869.3), "2021Q2": (-161.1, 533.1), "2021Q3": (347.6, 928.9),
-    "2023Q2": (-136.9, -276.8), "2023Q3": (19.8, -132.8), "2023Q4": (68.1, -0.8),
+    "2023Q2": (-136.9, -276.8), "2023Q3": (19.8, -132.8), "2023Q4": (68.1, -1.0),
 }
 # 2003-2007 is 0.011 because the 2006Q1 TGA change uses DTS at both endpoints;
 # a mixed H.4.1-to-DTS 2006Q1 change gives 0.010.

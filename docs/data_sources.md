@@ -1,201 +1,79 @@
-# Data sources
+# Data Sources
 
-All inputs are public. Downloads are written to `data/raw/` unchanged, and every transformation into `data/processed/` is done in code. Acquisition prefers official sources with scriptable URLs.
+`tdcest` builds TDC and its reserve-side counterpart (TRC) from public Federal Reserve, US Treasury, SEC, OFR, NCUA, FDIC, IRS, and State Department data. Series definitions live in `src/tdc_estimator/catalog.py`.
 
-## Core Z.1 series
+## Required FRED series
 
-These Financial Accounts (Z.1) series, downloaded from FRED, drive the baseline estimator family.
+Running `tdc download` fetches ten required series (`BASE_FRED_SERIES` in `catalog.py`) into `data/raw/fred__<key>.csv`. The Z.1 series are quarterly unadjusted transactions in USD millions; the H.4.1 remittance series is a weekly Wednesday level in USD millions clipped at zero (`clip_positive`) before summing to quarters so negative deferred-asset balances do not enter as negative remittances.
 
-| Key | FRED series | Description | Use |
+| Key | FRED ID | Role | Aggregation |
 |---|---|---|---|
-| `fed_tsy_tx` | `BOGZ1FU713061103Q` | Monetary authority; Treasury securities; transactions | Baseline |
-| `us_chartered_tsy_tx` | `BOGZ1FU763061100Q` | U.S.-chartered depository institutions; Treasury securities; transactions | Baseline |
-| `foreign_offices_tsy_tx` | `BOGZ1FU753061103Q` | Foreign banking offices in the U.S.; Treasury securities; transactions | Baseline |
-| `affiliated_areas_tsy_tx` | `BOGZ1FU743061103Q` | Banks in U.S.-affiliated areas; Treasury securities; transactions | Baseline |
-| `row_tsy_tx` | `BOGZ1FU263061105Q` | Rest of the world; Treasury securities; transactions | Baseline |
-| `treasury_operating_cash_tx` | `BOGZ1FU313024000Q` | Federal government; Treasury operating cash; transactions | Baseline |
-| `np_credit_unions_tsy_tx` | `BOGZ1FU473061103Q` | Credit unions excluding corporate credit unions; Treasury securities; transactions | Broad-depository row |
-| `corp_credit_unions_tsy_tx` | `BOGZ1FU473061153Q` | Corporate credit unions; Treasury securities; transactions | Sensitivity |
-| `ncua_capitalization_deposit_tx` | `BOGZ1FU473061203Q` | Credit unions; NCUA share-insurance capitalization deposit; transactions | Aggregate credit-union sensitivity |
-| `credit_unions_total_tsy_tx` | `BOGZ1FU473061105Q` | Credit unions; Treasury securities; transactions | Cross-check |
-| `gse_tsy_tx` | `BOGZ1FA403061105Q` | Government-sponsored enterprises; Treasury securities; transactions | GSE/ON RRP boundary diagnostic only |
+| `fed_tsy_tx` | `BOGZ1FU713061103Q` | Federal Reserve Treasury security transactions | `sum` |
+| `us_chartered_tsy_tx` | `BOGZ1FU763061100Q` | US-chartered depository institution Treasury transactions | `sum` |
+| `foreign_offices_tsy_tx` | `BOGZ1FU753061103Q` | Foreign banking offices in the US Treasury transactions | `sum` |
+| `affiliated_areas_tsy_tx` | `BOGZ1FU743061103Q` | Banks in US-affiliated areas Treasury transactions | `sum` |
+| `np_credit_unions_tsy_tx` | `BOGZ1FU473061103Q` | Natural-person credit union Treasury transactions (comparison) | `sum` |
+| `corp_credit_unions_tsy_tx` | `BOGZ1FU473061153Q` | Corporate credit union Treasury transactions (comparison) | `sum` |
+| `ncua_capitalization_deposit_tx` | `BOGZ1FU473061203Q` | NCUA share insurance capitalization deposit (comparison) | `sum` |
+| `row_tsy_tx` | `BOGZ1FU263061105Q` | Foreign (rest of the world) Treasury transactions | `sum` |
+| `treasury_operating_cash_tx` | `BOGZ1FU313024000Q` | Federal government Treasury operating cash transactions | `sum` |
+| `fed_remit_or_deferred` | `RESPPLLOPNWW` | H.4.1 Federal Reserve earnings remittances due to Treasury (`clip_positive`) | `sum` |
 
-Holdings-level counterparts of the Treasury and operating-cash series are also downloaded. They feed only the holdings-level sensitivities and diagnostics.
+## Optional FRED series
 
-The cash term is the Z.1 Treasury operating cash concept, net of Treasury–Federal Reserve internal transfers. Daily Treasury Statement (DTS) operating cash and the H.4.1 TGA series (`WDTGAL`) are diagnostics; neither replaces operating cash in years when Treasury Tax and Loan balances were material.
+`OPTIONAL_FRED_SERIES` in `catalog.py` adds reference and checking series when `--required-only` is not set:
 
-## Treasury–Federal Reserve internal transfers
+- Z.1 deposit and Treasury holdings levels and transactions: US-chartered total deposits (`BOGZ1FL764100005Q`), checkable deposits (`BOGZ1FL763127005Q`), time and savings deposits (`BOGZ1FL763130005Q`), credit-union total Treasury transactions (`BOGZ1FU473061105Q`), sector Treasury holdings levels for banks, foreign holders, credit unions, money market funds, mutual funds, ETFs, insurers, pensions, households, nonfinancial businesses, and state and local governments.
+- H.8 commercial bank balance-sheet series and money stock (`M2SL`, `CURRCIR`, `TOTBKCR`, published in USD billions and multiplied by `1000` inside `estimators.py`).
+- Daily H.15 nominal Treasury constant-maturity yields (`DGS1MO` through `DGS30`) and daily ON RRP take-up (`RRPONTSYD`, USD billions).
 
-`tdc treasury-fed-transfer-export` builds the dated ledger and writes the required support series `data/raw/support__treasury_fed_internal_cash_tx.csv` (USD million, calendar quarters by DTS date, every quarter from 2002Q1). Its inputs, acquired through fiscus with `scripts/acquire_trc_inputs.py --registry treasury-fed-transfers`, are:
+In `src/tdc_estimator/io.py` and `utils.py`, quarterly resampling uses calendar quarter-end (`QE-DEC`): flow series aggregate by `sum` (`min_count=1`) and stock series by `last`.
 
-| Input | Source | Role |
+By default `tdc download` fetches FRED CSVs from the public `fredgraph.csv` endpoint; setting `FRED_API_KEY` switches to the FRED JSON API. Download outcomes are logged in `data/raw/manifest_fred.json`. Missing a required series stops the build.
+
+## Local support files
+
+`tdc estimate` reads optional local support CSVs from `data/raw/support__<key>.csv` (`LOCAL_SUPPORT_SERIES` in `catalog.py`):
+
+- Treasury–Federal Reserve internal transfers: `support__treasury_fed_internal_cash_tx.csv`, built by `tdc treasury-fed-transfer-export`. Required across the transaction era so internal equity transfers and credit-facility LLC nonmarketable Treasury transactions leave the Treasury operating-cash term.
+- Treasury interest terms: `support__fed_tsy_coupon_interest_proxy.csv` (from NY Fed SOMA holdings via `tdc fed-coupon-support`, with pre-SOMA backcast from `wamest`), `support__bank_tier2_component_interest_proxy.csv`, `support__row_tier2_component_interest_proxy.csv`, and `support__credit_union_tier2_component_interest_proxy.csv` (exported from `tdc tier2-interest-component-candidate` using `wamest` weight tables; see `docs/wamest_interest_output_contract.md`), plus H.15 coupon and bill-discount comparison files and the SOMA extension check (`support__fed_tier1_component_extension_proxy.csv`).
+- Money-market-fund ON RRP term: `support__mmf_fund_month.csv` built from SEC Form N-MFP bulk ZIPs via `tdc sec-nmfp-mmf-support`, optional OFR aggregate check `support__mmf_fund_month_ofr_aggregate.csv` via `tdc mmf-rrp-support`, and NY Fed GSE ON RRP check `support__gse_on_rrp.csv` via `tdc gse-on-rrp-support` (see `docs/mmf_rrp_adjustment.md`).
+- Historical Federal Reserve remittances: `support__fed_remit_mts.csv` parsed from archived Monthly Treasury Statement PDFs (`tdc fed-remit-mts-support`) for 2002Q1–2002Q3 before `RESPPLLOPNWW` begins and for cross-checking Fiscal Data MTS receipts.
+- Deposit, tax, and receipt-side comparison files: NCUA Call Report credit-union deposit bridge (`data/raw/ncua__credit_union_deposit_bridge.csv`, `support__credit_union_deposits.csv` via `scripts/build_ncua_credit_union_deposits.py`), FDIC savings-institution bridge (`data/raw/fdic__savings_institution_deposit_bridge.csv`, `support__thrift_deposits.csv` via `scripts/build_fdic_savings_institution_deposits.py`), IRS SOI bank corporate tax shares (`irs__soi_bank_tax_shares.csv`, `irs__soi_bank_minor_industry_availability.csv`), Treasury Combined Statement account rollups (`support__combined_statement_receipt_accounts.csv`), State Department monthly visa issuances (`state__visa_issuances_monthly.csv`), and non-interest outlay, receipt, and coin/currency support files.
+
+## Treasury Fiscal Data API datasets
+
+Running `tdc download --include-treasury-support` (or `scripts/build_all.py --include-treasury-support`) fetches six datasets (`TREASURY_DATASETS` in `catalog.py`) from `https://api.fiscaldata.treasury.gov/services/api/fiscal_service` into `data/raw/treasury__<key>.csv` and logs `data/raw/manifest_treasury.json`:
+
+| Key | Endpoint | Output file |
 |---|---|---|
-| `dts_domestic_series` | DTS Table III-A public debt transactions, nonmarketable Domestic Series | LLC purchases and redemptions; zero-coupon maturities of another holder |
-| `mspd_domestic_series` | MSPD Table 3 nonmarketable detail, Domestic Series | Holder class (`SPV Demand` for the LLCs, zero-coupon bonds with maturity dates) |
-| `z1_llc_treasury_level` | Z.1 `FL503069203.Q` | LLC holdings level the DTS postings must reproduce |
+| `dts_operating_cash` | `v1/accounting/dts/operating_cash_balance` | `data/raw/treasury__dts_operating_cash.csv` |
+| `dts_deposits_withdrawals` | `v1/accounting/dts/deposits_withdrawals_operating_cash` | `data/raw/treasury__dts_deposits_withdrawals.csv` |
+| `mts_receipts` | `v1/accounting/mts/mts_table_4` | `data/raw/treasury__mts_receipts.csv` |
+| `mts_outlays` | `v1/accounting/mts/mts_table_5` | `data/raw/treasury__mts_outlays.csv` |
+| `interest_expense` | `v2/accounting/od/interest_expense` | `data/raw/treasury__interest_expense.csv` |
+| `receipts_by_department` | `v1/accounting/od/receipts_by_department` | `data/raw/treasury__receipts_by_department.csv` |
 
-It also reads DTS Table II ESF economic-recovery cash and the DTS Table II Federal Reserve earnings line, published on every DTS date, as the publication calendar (weekly-trc registry), and the H.4.1 Treasury-contributions liability `H41RESH4ENWW` (h41-ledger registry). Quarters before the DTS windows are zero because the contribution liability is zero on every published Wednesday before 2020 and the Z.1 LLC holdings level is zero; the quarterly table names that basis for each quarter.
+`treasury__interest_expense.csv` supplies the official marketable interest-expense pools (coupon accrual on notes, bonds, and TIPS; amortized bill discount; floating-rate note interest) used by `tdc tier2-interest-component-candidate` and `tdc bill-discount-validation`.
 
-Rules, with parameters in `catalog.TREASURY_FED_TRANSFER_RULES`:
+## Reserve-side and accounting input registries
 
-- Every DTS publication date in the window carries both Domestic Series lines, and each daily amount equals the step in its fiscal-year-to-date total within 1.5 million. From its first posting, every publication date carries the ESF line; ESF fiscal-year-to-date totals carry revisions and are not used.
-- An ESF receipt or payment carries facility equity when it matches an H.4.1 contribution change. Its internal part is the equity principal plus components that `catalog.TREASURY_FED_SETTLEMENT_EXCEPTIONS` documents as Federal Reserve-account settlements (each row names the facility, date, amount, settling account, component and source). Excess cash not documented that way stays in the cash term as facility earnings whose settlement account is unverified. Cash within 1 million of the principal is all principal. When the cash is smaller than the equity reduction, all of it is principal and the rest of the reduction moved no Treasury cash.
-- Unmatched ESF cash is unclassified and stays in the cash term: its counterparty and settlement account are unverified.
-- SDR certificate monetizations have no DTS Table II posting; their Treasury-cash incidence through a later ESF investment is unresolved, and they stay outside the ledger.
+Reserve-side and accounting exports acquire their inputs through `fiscus` using `scripts/acquire_trc_inputs.py --registry <name>`. The script strips `FRED_API_KEY` from the child environment so FRED pulls use the keyless public route, exports cached CSVs, verifies SHA-256 digests, and writes a registry manifest. Pass `--vintage` (`v1` closes `2025Q4` quarterly and `2025-12-31` weekly; `2026q2` closes `2026Q2` and `2026-09-30`) and `--root` to build into a separate data tree.
 
-## Federal Reserve remittances
-
-| File | Source | Role |
+| Registry | Primary sources | Consuming export command |
 |---|---|---|
-| `support__fed_remit_mts.csv` | MTS Table 4 receipts, "Deposits of earnings by Federal Reserve Banks". Archived MTS PDFs before the machine-readable window; FiscalData `treasury__mts_receipts.csv` after it. | Preferred remittance input |
-| `RESPPLLOPNWW` | H.4.1 earnings remittances due to Treasury, weekly level (FRED) | Fallback and comparison |
+| `trc` | Z.1 reserve balances (`BOGZ1FU713113003Q`), H.4.1 Wednesday TGA (`WDTGAL`), reserve balances (`WRBWFRBL`), RRP others (`WLRRAOL`), foreign-official deposits (`WDFOL`), custody Treasuries (`WMTSECL1`, zero before 2007Q4), DTS Table I operating cash, H.3 total reserves (`TOTRESNS`) | `tdc trc-export` |
+| `h41-ledger` | H.4.1 Table 1 Wednesday levels from `2002-12-18` (`H41_TABLE1_ROWS`), plus term deposits (`TERMT`) and Z.1 reserve balances level (`BOGZ1FL713113003Q`) | `tdc reserve-factor-ledger-export` |
+| `weekly-trc` | NY Fed SOMA weekly Treasury snapshots (`soma.treasury_holdings` via `config/fiscus_weekly_trc.yml`), Fiscal Data `auctions_query` and `frn_daily_indexes`, DTS Table II remittances and ESF economic-recovery lines, CPI-U (`CPIAUCNS`), daily ON RRP (`RRPONTSYD`) | `tdc weekly-trc-export` |
+| `treasury-fed-transfers` | DTS Table III-A Domestic Series (`dts_public_debt_transactions`), MSPD Table 3 nonmarketable Domestic Series (`SPV Demand` and zero-coupon maturities), Z.1 credit-facility LLC Treasury holdings (`FL503069203.Q`), paired with `weekly-trc` DTS ESF cash and `h41-ledger` Treasury contributions (`WLTCFLL`) | `tdc treasury-fed-transfer-export` |
+| `bank-composition` | Z.1 Table S.122.1 US-chartered bank transactions and levels plus H.8 Table 4 commercial-bank monthly levels | `tdc bank-composition-export` |
+| `deficit` | MTS Table 1 summary (`mts_table_1`) | `tdc deficit-comparison-export` |
+| `interest-rate-debt` | Fiscal Data `interest_expense` and MSPD Table 3 marketable debt (`Total Marketable` less `Federal Financing Bank`) | `tdc interest-rate-debt-export` |
 
-## Interest-allocation inputs
+## WAMEST inputs
 
-| File | Contents |
-|---|---|
-| `support__fed_tsy_coupon_interest_proxy.csv` | Quarterly Fed coupon interest from SOMA holdings snapshots and inferred coupon schedules, in USD millions. With `--wamest-root`, quarters before the first full SOMA quarter use a WAMEST/H.15 coupon-intensity backcast. |
-| `support__fed_treasury_interest_components.csv`, `support__fed_tier1_component_extension_proxy.csv` | SOMA bill-discount and FRN interest from SOMA holdings, Treasury auction results and FRN daily indexes. Used only by the Fed-extension rows. |
-| `support__{bank,row,credit_union}_tier2_component_interest_proxy.csv` | Component-anchored sector interest, exported from `tier2_interest_component_candidate.csv`. Official coupon-accrual, bill-discount and FRN interest pools are allocated with source-constrained WAMEST weights. These feed the default Tier 2 rows. |
-| `support__{bank,row,credit_union}_tsy_coupon_interest_proxy.csv` | H.15 coupon-intensity proxies from WAMEST sector maturity, level and curve data. They feed the `tdc_tier2_h15_*` sensitivities. |
-| `support__{bank,row,credit_union}_tsy_bill_discount_interest_proxy.csv` | WAMEST-based sector bill-discount proxies for the H.15 robustness rows. Together with the coupon proxies, they form the H.15 interest proxy used in the earliest regression backcast tier. |
+When building interest terms from a sibling `wamest` checkout, `tdcest` reads:
 
-Interest pools and benchmarks:
-
-- FiscalData `interest_expense` (interest expense on the public debt). The `Treasury Bills` / `AMORTIZED DISCOUNT` line, summed from monthly dollars to calendar-quarter millions, validates the sector bill-discount proxies (`tdc bill-discount-validation --download-treasury-interest`).
-- Treasury auction results and FRN daily index values, for SOMA bill-discount and FRN interest.
-
-Source constraints on the sector allocation come from FFIEC Call Reports (Schedule RC-B), NCUA Call Reports and Treasury International Capital (TIC) securities holdings.
-
-The FRED/BEA series `B093RC1Q027SBEA` (federal interest payments to the rest of the world, SAAR) is a sanity benchmark for the rest-of-world interest proxy after conversion to quarterly levels. It is not the same concept.
-
-### WAMEST inputs
-
-With `--wamest-root`, the builders read a [WAMEST](https://github.com/smkwray/wamest) checkout from its standard locations:
-
-- `data/external/normalized/soma_holdings_fed.csv`
-- `outputs/full_coverage_release/canonical_sector_maturity.csv`
-- `data/external/normalized/z1_series_fred.csv` (computed sectors are rebuilt from the full-coverage inventory when needed)
-- `data/external/normalized/h15_curves_auto_nominal_treasury_constant_maturity.csv`
-- `data/processed/treasury_bill_wam_support.csv`, with `--include-bill-discount`
-
-WAMEST sector levels in billions are converted to USD millions. The interest-allocation files TDCest reads, and the checks it applies to them, are specified in the [interest-allocation contract](wamest_interest_output_contract.md).
-
-## Money-market fund and ON RRP inputs
-
-| File | Source | Role |
-|---|---|---|
-| `support__mmf_fund_month.csv` | SEC Form N-MFP filings (`tdc sec-nmfp-mmf-support`) | MMF/ON RRP adjustment |
-| `support__mmf_fund_month_ofr_aggregate.csv` | Office of Financial Research aggregate MMF data (`tdc mmf-rrp-support`, or `--include-mmf-support` on `download` and `build`) | Source comparison only |
-| `support__gse_on_rrp.csv` | New York Fed reverse repo operation results, GSE accepted amounts (`tdc gse-on-rrp-support`) | GSE/ON RRP boundary diagnostic only |
-
-See [MMF/ON RRP adjustment](mmf_rrp_adjustment.md) for the input contract.
-
-## Treasury component of reserves (TRC)
-
-`tdc trc-export` reads two hash-pinned processed inputs, `data/processed/tdc_regression_legs_v1.csv` and `data/processed/quarterly_inputs.csv`, plus the files below. `scripts/acquire_trc_inputs.py` fetches each file through [fiscus](https://github.com/smkwray/fiscus), writes it to `data/raw/fiscus/`, and records in `data/raw/fiscus/trc_inputs_manifest.json` the dataset ID, request, cache key, payload SHA-256, byte count, retrieval time and source vintage. The registry is `TRC_FISCUS_INPUTS` in `catalog.py`.
-
-| Key | Dataset | Use | Status |
-|---|---|---|---|
-| `dts_operating_cash_balance_table_i` | `fiscaldata.dts_operating_cash_balance` (Table I, from 2005-10-03) | TGA from 2006Q1, SFP, TT&L | Default |
-| `h41_tga_wednesday` | `fred.wdtgal` | TGA for changes through 2005Q4; all-H.4.1 diagnostic | Default bridge |
-| `z1_reserves_transactions` | Z.1 `FU713113003.Q` | Reserve outcome | Default |
-| `z1_sfp_transactions` | Z.1 `FU713123043.Q` | SFP cross-check | Check |
-| `h41_reserve_balances_wednesday` | `fred.wrbwfrbl` | H.4.1 clock diagnostic | Nondefault |
-| `h41_rrp_others_wednesday` | `fred.wlrraol` | Reserves plus ON RRP memo; ON RRP remainder cell | Nondefault |
-| `h41_rrp_foreign_official_wednesday`, `h41_foreign_official_deposits_wednesday` | `fred.wlrrafoial`, `fred.wdfol` | Foreign official cash at the Fed | Nondefault |
-| `h41_custody_marketable_treasury_wednesday` | `fred.wmtsecl1` | Foreign-official route bound | Nondefault |
-| `h3_total_reserves_monthly` | `fred.totresns` (billions) | H.3 memo | Memo only |
-| `z1_us_chartered_reserves_transactions` | Z.1 `FU763013005.Q` | U.S.-chartered reserves memo | Memo only |
-
-Source notes:
-
-- The `dts_operating_cash_balance` key used elsewhere names the Table II deposits-and-withdrawals endpoint. The TRC key is separate.
-- DTS Table I changes its account labels over time: `Federal Reserve Account` through 2021-09-30, `Treasury General Account (TGA)` until 2022-04-15, then the `Closing Balance` row, whose value is in `open_today_bal`. SFP and TT&L spellings vary, and TT&L includes its Short-Term Cash Investments successor. An unrecognized or duplicate account on a business day stops the export.
-- The SFP and TT&L lines end on 2022-04-15 at zero balances and are structural zeros afterwards. The unclassified `Financial Institution Account` (2008–2010) must be zero on every quarter-end business day.
-- From 2006, DTS TGA + SFP + TT&L reproduces Z.1 Treasury operating cash transactions within published rounding, and DTS SFP changes match Z.1 `FU713123043`.
-- `WMTSECL1` reports zero before July 2007. Those zeros are treated as non-reporting, so the foreign-official bound starts in 2007Q4.
-- H.3 total reserves include vault cash used to meet reserve requirements before April 2020. They are a memo, not a TRC perimeter.
-
-## H.4.1 reserve-factor ledger
-
-`scripts/acquire_trc_inputs.py --registry h41-ledger` fetches every H.4.1 Table 1 row in the ledger into `data/raw/fiscus/h41_ledger/` and records each file's series ID, units (USD millions) and fiscus identity in `inputs_manifest.json`. The row taxonomy is `H41_TABLE1_ROWS` in `catalog.py`; each row names its FRED series, its Table 1 parent and its role. Factor rows enter the signed ledger. Check rows are published parents and totals that only verify their factor descendants. A memo row is displayed and never summed. No factor sits under another factor, so a parent and its child never both enter.
-
-| Role | Rows (FRED series) |
-|---|---|
-| Outcome | Reserve balances (`WRBWFRBL`, Wednesday level; never the `WRESBAL` week average) |
-| Supplying factors | Treasury securities `WSHOTSL`; agency debt `WSHOFADSL`; MBS `WSHOMCB`; unamortized premiums `WUPSHO` and discounts `WUDSHO` (published negative); repurchase agreements `WORAL`; term auction credit `RESPPALTNWW`; loans `WLCFLL`; CPFF LLC `H0RESPPAACHNWW`; MMIFF LLCs `H0RESPPAAMMIHNWW`; Maiden Lane I–III `WAML1L`, `WAML2L`, `WAML3L`; TALF LLC `H0RESPPAATALHNWW`; AIA/ALICO preferred interests `H0RESPPAAAAAINWW`; CPFF II LLC `H41RESPPAAC2HNWW`; Corporate Credit Facilities LLC `H41RESPPAABNWW`; Municipal Liquidity Facility LLC `H41RESPPAADHNWW`; MS Facilities LLC `H41RESPPAAENWW`; TALF II LLC `H41RESPPAATAL2HNWW`; float `WOFSRBFL`; central bank liquidity swaps `SWPT`; other Federal Reserve assets `WOFRAL`; foreign-currency-denominated assets `WFCDA`; gold stock `WOFSRBGSL`; SDR certificate account `WOSDRL`; Treasury currency outstanding `WTCOL` |
-| Absorbing factors | Currency in circulation `WCICL`; reverse repos with foreign official accounts `WLRRAFOIAL` and others `WLRRAOL`; Treasury cash holdings `WOFDRBTHL`; term deposits `TERMT`; TGA `WDTGAL`; SFP `WDSFAL`; foreign official deposits `WDFOL`; service-related deposits `H0RESPPLLDDSNWW`; other deposits `WLODL`; AIG disposition funds held as agent `H0RESPPLLANWW`; Treasury contributions to credit facilities `H41RESH4ENWW`; other liabilities and capital `WOLCL` |
-| Checks | Total supplying `WTFSRFL`; total absorbing other than reserve balances `WTFORBAFL`; Reserve Bank credit `WOFSRBRBC`; securities held outright `WSHOSHO`; reverse repos `WLRRAL`; deposits other than reserve balances `WOFDRBORBL` |
-| Memo | Treasury inflation compensation `WSHOICL` (included in `WSHOTSL`) |
-| Outcome bridge | Z.1 `FL713113003.Q` level and `FU713113003.Q` transactions |
-
-Source notes:
-
-- Every series is the H.4.1 Wednesday level in USD millions, from 2002-12-18 to the latest published Wednesday.
-- `WLODL` is the "other deposits" row that closes against `WOFDRBORBL`. `RESPPMLLDONWW` does not close and is not used.
-- `WDSFAL` begins 2008-09-24. Earlier Wednesdays are structural zeros because the program began on 2008-09-17.
-- A discontinued row is a structural zero after its last observation. A row discontinued at a nonzero balance (TALF LLC, AIA/ALICO preferred interests, AIG disposition funds, service-related deposits) carries a declared reason, and published totals must still close.
-- A row that ends early without a declared reason, a gap inside a row's reporting span, or a missing input stops the export.
-
-The weekly TRC adds SOMA holdings snapshots, Treasury auction results, DTS Table II and FRN indexes; see [weekly TRC conventions](weekly_trc.md).
-
-## Federal deficit
-
-`scripts/acquire_trc_inputs.py --registry deficit` fetches FRED `MTSDS133FMS`, the Monthly Treasury Statement total federal surplus or deficit (USD millions, not seasonally adjusted, negative in deficit months), into `data/raw/fiscus/deficit/`. Treasury's own MTS Table 1 on FiscalData starts in 2015, so the FRED copy supplies the months before it. The request window runs from the first comparison quarter to the vintage endpoint.
-
-## Interest on marketable debt
-
-`scripts/acquire_trc_inputs.py --registry interest-rate-debt` fetches two FiscalData tables into `data/raw/fiscus/interest_rate_debt/`:
-
-- `fiscaldata.mspd_table_3_market`, Monthly Statement of the Public Debt Table 3 (USD million). Marketable debt is the embedded Total Marketable row less the Federal Financing Bank row. Securities reopened in a month appear on several rows, so CUSIP rows are not summed; the total is checked against the class subtotals instead.
-- `fiscaldata.interest_expense`, the monthly interest expense on the public debt by line (USD). It reconciles the interest pool: the "INTEREST EXPENSE ON PUBLIC ISSUES" lines for Treasury bills, notes, bonds, FRNs and TIPS, grouped into the component families of the Tier 2 interest allocation.
-
-The request windows cover the quarters in `INTEREST_RATE_DEBT_SAMPLE` in `catalog.py`, with the month-end before the first one. Interest itself and its holder split come from the Tier 2 interest allocation, `tier2_interest_component_candidate.csv`.
-
-## Monetary cross-check series
-
-Optional FRED series used by the monetary diagnostics. Targets are read as quarter-end (last-observation) values.
-
-| Role | Series |
-|---|---|
-| Targets | `M2SL`, `CURRCIR`, `RMFSL` (retail MMFs), `STDSL` (small time deposits), `DPSACBM027NBOG` (commercial bank deposits) |
-| Bank-deposit context | `ODSACBM027SBOG` (other deposits), `LTDACBM027SBOG` (large time deposits) |
-| Bank credit and funding | `TOTBKCR`, `LOANS`, `INVEST`, `TNMACBM027SBOG`, `H8B3094NCBDM`, `CASACBM027SBOG` |
-| Federal Reserve balance sheet | `WRESBAL`, `RRPTSYD`, `TERMT`, `WLODLL`, `H41RESPPALDNNWW` |
-| Foreign and portfolio context | `WMTSEC1`, `TNMFRIM027SBOG` |
-
-The diagnostics form a deposit target, subtract signed non-Treasury control blocks and report the remaining residual. Foreign-related series and the TGA are context only, because they overlap the ladder's own Treasury terms.
-
-### Depository perimeter bridges
-
-| File | Source |
-|---|---|
-| `ncua__credit_union_deposit_bridge.csv`, `support__credit_union_deposits.csv` | NCUA quarterly Call Report ZIP files: `FS220.txt` (`Acct_018` total shares and deposits, `Acct_013` member shares) and `FOICU.txt` (`CU_TYPE`, to separate federally insured credit unions). Built by `scripts/build_ncua_credit_union_deposits.py`. |
-| `fdic__savings_institution_deposit_bridge.csv`, `support__thrift_deposits.csv` | FDIC quarterly financials, total deposits (`DEP`) for charter classes `SB`, `SI` and `SL`. Built by `scripts/build_fdic_savings_institution_deposits.py`. |
-
-These bridges measure how much of the gap between the commercial-bank and depository targets comes from institutions outside the commercial-bank perimeter.
-
-## Receipt-side research inputs
-
-These inputs support the Tier 3 diagnostics. None enters a default correction.
-
-| File | Source | Use |
-|---|---|---|
-| `irs__soi_bank_tax_shares.csv` | IRS Statistics of Income Publication 16, Table 5.1 | Annual bank-minor-industry shares of corporate income tax after credits: commercial banking, savings institutions and other depository credit intermediation, and offices of bank holding companies, with derived `strict_depository` and `depository_plus_bhc` shares |
-| `irs__soi_bank_minor_industry_availability.csv` | IRS Publication 16, Table 5.3 | Records whether the bank-like rows are published or suppressed; not a share input |
-| `treasury__receipts_by_department.csv` | FiscalData `receipts_by_department` | Annual account-symbol receipts, scanned for bank-related and rest-of-world receipt candidates with Federal Account Symbols and Titles (FAST Book) classification |
-| Combined Statement support file | Treasury Combined Statement of Receipts, Outlays, and Balances | Confirms main-account families for candidate receipt lines |
-| `state__visa_issuances_monthly.csv` | State Department monthly visa statistics | Monthly nonimmigrant and immigrant visa issuances; timing bridge for the visa-fee sensitivity |
-| `W008RC1Q027SBEA`, `W781RC1Q027SBEA`, `LA0000281Q027SBEA` | BEA via FRED | Federal current receipts from the rest of the world (taxes, social insurance contributions, transfers); receipt benchmark |
-| FiscalData MTS receipts and outlays, DTS, Revenue Collections | Treasury FiscalData | Receipt and outlay timing, bank-channel bounds and the broad rest-of-world outlay profile |
-
-Source notes:
-
-- Publication 16 shares are annual and published with a lag of several years. Quarters beyond the age limit of the latest published tax year are excluded rather than extrapolated. When last checked (April 2026), no complete Publication 16 report later than tax year 2022 had been published.
-- The Table 5.3 bank minor-industry rows are suppressed, so the stricter Table 5.3 route is unavailable.
-- Annual account titles identify receipt lines but not the paying account or the quarterly cash timing, so every candidate stays outside the default. The OCC timing sensitivity applies OCC semiannual assessment due dates to annual OCC lines.
-
-## Other Treasury datasets
-
-`tdc download --include-treasury-support` also fetches Monthly Statement of the Public Debt (MSPD) marketable and full detail and State and Local Government Series (SLGS) data for supporting analysis.
+- SOMA holdings: `data/external/normalized/soma_holdings_fed.csv` (see `src/tdc_estimator/fed_coupon.py`).
+- Sector interest weights: `outputs/full_coverage_release/sector_interest_allocation_weights.csv` and `sector_component_bucket_weights.csv` (fallback paths and schema in `docs/wamest_interest_output_contract.md`).
+- Fallback maturity, holdings, and curve files when weight tables are absent: `canonical_sector_maturity.csv`, `z1_series_auto_full.csv`, and `h15_curves_auto_nominal_treasury_constant_maturity.csv` (see `src/tdc_estimator/sector_coupon.py`).

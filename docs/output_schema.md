@@ -1,1563 +1,191 @@
-# Output schema
+# Output Schema
 
-This page describes the files written to `data/processed/`. All outputs are generated locally and are not tracked. Unless a file says otherwise, monetary values are in USD millions and quarterly rows are dated by calendar quarter (quarter-end dates or `YYYYQn` labels).
+This document describes the CSV and JSON files written by `tdcest`.
 
-The repository is the unit of regeneration. A copy of some processed files is a snapshot, not an independently reproducible build.
+## Conventions
 
-## Primary outputs
+- Location: outputs go to `data/processed/` unless stated otherwise. `tdc site-export` writes to `site/bundle.json` and `site/data/bundle.json`. `tdc treasury-fed-transfer-export` also writes `data/raw/support__treasury_fed_internal_cash_tx.csv`. `scripts/export_trc_monthly.py` writes to the directory passed via `--out-dir`.
+- Units: USD millions, unless a section states USD billions (`bank_composition_*` and `interest_rate_debt_*`).
+- Dates: `date` uses `YYYY-MM-DD` (quarter-end for quarterly tables, Wednesday date for weekly H.4.1 tables, month-end for monthly N-MFP tables, posting date for daily tables). `quarter` uses `YYYYQ#` and `month` uses `YYYY-MM`.
+- Vintages: hash-pinned exports accept `--vintage v1` (quarterly sample through `2025Q4`, weekly through `2026-04-08`) or `--vintage 2026q2` (quarterly through `2026Q2`, weekly through `2026-09-30`).
+- Receipts: hash-pinned exports write a companion `*_receipt.json` containing `schema_version`, `producer_commit`, `vintage`, input and output SHA-256 hashes, coverage bounds, and reconciliation checks.
+- Code identifiers: some column and JSON key names retain legacy strings (`tier1`, `tier2`, `tier3`, `ru_flow`, `canonical`, `preferred`, `variant`, `perimeter`) for compatibility with downstream readers.
 
-### `tdc_estimates.csv`
+## Main TDC Outputs
 
-The quarterly estimator ladder: one row per quarter (`date`, quarter-end) and one column per estimator row. Columns follow the naming pattern `tdc_<tier>_<correction>_<perimeter>_ru_flow`, where the perimeter is `bank_only`, `broad_depository_np_cu` (adds natural-person credit unions), `depository_institution_np_cu` (broad perimeter less credit-union interest) or `domestic_bank_only` (no rest-of-world term). A column is written only when its inputs are present, and it is empty for quarters its support files do not cover. A quarter that lacks a required quarterly input (a Z.1 Treasury transaction series, Treasury operating cash or the remittance value) is left empty rather than filled with zero; the pre-2002 level-change backfill is the one exception and excludes remittances, as `method_meta.json` records. The quarterly MMF/ON RRP adjustment is zero before the ON RRP facility began (2013Q3); after that, a missing lower bound is set to zero only when the proportional and upper values are both observed zeros, and other missing values stay missing, with status counts in `method_meta.json`. These checks apply to the quarterly inputs: monthly and weekly source data are aggregated as published, and fund-level MMF limitations are described in [MMF/ON RRP adjustment](mmf_rrp_adjustment.md). Key columns:
+### `tdc_tier2_regression_series.csv` (and `.md`)
 
-| Column | Role |
-|---|---|
-| `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` | Canonical quarterly measure |
-| `tdc_base_bank_only_ru_flow`, `tdc_base_broad_depository_np_cu_ru_flow` | Tier 0 baselines |
-| `tdc_tier1_fed_corrected_*` | Tier 1 |
-| `tdc_tier2_component_anchored_*`, `tdc_tier2_interest_corrected_*`, `tdc_tier2_mmf_rrp_*` | Tier 2 rows |
-| `tdc_tier2_h15_*`, `tdc_tier2_component_anchored_fed_extension_*` | Tier 2 sensitivities |
-| `tdc_tier3_*` | Tier 3 diagnostics |
+Written by `tdc tier2-regression-series`. Quarterly Treasury Deposit Component (TDC) series from `2002Q1` onward, in USD millions.
 
-`method_meta.json` holds the description and formula of every column, the estimator ladder and the correction inputs. `preferred_method` and `canonical_tier2_method` both name the canonical Tier 2 row; when its support is missing they are null and `canonical_tier2_status` gives the reason. `ladder_inputs_by_deposit_concept` names the bank-only and broad-depository baseline rows. The companion files `tdc_components.csv` and `tdc_corrections.csv` hold the inputs and the signed corrections; see [column conventions](#column-conventions).
+The main TDC series is `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow`: net Treasury purchases by the Federal Reserve, banks (US-chartered depository institutions, US offices of foreign banks, banks in US territories), and foreign holders, minus Treasury interest paid to those holders, plus Federal Reserve remittances, minus the increase in Treasury operating cash (excluding Treasury–Federal Reserve internal transfers), plus Treasury purchases money market funds pay for out of the Overnight Reverse Repurchase Agreement (ON RRP) facility (proportional allocation from `2013Q3` onward; `0.0` before `2013-09-30`).
+
+| Column | Meaning |
+| --- | --- |
+| `date` | Quarter-end date (`YYYY-MM-DD`). |
+| `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow` | Main TDC series (banks exclude credit unions; proportional money-fund ON RRP term). |
+| `tdc_tier2_regression_mmf_rrp_lb_bank_only_ru_flow`, `tdc_tier2_regression_mmf_rrp_ub_bank_only_ru_flow` | Same calculation using the lower-bound and upper-bound money-fund ON RRP terms. |
+| `tdc_tier2_regression_mmf_rrp_{lb,prop,ub}_broad_depository_np_cu_ru_flow` | Comparison calculation adding natural-person credit union Treasury purchases alongside banks (without separate credit-union interest subtraction). |
+| `tdc_tier2_regression_mmf_rrp_{lb,prop,ub}_depository_institution_np_cu_ru_flow` | Comparison calculation including natural-person credit union Treasury purchases and subtracting credit-union Treasury interest. |
+| `tdc_tier2_regression_{bank_only,domestic_bank_only,broad_depository_np_cu,depository_institution_np_cu}_ru_flow` | Partial sums before adding the money-fund ON RRP term (`domestic_bank_only` omits foreign holders). |
+| `tdc_base_bank_only_ru_flow`, `tdc_base_broad_depository_np_cu_ru_flow`, `tdc_domestic_bank_only_ru_flow` | Partial sums before subtracting Treasury interest or adding the money-fund ON RRP term. |
+| `fed_tsy_coupon_interest_proxy` | Federal Reserve Treasury coupon interest term. |
+| `{bank,row,credit_union,bank_row,di}_tier2_regression_interest_proxy` | Sector Treasury interest terms (`bank_row` sums bank and foreign; `di` sums bank, foreign, and credit union). |
+| `mmf_rrp_adjustment_{lb,prop,ub}` | Money-fund ON RRP term (lower bound, proportional, upper bound; `0.0` before `2013-09-30`). |
+| `{bank,row,credit_union}_method_tier`, `tier2_regression_bank_row_method_tier`, `tier2_regression_di_method_tier` | Interest estimation source label per quarter (`component_anchored` from `2010Q2` onward; `h15_scale_bridged` through `2010Q1`). |
+
+### `tdc_regression_legs_v1.csv` (and `tdc_regression_legs_v1_receipt.json`)
+
+Written by `tdc regression-leg-export`. Quarterly decomposition of the main TDC series $C$ over `2002Q1` through `vintage.quarter_end` into three additive legs, $C = R + O + J$:
+
+- $R$: foreign Treasury purchases minus foreign Treasury interest (`row_tsy_tx - row_tier2_regression_interest_proxy`).
+- $O$: operating-cash leg excluding Treasury–Federal Reserve internal transfers (`-(treasury_operating_cash_tx - treasury_fed_internal_cash_tx)`).
+- $J$: remaining domestic bank, Federal Reserve, remittance, and money-fund terms (`C - R - O`), checked against the expanded sum `J_expanded`.
+
+| Column group | Columns |
+| --- | --- |
+| Identifier | `quarter`, `date` |
+| Z.1 and remittance inputs | `fed_tsy_tx`, `us_chartered_di_tsy_tx`, `foreign_banking_offices_tsy_tx`, `banks_us_territories_tsy_tx`, `row_tsy_tx`, `treasury_operating_cash_tx`, `treasury_fed_internal_cash_tx`, `fed_remit_or_deferred`, `fed_remit_positive` |
+| Interest and money-fund inputs | `fed_tsy_coupon_interest_proxy`, `bank_tier2_regression_interest_proxy`, `row_tier2_regression_interest_proxy`, `mmf_rrp_adjustment_prop`, `effective_mmf_rrp_adjustment_prop` |
+| Main series and legs | `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow`, `C`, `R`, `O`, `J`, `J_expanded` |
+| Checks and provenance | `R_reconstruction_gap`, `J_reconstruction_gap`, `C_adding_up_gap`, `any_input_missing`, `mmf_rrp_raw_missing`, `quarterly_source_sha256`, `regression_source_sha256` |
+
+### `tier2_regression_interest_backcast.csv` and `tier2_regression_interest_backcast_wide.csv` (and `.md`)
+
+Written by `tdc tier2-regression-backcast`. Quarterly Treasury interest series for `bank`, `row`, and `credit_union` combining component-allocated official pools (`2010Q2` onward) with scale-bridged H.15 yield estimates (through `2010Q1`).
+
+- Long table (`tier2_regression_interest_backcast.csv`): `date`, `sector`, `interest_proxy_mil`, `method_tier`, `method_grade`, `source_observability_tiers`, `source_families`, `denominator_observability_tiers`, `component_interest_mil`, `h15_interest_mil`, `component_minus_h15_mil`, `overlap_ratio_component_to_h15`, `overlap_ratio_count`, `overlap_scale_factor`.
+- Wide table (`tier2_regression_interest_backcast_wide.csv`): `date`, `{sector}_tier2_regression_interest_proxy`, `{sector}_method_tier`, `{sector}_method_grade`, `{sector}_source_observability_tiers`, `{sector}_source_families`, `{sector}_denominator_observability_tiers` for each of `bank`, `row`, and `credit_union`, plus `bank_row_tier2_regression_interest_proxy` and `di_tier2_regression_interest_proxy`.
+
+## Core Quarterly Pipeline Tables
+
+Written by `tdc estimate` (or `tdc build`).
 
 ### `quarterly_inputs.csv`
 
-The merged quarterly input frame: every Z.1 transaction series, remittance, support proxy and MMF/ON RRP adjustment the estimator reads, one row per quarter.
+Merged quarterly input series indexed by `date`. Contains Z.1 transactions (`*_tx`) and levels (`*_level`), Federal Reserve remittances (`fed_remit_or_deferred`, replaced by `fed_remit_mts` when `data/raw/support__fed_remit_mts.csv` is present), optional support inputs (interest proxies, internal transfers, GSE ON RRP, fiscal proxies), and derived quarterly money-fund ON RRP columns (`mmf_rrp_adjustment_{lb,prop,ub}`, `mmf_rrp_bills_adjustment_{lb,prop,ub}`).
 
-### `tdc_tier2_regression_series.csv`
+### `tdc_estimates.csv`
 
-The long-history regression series, 2002Q1 onward. See [the section below](#tdc_tier2_regression_seriescsv).
+Wide quarterly table of partial sums and comparison calculations kept for checking. Columns appear only when their required inputs are present.
 
-### `tdc_regression_legs_v1.csv`
+| Column family | Meaning |
+| --- | --- |
+| `tdc_base_bank_only_ru_flow`, `tdc_base_broad_depository_np_cu_ru_flow`, `tdc_domestic_bank_only_ru_flow`, `tdc_no_remit_bank_only` | Partial sums before interest and money-fund terms (`no_remit` omits remittances; `domestic_bank_only` omits foreign holders). |
+| `tdc_tier1_fed_corrected_{bank_only,broad_depository_np_cu,domestic_bank_only}_ru_flow` | Partial sums subtracting Federal Reserve Treasury coupon interest only. |
+| `tdc_tier2_interest_corrected_*`, `tdc_tier2_h15_*`, `tdc_tier2_component_anchored_*`, `tdc_tier2_mmf_rrp_*`, `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` | Interest- and money-fund-included comparison calculations using H.15 coupon estimates, bill-discount additions, component-allocated pools, Federal Reserve bill/FRN extensions, and credit-union or bills-only money-fund variations. |
+| `tdc_tier3_fiscal_corrected_*`, `tdc_du_fiscal_flow_first_pass_{narrow,broad}`, `tdc_du_residual_proxy_{bank_only,np_cu,np_corp_cu,full_cu}_ru` | Direct fiscal-flow and residual comparison calculations built from Monthly Treasury Statement (MTS) outlays, receipts, and optional sector proxies. |
+| `tdc_level_{bank_only,broad_depository_np_cu}_sensitivity`, `tdc_decomposition_proxy_bank_centric`, `tdc_{bank_only,broad_depository}_extended_1990` | Level-change, decomposition, and pre-2002 extended comparison checks. |
+| `tdc_base_bank_only_ru_flow_4q`, `tdc_base_bank_only_ru_flow_cum` | Four-quarter rolling sum and cumulative sum of `tdc_base_bank_only_ru_flow`. |
 
-A hash-bound decomposition of the preferred regression row into accounting legs, written by `tdc regression-leg-export` with receipt `tdc_regression_legs_v1_receipt.json`:
+### `tdc_components.csv`, `tdc_corrections.csv`, and `method_meta.json`
 
-| Column | Meaning |
-|---|---|
-| `C` | `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow` |
-| `R` | Rest-of-world net Treasury purchases less allocated rest-of-world interest |
-| `O` | Minus Treasury operating cash transactions net of Treasury–Fed internal transfers, `-(treasury_operating_cash_tx - treasury_fed_internal_cash_tx)` |
-| `J` | Remainder, `C − R − O`; `J_expanded` rebuilds it from its inputs |
-| `*_reconstruction_gap`, `C_adding_up_gap` | Arithmetic checks; the receipt records their maximum absolute values |
+- `tdc_components.csv`: quarterly input terms entering the sums in `tdc_estimates.csv`, plus residual fiscal-flow terms (`du_residual_*`, `du_noninterest_outlay_proxy`, `du_receipt_proxy`, `du_coupon_proxy_*`).
+- `tdc_corrections.csv`: signed differences between partial sums and interest-, money-fund-, or fiscal-adjusted comparison columns (for example `tier1_fed_coupon_correction`, `tier2_{bank,row,credit_union}_component_interest_correction`, `tier2_mmf_rrp_{lb,prop,ub}_adjustment`, and pairwise `*_delta_from_*` columns).
+- `method_meta.json`: machine-readable column inventory with keys `preferred_method`, `canonical_tier2_method`, `canonical_tier2_status`, `available_methods`, `estimator_ladder`, `ladder_inputs_by_deposit_concept`, `correction_series`, `method_descriptions`, `method_formulas`, and `notes`.
 
-The source columns, method tiers and input hashes are carried alongside. The legs are accounting terms; they do not identify settlement routes or causal responses.
+## Treasury–Federal Reserve Internal Transfers
 
-### Treasury component of reserves: `trc_quarterly_*_v1.csv`
+Written by `tdc treasury-fed-transfer-export` in USD millions (effect on Treasury operating cash: negative when equity leaves Treasury cash or an LLC redeems Domestic Series securities; positive when equity returns or an LLC purchases).
 
-Written by `tdc trc-export`, with receipt `trc_quarterly_series_v1_receipt.json`.
+- `treasury_fed_transfers_postings_v1.csv`: dated Daily Treasury Statement (DTS) postings matched against H.4.1 Treasury contributions to credit facilities and Monthly Statement of the Public Debt (MSPD) Domestic Series records. Columns: `date`, `family`, `source`, `dts_line`, `amount`, `cash_effect`, `match_wednesday`, `classification`, `equity_principal_cash`, `equity_reduced_without_cash`, `documented_fed_cash`, `documented_retained_cash`, `internal_cash_effect`, `retained_cash_effect`, `settlement_status`, `quarter`, `week_ending`.
+- `treasury_fed_transfers_quarterly_v1.csv`: calendar-quarter sums reconciled to Z.1 LLC Treasury holdings. Columns: `quarter`, `date`, `facility_internal_cash_tx`, `llc_treasury_securities_cash_tx`, `llc_capitalized_interest_memo`, `other_domestic_series_cash_tx`, `n_internal_postings`, `esf_cash_tx`, `esf_retained_cash_tx`, `esf_retained_abs`, `facility_receipt_retained_tx`, `esf_unclassified_cash_tx`, `esf_retained_dates`, `internal_cash_tx`, `equity_basis`, `llc_basis`, `z1_llc_treasury_level`, `dts_llc_treasury_level`, `reconciliation_gap`, `reconciliation_tolerance`, `reconciliation_status`.
+- `treasury_fed_transfers_weekly_v1.csv`: Thursday-through-Wednesday sums on the H.4.1 weekly calendar. Columns: `date`, `start_wednesday`, `facility_internal_cash_tx`, `llc_treasury_securities_cash_tx`, `llc_capitalized_interest_memo`, `other_domestic_series_cash_tx`, `n_internal_postings`, `esf_cash_tx`, `esf_retained_cash_tx`, `esf_retained_abs`, `facility_receipt_retained_tx`, `esf_unclassified_cash_tx`, `esf_retained_dates`, `internal_cash_tx`, `equity_basis`, `llc_basis`.
+- `data/raw/support__treasury_fed_internal_cash_tx.csv`: two-column support file (`date`, `value` = `internal_cash_tx`) read by `tdc estimate` and `tdc regression-leg-export`.
+- `treasury_fed_transfers_v1_receipt.json`: receipt with matched posting details and Z.1 reconciliation bounds.
 
-- `trc_quarterly_components_v1.csv`: one row per quarter with the cash leg (TGA, SFP and TT&L levels, changes and their clocks), the Fed bridge (`fed_tsy_tx`, positive remittances, SOMA coupon proxy), the MMF/ON RRP route term (`mmf_route_lb`, `mmf_route_prop`, `mmf_route_ub`), `trc_core`, `trc_preferred` and its bounds, the Z.1 reserve change, the non-Treasury residual, the TDC–TRC wedge and its legs, and a status column for each piece.
-- `trc_quarterly_series_v1.csv`: the same quantities in long form, with `quarter`, `object`, `perimeter`, `series_id`, `value_lower`, `value_central`, `value_upper`, `units`, `clock`, `source_id`, `source_hash`, `route_coverage`, `measurement_status` and `default_eligible`. Rows include the default TRC series, route bounds, remainder cells, memo perimeters and clock diagnostics; `default_eligible` marks the default rows.
-- `trc_route_registry_v1.csv`: the settlement-route registry, with each route's holder sector, settlement claim, Federal Reserve account, deposit and reserve incidence, direction policy, evidence tier and coverage window.
+## Reserve-Side Outputs
 
-In these files, `tdc_canonical` is leg `C` of the regression legs, the bank-only regression row `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow`. It is not the depository-institution canonical Tier 2 row in `tdc_estimates.csv`.
+### Quarterly TRC (`tdc trc-export`)
 
-### H.4.1 reserve-factor ledger: `reserve_factor_*_v1.csv`
+Exports the Treasury Reserve Component (TRC) and its reconciliation with TDC over `2002Q1` through `vintage.quarter_end`, in USD millions.
 
-Written by `tdc reserve-factor-ledger-export`, with receipt `reserve_factor_ledger_v1_receipt.json`.
+- `trc_quarterly_components_v1.csv`: wide quarterly table with one record per quarter.
 
-- `reserve_factor_ledger_weekly_v1.csv`: one row per H.4.1 Wednesday with reserve balances and their change, the H.4.1 Treasury cash leg `c_h`, the Treasury securities factor `s_h`, every signed factor `f_<row>`, the rounding residual `rho`, closure gaps against the published totals and parents, and `ledger_status`.
-- `reserve_factor_ledger_quarterly_v1.csv`: the same factors summed between the last Wednesdays of adjacent quarters, with `start_wednesday`, `end_wednesday` and `n_weeks`.
-- `reserve_factor_bridges_quarterly_v1.csv`: one row per quarter and TRC variant (`trc_variant`), decomposing the gap between the Z.1 reserve outcome and that variant into factor, clock, cash and securities bridges. See [equations](equations.md#h41-reserve-factor-ledger-and-bridges).
+| Column group | Columns |
+| --- | --- |
+| Treasury cash and internal transfers | `quarter`, `tga_level`, `tga_source_key`, `tga_clock`, `delta_tga`, `sfp_level`, `sfp_status`, `delta_sfp`, `ttl_level`, `ttl_status`, `delta_ttl`, `ttl_change_status`, `treasury_fed_internal_cash_tx`, `trc_cash_leg`, `cash_leg_status` |
+| Federal Reserve and money-fund terms | `fed_tsy_tx`, `fed_remit_positive`, `fed_tsy_coupon_interest_proxy`, `trc_fed_bridge`, `mmf_route_raw_missing`, `mmf_route_status`, `mmf_route_{lb,prop,ub}` |
+| TRC totals and reserve residual | `trc_core`, `trc_preferred`, `trc_mmf_lower`, `trc_mmf_upper`, `trc_status`, `trc_clock`, `delta_rb_z1`, `nontreasury_residual`, `nontreasury_residual_lower`, `nontreasury_residual_upper`, `residual_status` |
+| TDC–TRC wedge | `tdc_canonical`, `wedge_measured`, `wedge_bank_leg`, `wedge_row_leg`, `wedge_ttl_leg`, `wedge_ttl_plus_residual`, `wedge_residual_u`, `z1_treasury_operating_cash_tx`, `cash_partition_gap`, `wedge_status`, `wedge_residual_status`, `z1_sfp_tx` |
+| Additional bounds and diagnostics | `gse_route_{lower,upper,status}`, `delta_custody`, `delta_fo_cash`, `fo_route_{lower,upper,status}`, `trc_route_bounded_{lower,upper}`, `delta_rrp_others_h41`, `remainder_on_rrp_{lower,central,upper}`, `remainder_foreign_official_{lower,central,upper}`, `remainder_status`, `remainder_fo_status`, `delta_rb_h41`, `memo_reserves_plus_rrp_others`, `memo_h3_total_reserves_change`, `h3_status`, `delta_tga_h41`, `delta_sfp_h41_date`, `diag_trc_h41_{preferred,lower,upper}`, `h41_status`, `memo_us_chartered_reserves_z1` |
 
-### Weekly and monthly TRC
+- `trc_quarterly_series_v1.csv`: long-format table of 25 named `series_id` series (`z1_reserve_change`, `trc_leg_treasury_fed_deposits`, `trc_leg_fed_treasury_bridge`, `route_adj_mmf_on_rrp`, `trc_core`, `trc_preferred`, `trc_core_mmf_lower`, `trc_core_mmf_upper`, `nontreasury_residual`, `tdc_canonical`, `tdc_trc_wedge`, `wedge_{bank,row,ttl}_leg`, `wedge_residual_u`, `route_bound_{gse_on_rrp,foreign_official}`, `trc_route_bounded_nondefault`, `remainder_{on_rrp,foreign_official}`, `memo_{reserves_plus_rrp_others,h3_total_reserves,us_chartered_reserves}`, `diag_h41_reserve_change`, `diag_trc_h41_tga`). Columns: `quarter`, `object`, `perimeter`, `series_id`, `value_lower`, `value_central`, `value_upper`, `units`, `clock`, `source_id`, `source_hash`, `route_coverage`, `measurement_status`, `default_eligible`, `legacy_artifact_hash_set`.
+- `trc_route_registry_v1.csv`: settlement-route definitions shared by TDC and TRC. Columns: `route_id`, `holder_sector`, `settlement_claim`, `fed_account`, `tdc_incidence`, `trc_incidence`, `direction_policy`, `evidence_tier`, `default_eligible`, `coverage_start`, `coverage_end`, `status`, `treasury_account`.
+- `trc_quarterly_series_v1_receipt.json`: receipt with hashes and cross-check statistics.
 
-The weekly outputs (`trc_weekly_*_v1.csv`, receipt `trc_weekly_v1_receipt.json`) are described in [weekly TRC conventions](weekly_trc.md). `scripts/export_trc_monthly.py` writes monthly TRC on a last-Wednesday clock with a receipt; a month is reported only when every one of its weeks has core TRC. Weekly and monthly `trc_par_sensitivity` is uncorrected: it keeps the Treasury–Fed internal transfers.
+### H.4.1 Reserve-Factor Ledger and Bridges (`tdc reserve-factor-ledger-export`)
 
-### Bank balance-sheet composition: `bank_composition_*_v1.csv`
+Exports signed Federal Reserve H.4.1 reserve-factor flows and exact bridges to quarterly TRC, in USD millions.
 
-Written by `tdc bank-composition-export`, with receipt `bank_composition_v1_receipt.json`. Values are in USD billions.
+- `reserve_factor_ledger_weekly_v1.csv`: Wednesday-level H.4.1 factor changes. Columns: `date`, `quarter`, `reserve_balances`, `delta_reserve_balances`, `c_h`, `s_h`, `f_<factor>` (signed weekly change for each H.4.1 factor), `memo_f_<memo>`, `rho` (change rounding residual), `rho_level` (level rounding residual), `level_bound`, `change_bound`, `gap_<check>`, `published_identity_gap`, `structural_zero_rows`, `ledger_status`.
+- `reserve_factor_ledger_quarterly_v1.csv`: last-Wednesday-to-last-Wednesday quarterly ledger telescoping from the weekly table. Columns: `quarter`, `start_wednesday`, `end_wednesday`, `n_weeks`, `reserve_balances_start`, `reserve_balances_end`, `delta_reserve_balances`, `c_h`, `s_h`, `f_<factor>`, `memo_f_<memo>`, `rho`, `change_bound`, `structural_zero_rows`, `ledger_status`.
+- `reserve_factor_bridges_quarterly_v1.csv`: exact reconciliation of Z.1 reserve change `y_z` against each TRC series `x` (`trc_variant` in `trc_core`, `trc_preferred`, `trc_mmf_lower`, `trc_mmf_upper`), where `gap = y_z - x` equals `identity_rhs = sum_other_factors + n_rrp_others + bridge_outcome + bridge_cash + bridge_internal_transfers + bridge_securities + rho`. Columns: `quarter`, `trc_variant`, `x`, `gamma`, `y_z`, `y_h`, `c_h`, `c_m`, `c_m_clock`, `i`, `s_h`, `b`, `f_reverse_repos_others`, `f_<other_factor>`, `sum_other_factors`, `bridge_outcome`, `bridge_outcome_term_deposits`, `bridge_outcome_z1_flow_vs_level`, `bridge_outcome_unattributed`, `bridge_internal_transfers`, `bridge_cash`, `bridge_securities`, `rho`, `memo_s_h_inflation_compensation`, `n_rrp_others`, `gap`, `identity_rhs`, `identity_error`, `bridge_status`.
+- `reserve_factor_ledger_v1_receipt.json`: receipt with closure bounds and era summaries.
 
-- `bank_composition_z1_quarterly_v1.csv`, `bank_composition_z1_annual_v1.csv`: Z.1 S.122.1 transactions for U.S.-chartered depository institutions by asset category, deposit transactions and level changes, and closure checks.
-- `bank_composition_z1_holdings_v1.csv`: quarter-end levels by category with shares of total financial assets.
-- `bank_composition_h8_v1.csv`: H.8 Table 4 loan and securities lines with 12-month changes.
+### Weekly TRC (`tdc weekly-trc-export`)
 
-These tables are descriptive. They do not estimate or attribute deposit change.
+Exports cash-corrected weekly TRC on the H.4.1 Wednesday clock, in USD millions.
 
-### TDC and the federal deficit: `tdc_deficit_comparison_*_v1.csv`
+- `trc_weekly_components_v1.csv`: weekly components and scenarios (`date`, `quarter`, `start_wednesday`, `c_h`, `bridge_all_securities_premium_discount`, `fed_leg_par`, `fed_leg_cash_corrected`, `settlement_clock_adjustment`, `primary_cash_adjustment`, `redemption_inflation`, `primary_cash_unavailable_par`, `redemption_cash_unavailable_par`, `cash_correction_status`, internal-transfer columns `j_*`, `soma_coupon_cash`, `cash_remittances`, `soma_inflation_compensation_change_excluded`, `secondary_purchases_par`, `secondary_sales_par`, `redemptions_par`, `primary_addons_par`, `unclassifiable_changes`, `unclassifiable_abs_par`, `unpriced_secondary_net_par`, `trc_core`, `trc_par_sensitivity`, `route_baseline`, `route_forward`, `route_reverse`, `net_bill_on_rrp_overlap`, `trc_forward_scenario`, `trc_reverse_scenario`, `rrp_others_vs_on_rrp_flow_bridge`, `core_status`, `coupon_status`, `remittance_status`, `soma_status`, `route_status`, `reserve_balances_start`, `reserve_balances_end`, `delta_reserve_balances`, `matched_rollover_par_memo`).
+- `trc_weekly_quarterly_v1.csv`: full Wednesday-quarter sums of the weekly columns, `clock_status`, `quarter_status`, `unavailable_reasons`, `reserve_telescoping_error`, and term-by-term differences against `trc_quarterly_components_v1.csv`.
+- `trc_weekly_identity_v1.csv`: exact decimal weekly reserve identity for `variant` in `core`, `forward_scenario`, `reverse_scenario` (`date`, `variant`, `delta_reserve_balances`, `trc`, `route`, `non_treasury_signed_factors`, `rrp_others_net_route`, `bridge_*`, `identity_rhs`, `identity_error`, `identity_status`).
+- `trc_weekly_soma_changes_v1.csv`: CUSIP-level weekly SOMA par and cash event partition (`date`, `cusip`, `security_type`, `nominal_maturity_date`, `payment_date`, `issue_settlement_dates`, `opening_par`, `closing_par`, `delta_par`, `settlement_clock_adjustment`, `redemptions_par`, `redemptions_cash`, `redemption_inflation`, `primary_addons_par`, `primary_addons_cash`, `primary_cash_adjustment`, `primary_cash_unavailable_par`, `redemption_cash_unavailable_par`, `secondary_purchases_par`, `secondary_sales_par`, `unclassifiable_par`, `unclassifiable_abs_par`, `event_type`, `inflation_compensation_change_excluded`, `classification_status`, `primary_cash_status`, `redemption_status`, `gross_trade_status`).
+- `trc_weekly_route_daily_v1.csv`: daily ON RRP and non-SOMA Treasury bill issuance/redemption capacity scenarios (`date`, `week`, `on_rrp_opening_principal`, `on_rrp_closing_principal`, `on_rrp_decline`, `gross_non_soma_bill_issue_cash`, `gross_non_soma_bill_redemption_cash`, `positive_net_bill_cash`, `net_bill_on_rrp_overlap`, `route_forward`, `route_reverse`, `route_baseline`, `route_status`).
+- `trc_weekly_v1_receipt.json`: receipt with hashes and coverage summaries.
 
-Written by `tdc deficit-comparison-export`, with receipt `tdc_deficit_comparison_v1_receipt.json`. It reads the regression legs and the monthly Monthly Treasury Statement surplus or deficit. Values are in USD millions.
+### Monthly TRC (`scripts/export_trc_monthly.py`)
 
-- `tdc_deficit_comparison_quarterly_v1.csv`: one row per quarter with measured TDC (`tdc`, leg `C`), the deficit (minus the sum of the quarter's three monthly surpluses, so a surplus month reduces it), five funding-source legs (`banks`, `foreign`, `fed`, `treasury_cash_drawdown`, `mmf_on_rrp`) and `leg_reconciliation_gap`. The legs are defined in `DEFICIT_FUNDING_LEGS` in `catalog.py`.
-- `tdc_deficit_comparison_periods_v1.csv`: cumulative TDC, cumulative deficit, their ratio and each leg's cumulative sum for the periods in `DEFICIT_COMPARISON_PERIODS`. The ratio divides the two sums; no quarterly ratio is reported.
+Written to `<out-dir>/trc_monthly_v1.csv` and `<out-dir>/trc_monthly_v1_receipt.json` in USD millions. Sums weekly `trc_core`, `trc_par_sensitivity`, `c_h`, and `delta_reserve_balances` across each complete last-Wednesday-to-last-Wednesday month and adds calendar-month N-MFP money-fund terms (`mmf_route_{lb,prop,ub}`, `0.0` before `2013-09`). Columns: `month`, `start_wednesday`, `end_wednesday`, `weeks`, `weeks_with_core`, `reserve_balances_start`, `reserve_balances_end`, `trc_core`, `trc_par_sensitivity`, `c_h`, `delta_reserve_balances`, `mmf_route_lb`, `mmf_route_prop`, `mmf_route_ub`, `mmf_route_status`, `trc_preferred`, `trc_mmf_lower`, `trc_mmf_upper`.
 
-The two totals have different scopes. Measured TDC includes secondary-market Treasury-security settlements, Treasury cash changes and interest and remittance terms; the deficit is a budget measure on a modified cash basis. The ratio is not the share of deficit dollars that stayed in deposits.
+## Descriptive and Interest-Decomposition Tables
 
-### Interest on marketable debt: `interest_rate_debt_q_v1.csv` and `interest_rate_debt_holders_q_v1.csv`
+### Bank Balance-Sheet Composition (`tdc bank-composition-export`)
 
-Written by `tdc interest-rate-debt-export`, with receipt `interest_rate_debt_q_v1_receipt.json`. It reads the Tier 2 interest allocation and MSPD Table 3, and it reconciles the allocation's pools to FiscalData interest expense. Rows are calendar quarters; amounts are USD billion.
+USD billions; Z.1 Table S.122.1 sample `2002Q1`–`2026Q2`, H.8 Table 4 months `2025-09` and `2026-09`.
 
-- `interest_rate_debt_q_v1.csv`, one row per quarter. `interest` is the official pool of the allocation, summed once over coupon accrual, bill discount and FRN interest; it excludes TIPS inflation compensation and the amortized discount and premium on coupon securities, which `pool_minus_fiscaldata` shows against `fiscaldata_interest_ex_tips_ic`. `avg_marketable_debt` averages the prior quarter-end and the quarter's three month-ends, with the two ends at half weight. `effective_rate_pct` is interest over average debt, annualized on the quarter's calendar `days`.
-- The counterfactual starts in the base quarter. `trend_debt` continues the log-linear trend of average debt over the fit window from the base-quarter level, and `trend_interest` applies the base-quarter rate to it. `debt_effect` and `rate_effect` split `interest - trend_interest` sequentially, debt first at the base rate; the `_even` columns split it symmetrically.
-- `interest_rate_debt_holders_q_v1.csv`, one row per quarter and holder. The Fed's interest is its exact component amount; foreign holders and banks with credit unions carry their allocated amounts and bounds; deposit users are the residual of the pool. Where a component family has no exact Fed amount in a quarter (listed in the receipt under `fed_exact_absent`), the Fed's weighted share stays in that residual, so there it is not only interest credited to covered deposits. `share` is the holder's share of interest. From the base quarter, `trend_interest` is the base share of aggregate trend interest, `base_share_part` the base share of interest above trend, and `shift` the change in share times interest, so that `interest - trend_interest = base_share_part + shift` and the shifts sum to zero.
+- `bank_composition_z1_quarterly_v1.csv` and `bank_composition_z1_annual_v1.csv`: quarterly and annual US-chartered depository institution asset transactions and liability flows (`period`, plus `n_quarters` in annual, asset categories from `catalog.BANK_Z1_COLUMNS`, `total_financial_assets`, `asset_closure_gap`, `deposits_level_change`, `deposits_transactions`, `deposits_flow_level_gap`, `checkable_deposits`, `time_savings_deposits`, `interbank_liabilities`, `nondeposit_liabilities`).
+- `bank_composition_z1_holdings_v1.csv`: end-quarter asset and liability levels (`quarter`, `category`, `label`, `role`, `z1_level_codes`, `level_usd_bn`, `share_of_total_financial_assets`).
+- `bank_composition_h8_v1.csv`: domestically chartered commercial bank levels and 12-month changes (`key`, `h8_table4_line`, `label`, `parent`, `fred_id`, `level_2025-09_usd_bn`, `level_2026-09_usd_bn`, `change_12m_usd_bn`, `pct_change_12m`).
+- `bank_composition_v1_receipt.json`: receipt with Z.1 and H.8 closure bounds and column metadata.
 
-The sample, fit window, base quarter, pool families and holders are set in `catalog.py`. The split is descriptive accounting of interest received. Interest is gross, including interest on securities held by the Federal Reserve, and the effective rate is not a market yield.
+### TDC and Federal Budget Deficit Comparison (`tdc deficit-comparison-export`)
 
-## Files
+USD millions; compares measured TDC (`tdc_regression_legs_v1.csv` column `C`) with the quarterly MTS federal deficit (`-MTSDS133FMS` summed over the three months) and decomposes TDC into five funding legs (`banks`, `foreign`, `fed`, `treasury_cash_drawdown`, `mmf_on_rrp`).
 
-### `bundle.json`
+- `tdc_deficit_comparison_quarterly_v1.csv`: `quarter`, `tdc`, `deficit`, `banks`, `foreign`, `fed`, `treasury_cash_drawdown`, `mmf_on_rrp`, `leg_reconciliation_gap`.
+- `tdc_deficit_comparison_periods_v1.csv`: cumulative sums over configured multi-quarter periods (`period`, `first_quarter`, `last_quarter`, `n_quarters`, `tdc_cumulative`, `deficit_cumulative`, `tdc_to_deficit_ratio`, `banks_cumulative`, `foreign_cumulative`, `fed_cumulative`, `treasury_cash_drawdown_cumulative`, `mmf_on_rrp_cumulative`).
+- `tdc_deficit_comparison_v1_receipt.json`: receipt with leg definitions and reconciliation checks.
 
-Single-file JSON payload including:
+### Marketable Treasury Interest Rate-and-Debt Split (`tdc interest-rate-debt-export`)
 
-- `bundle_format`
-- `generated_at_utc`
-- `summary`
-- `metadata`
-- `site`
-- `estimates`
-- `components`
-- `corrections`
-- `references`
-- `research`
+USD billions; sample `2015Q1`–`2026Q2`, debt-trend fit window `2016Q1`–`2019Q4`, base quarter `2019Q4`.
 
-The bundle schema is `tdc_site_bundle_v4`. In addition to the core time-series payload, it carries research/status tables, including:
+- `interest_rate_debt_q_v1.csv`: quarterly official pool interest $I_q$, quarter-average marketable debt $D_q$ (MSPD Total Marketable less Federal Financing Bank), effective annualized rate $r_q$, counterfactual debt and rate effects (blank before `2019Q4`), and FiscalData reconciliation. Columns: `quarter`, `days`, `interest`, `avg_marketable_debt`, `effective_rate_pct`, `trend_debt`, `trend_interest`, `debt_only_interest`, `debt_effect`, `rate_effect`, `debt_effect_even`, `rate_effect_even`, `fiscaldata_interest_ex_tips_ic`, `pool_minus_fiscaldata`.
+- `interest_rate_debt_holders_q_v1.csv`: quarterly interest split across `deposit_users`, `fed`, `foreign`, and `banks_credit_unions`, with base-share and shift decomposition from `2019Q4` onward. Columns: `quarter`, `holder`, `interest`, `interest_low`, `interest_high`, `share`, `trend_interest`, `base_share_part`, `shift`.
+- `interest_rate_debt_q_v1_receipt.json`: receipt with counterfactual parameters, holder rules, and identity checks.
 
-- `receipt_unblock_status`
-- `receipt_account_crosswalk`
-- `project_goal_status_review`
-- `workstream_end_state_map`
-- `tier3_research_comparison`
-- `row_mrv_nondefault_evidence_summary`
-- `bank_receipt_historical_promotion`
-- `tier3_historical_bank_receipt_research`
-- `bank_receipt_stop_gate`
-- `row_mrv_stop_gate`
-- `fiscal_reconciliation_residuals`
-- `fiscal_source_quality`
-- `monetary_target_preference_review`
-- `downstream_estimator_contract`
-- `downstream_component_contribution_review`
-- `downstream_estimator_gap_review`
-- `fiscal_receipt_boundary_review`
-- `downstream_deposit_effect_use_case_review`
-- `downstream_problem_variable_review`
-- `downstream_deposit_effect_series_panel`
-- `downstream_deposit_effect_comparison_panel`
-- `backend_closeout_review`
-- `backend_release_check`
-- `theory_measurement_map`
+## Money-Fund and Interest Verification Tables
 
-### `tdc_post2022_bank_only_attribution.csv`
+- `tdc_mmf_rrp_fund_month_adjustments.csv` (`tdc mmf-rrp-build`): fund-month SEC Form N-MFP money-fund inputs (`date`, `fund_id`, `fed_rrp`, `treasury_total`, `treasury_bills`, `non_treasury_non_fed_rrp_assets`, `nav`) and computed monthly terms (`rrp_runoff`, `treasury_increase`, `treasury_bills_increase`, `other_asset_increase`, `nav_decline`, `other_uses`, `mmf_rrp_adjustment_{lb,prop,ub}`, `mmf_rrp_bills_adjustment_{lb,prop,ub}`).
+- `tdc_mmf_rrp_quarterly_adjustments.csv`: quarterly sums of `rrp_runoff`, `treasury_increase`, `treasury_bills_increase`, `other_uses`, `mmf_rrp_adjustment_{lb,prop,ub}`, and `mmf_rrp_bills_adjustment_{lb,prop,ub}`.
+- `tdc_mmf_rrp_scale_audit.csv`: diagnostic checks on the money-fund support file (`check`, `status`, `value`, `detail`).
+- `tdc_mmf_rrp_source_comparison.csv` (and `.md`): quarterly comparison of fund-level SEC Form N-MFP terms (`preferred_*`) against an aggregate fallback (`fallback_*`), with `preferred_minus_fallback_prop`, `abs_preferred_minus_fallback_prop`, `preferred_to_fallback_prop_ratio`, and `material_difference`.
+- `tdc_gse_rrp_boundary_check.csv` (and `.md`, written by `tdc gse-rrp-check` and `tdc estimate`): upper-bound GSE ON RRP check (`date`, `status`, `gse_tsy_tx`, `gse_on_rrp`, `gse_on_rrp_runoff`, `gse_treasury_increase`, `gse_rrp_boundary_adjustment`, `detail`).
+- `bill_discount_validation.csv` (and `.md`, written by `tdc bill-discount-validate` and `tdc estimate`): compares sector Treasury-bill discount estimates against aggregate Treasury bill amortized discount (`date`, `treasury_bill_amortized_discount_mil`, `bank_tsy_bill_discount_interest_proxy`, `row_tsy_bill_discount_interest_proxy`, `credit_union_tsy_bill_discount_interest_proxy`, `bank_row_proxy_mil`, `bank_row_cu_proxy_mil`, `bank_row_share_of_aggregate`, `bank_row_cu_share_of_aggregate`, `has_treasury_bill_benchmark`, `has_all_sector_proxies`).
 
-Processed quarter-by-quarter attribution table for the post-2022 bank-only correction ladder.
+## Summary Bundles and Auxiliary Pipeline Outputs
 
-### `tdc_post2022_bank_only_attribution.md`
+### `tdc_downstream_handoff_bundle.json` (and `.md`)
 
-Short markdown note summarizing the same post-2022 bank-only correction table.
+Written by `tdc estimate` to `data/processed/`. JSON summary with `bundle_format: "tdc_downstream_handoff_v1"` and top-level keys `bundle_format`, `generated_at_utc`, `distribution_scope`, `summary`, `goal_status`, `receipt_unblock_status`, `estimator_contract`, `use_cases`, `receipt_boundaries`, `backend_closeout_review`, `backend_release_check`, `problem_variables`, `series_panel`, and `comparison_panel`.
 
-### `tdc_input_audit.csv`
+### `site/bundle.json` and `site/data/bundle.json`
 
-Processed unit-and-frequency audit for the currently loaded Tier 0 through Tier 3 inputs. It records assumed native frequency, source units, estimator conversion treatment, and any benchmark-driven warnings such as a possible scale mismatch in the ROW coupon proxy.
+Written by `tdc site-export` (and `tdc build`) for the static site. Top-level keys: `generated_at_utc`, `dates`, `estimates`, `components`, `corrections`, `quarterly_inputs`, `method_meta`, `series_meta`, `summary`, and `research`.
 
-### `tdc_input_audit.md`
+- `summary`: `latest_date`, `preferred_method`, `canonical_tier2_method`, `canonical_tier2_status`, `latest_preferred_value`, `latest_canonical_tier2_value`, `latest_4q_sum`, `latest_cum_sum`, `latest_values`.
+- `research`: selected pipeline check tables mapped under keys `theory_map`, `goal_status`, `fiscal_comparison`, `receipt_status`, `bank_receipt_status`, `foreign_pilot_status`, `foreign_pilot_evidence`, `fiscal_residuals`, `fiscal_quality`, `fiscal_receipt_boundaries`, `monetary_review`, and `next_steps`.
 
-Short markdown note summarizing the same audit, including the current status of the ROW coupon benchmark check and any provisionality warnings for Tier 2 or Tier 3.
+### Auxiliary pipeline check files
 
-### `tdc_bea_row_receipts_benchmark.csv`
-
-Optional quarterly benchmark table written when the three BEA/FRED ROW receipt component series are present in `data/raw/`. It converts quarterly SAAR values for taxes from the rest of the world, social-insurance contributions from the rest of the world, and current transfer receipts from the rest of the world into estimator-scale quarterly millions and sums them into a benchmark total.
-
-### `tdc_bea_row_receipts_benchmark.md`
-
-Short markdown note summarizing the latest quarter of that same BEA/NIPA benchmark and restating that it is a benchmark, not a default Treasury cash-payer correction.
-
-### `tdc_bank_corp_tax_receipts_bridge.csv`
-
-Optional quarterly bridge table written when both `data/raw/treasury__mts_receipts.csv` and `data/raw/irs__soi_bank_tax_shares.csv` are present. It combines MTS corporate-income-tax cash totals with normalized IRS Publication 16 Table 5.1 bank-minor annual shares and reports:
-
-- `strict depository` bridge values
-- `depository plus BHC` bridge values
-- retained finance-share upper-benchmark values for scale comparison only
-
-The bridge also carries an explicit stale-share policy surface: share year used, share age in calendar years, and whether the current quarter is age-eligible for default promotion under the two-year rule.
-
-### `tdc_bank_corp_tax_receipts_bridge.md`
-
-Short markdown note summarizing the latest quarter of that same bridge and explaining why it remains a bridge artifact rather than a promoted default Tier 3 correction.
-
-### `tdc_bank_minor_industry_share_availability.csv`
-
-Optional processed IRS availability table written when `data/raw/irs__soi_bank_minor_industry_availability.csv` is present. It normalizes public Publication 16 Table 5.3 bank-like minor-industry rows and records whether the relevant `commercial banking`, `savings institutions and other depository credit intermediation`, and `offices of bank holding companies` lines are actually usable for a bank-only annual share.
-
-### `tdc_bank_minor_industry_share_availability.md`
-
-Short markdown note summarizing the latest tax year of that same IRS availability check and restating whether any public bank-only minor-industry rows are currently usable for default-promotion purposes.
-
-### `tdc_receipt_account_candidates.csv`
-
-Optional annual account-candidate bridge written when `data/raw/treasury__receipts_by_department.csv` is present. It scans public Treasury `Receipts by Department` account titles for bank-related and ROW-related receipt candidates, converts raw annual dollars to millions, and assigns role/grade/review fields without promoting any line into the default Tier 3 receipt correction. The bridge also carries a public FAST Book / CARS overlay: availability type, a general-fund major-class code and label where applicable, a fund-group proxy, and a first budget-treatment guess. It also carries compact structured review fields:
-
-- `candidate_family` to separate MRV / CBSP primary ROW lines, secondary visa sensitivities, DHS immigration-family mixed lines, DHS traveler-family bridge lines, sponsor-sensitive mixed immigration lines, OCC-specific bank lines, OFR / large-BHC lines, FDIC-mixed bank-regulatory lines, and FMS / foreign deposit-trust concepts
-- `promotion_priority` to distinguish high-priority sensitivities from low-priority contaminated or conceptual-nondefault lines
-- `payer_identity_subgrade` for the narrower title-level payer signal
-- `default_blocker` for the primary reason the line still fails default promotion
-
-### `tdc_receipt_account_candidates.md`
-
-Short markdown note summarizing the latest fiscal-year bank and ROW account-title candidates, their recommended roles, their FAST Book / CARS treatment overlay, their structured grading families, and the explicit boundary that title-level annual evidence is not yet default-eligible payer identity.
-
-### `tdc_receipt_account_crosswalk.csv`
-
-Optional annual account-family crosswalk written when both `data/raw/treasury__receipts_by_department.csv` and the supporting `Combined Statement` account file are present. It reconciles public annual receipt-title candidates against broader Treasury or State account-family evidence and records:
-
-- candidate title and amount
-- exact or `main_account_rollup` match status
-- matched account symbol or main-account family where available
-- whether the match strengthens MRV / CBSP, bank-regulatory, DHS immigration/traveler, or FMS family confirmation
-- whether the line remains unmatched
-
-This is an account-system confirmation layer, not a payer-identity promotion surface.
-
-### `tdc_receipt_account_crosswalk.md`
-
-Short markdown note summarizing the annual crosswalk, including which candidate families have stronger `Combined Statement` confirmation and which remain unmatched or conceptually nondefault.
-
-### `tdc_row_visa_consular_pilot.csv`
-
-Optional annual narrow ROW pilot written when `data/raw/treasury__receipts_by_department.csv` is present. It extracts visa-, consular-, immigration-, and passport-related rows from the account-candidate bridge, then splits them into an `mrv_cbsp_primary_candidate`, `state_visa_secondary_sensitivity`, mixed immigration/sponsor-sensitive lines, and passport/broad-consular contamination buckets. Every line remains nondefault.
-
-### `tdc_row_visa_consular_pilot.md`
-
-Short markdown note summarizing the latest fiscal-year MRV / CBSP primary total, secondary visa sensitivity total, mixed immigration total, and passport/broad-consular excluded total.
-
-### `tdc_row_state_visa_timing_sensitivity.csv`
-
-Optional quarterly MRV-first ROW timing bridge written when both `data/raw/treasury__receipts_by_department.csv` and `data/raw/state__visa_issuances_monthly.csv` are present. It allocates the annual MRV / CBSP primary pilot into calendar quarters using official monthly State NIV issuance counts, keeps secondary visa lines in separate IV-based sensitivity columns, and reports only the MRV-first delta against the default Tier 3 bank-only series.
-
-### `tdc_row_state_visa_timing_sensitivity.md`
-
-Short markdown note summarizing the latest MRV / CBSP allocation quarter, the source fiscal year, the MRV-first annual pilot total, the secondary visa sensitivity, and the resulting quarterly timing bridge.
-
-### `tdc_row_recurring_pilot_review.csv`
-
-Processed comparison table for the recurring State / visa branches. It keeps the MRV / CBSP primary bridge separate from the secondary visa branch and records:
-
-- annual amount for each recurring branch
-- latest quarterly amount under the current timing bridge
-- timing basis
-- current role
-- promotion status
-- current default blocker
-
-### `tdc_row_recurring_pilot_review.md`
-
-Short markdown note summarizing the current recurring ROW pilot split, including the latest MRV primary-quarter amount versus the secondary visa-quarter amount and the fact that only the MRV branch is under default review.
-
-### `tdc_row_mrv_default_readiness.csv`
-
-Processed readiness gate for promoting the MRV-first / CBSP bridge into a default ROW receipt correction. It records the evidence checks on Treasury account mapping, payer identity, debited-account or legal-remitter proof, cash treatment, quarterly timing, and annual reconciliation. The Treasury account-mapping check also records whether a live `Combined Statement` crosswalk confirms the broader CBSP main-account family.
-
-### `tdc_row_mrv_default_readiness.md`
-
-Short markdown note summarizing the overall ROW MRV promotion recommendation and the current blocking checks.
-
-### `tdc_row_mrv_payment_chain_review.csv`
-
-Processed evidence-review table for the MRV / CBSP payment chain. It separates official-source evidence on the annual MRV receipt line, broader CBSP account-family confirmation, MRV retained-fee authority, CBSP standalone-account structure, IV/AOS exclusion evidence, legal-remitter or debited-account proof, and quarterly cash-timing quality.
-
-### `tdc_row_mrv_payment_chain_review.md`
-
-Short markdown note summarizing which parts of the MRV payment chain are source-backed and which blockers still keep the MRV-first bridge below default.
-
-### `tdc_row_mrv_promotion_checklist.csv`
-
-Processed promotion-checklist table for the MRV-first / CBSP branch. It collapses the readiness gate, payment-chain review, and recurring-pilot split into the exact evidence classes that would need to clear before default promotion. It records:
-
-- whether each required check is complete, partial, or missing
-- whether the check still blocks default promotion
-- the evidence artifact the check is sourced from
-- the current metric or blocker text
-- the exact next evidence class needed to clear the check
-
-### `tdc_row_mrv_promotion_checklist.md`
-
-Short markdown note summarizing how many required MRV promotion checks are complete, partial, or missing, and which remaining checks still block default promotion.
-
-### `tdc_row_mrv_source_map.csv`
-
-Processed source-roadmap table for the MRV-first / CBSP branch. It names the official source families that are already loaded versus the source families that would actually clear the remaining promotion blockers. It records:
-
-- whether the source family is already loaded
-- whether it is required for default promotion
-- whether it is still missing
-- the stance on that source family
-- the intended use of the source family in clearing the MRV blocker
-
-### `tdc_row_mrv_source_map.md`
-
-Short markdown note summarizing which MRV source families are already loaded and which missing source families would actually clear the remaining default blockers. The note should distinguish stronger nondefault cash-route evidence already loaded from the still-missing default-clearing remitter/debited-account and quarterly-timing evidence.
-
-### `tdc_row_mrv_stop_gate.csv`
-
-Processed stop-gate table for the MRV-first / CBSP branch. It turns the current checklist and source map into explicit gate rows and one summary decision. It records:
-
-- check status
-- whether the check passes for default promotion
-- the blocking issue type
-- the current stance on the underlying source family
-- the recommended next action
-
-### `tdc_row_mrv_stop_gate.md`
-
-Short markdown note summarizing the overall MRV stop-gate decision and the missing source families that still keep MRV below default.
-
-### `tdc_row_receipt_family_review.csv`
-
-Processed family-level review of the current ROW receipt candidates using the annual `Receipts by Department` bridge plus the live `Combined Statement` crosswalk. It records:
-
-- total family amount at the latest fiscal year-end
-- how much of that family has at least broader `Combined Statement` confirmation
-- whether the confirmation is full or partial
-- the family’s current identity/concept status
-- the current decision: primary pilot, contaminated nondefault, deposit/trust nondefault, or title-only bridge
-
-### `tdc_row_receipt_family_review.md`
-
-Short markdown note summarizing the ROW-family review, including how many families have at least partial `Combined Statement` confirmation and which families remain blocked for contamination or concept reasons rather than account mapping.
-
-### `tdc_bank_nontax_regulatory_pilot.csv`
-
-Optional annual bank non-tax pilot written when `data/raw/treasury__receipts_by_department.csv` is present. It extracts OCC-, OFR-, and other bank-regulatory-style rows from the account-candidate bridge and publishes them as explicit non-tax sensitivity intake rather than default corrections.
-
-### `tdc_bank_nontax_regulatory_pilot.md`
-
-Short markdown note summarizing the latest fiscal-year OCC, OFR, and other bank-regulatory pilot totals and restating that quarterly timing and account-treatment work remain unresolved.
-
-### `tdc_bank_occ_timing_sensitivity.csv`
-
-Optional quarterly OCC timing sensitivity written when the bank non-tax regulatory pilot contains OCC-linked lines. It allocates the annual OCC candidate amount evenly across the two current semiannual OCC assessment due dates and reports the resulting quarterly receipt sensitivity alongside the default Tier 3 bank-only series.
-
-### `tdc_bank_occ_timing_sensitivity.md`
-
-Short markdown note summarizing the latest OCC allocation quarter, the source-year annual OCC candidate amount, the allocated quarterly sensitivity, and the resulting delta versus default Tier 3 bank-only.
-
-### `tdc_tier3_receipt_candidate_sensitivity.csv`
-
-Optional quarterly receipt-candidate sensitivity written when at least one of the current non-default receipt modules is available. It aligns the default Tier 3 bank-only series with:
-
-- the strict-depository bank corporate-tax bridge
-- the depository-plus-BHC bank corporate-tax bridge
-- the retained finance-share upper benchmark
-- the OCC timing sensitivity
-- the MRV-first ROW bridge
-
-The surface also carries policy-eligible bank-bridge variants that clip the main bank default-candidate bridge to quarters still inside the current stale-share rule, without changing the default estimator.
-
-### `tdc_tier3_receipt_candidate_sensitivity.md`
-
-Short markdown note summarizing the latest quarter of that same receipt-candidate surface, including the raw bank bridge, the policy-eligible bank bridge, the individual bank and ROW deltas, and the current stacked non-default variants.
-
-### `tdc_tier3_historical_bank_receipt_research.csv`
-
-Processed research-only historical Tier 3 surface written when the default Tier 3 series and the bank historical-promotion review are both available. It records:
-
-- the default Tier 3 bank-only series
-- the age-eligible historical `depository_plus_bhc` bank receipt delta
-- the age-eligible strict-depository lower-bound delta
-- research-only historical Tier 3 variants that add those deltas only in quarters still eligible under the current stale-share rule
-
-This artifact is deliberately clipped to the age-eligible historical window and does not change the live default estimator.
-
-### `tdc_tier3_historical_bank_receipt_research.md`
-
-Short markdown note summarizing the latest historical age-eligible quarter, the size of the historical bank receipt delta, and the resulting research-only historical Tier 3 variant.
-
-### `tdc_fiscal_reconciliation_cells.csv`
-
-Structured fiscal-reconciliation cell table written on every pipeline run. It reorganizes the current bank-only ladder and the strongest current benchmark and sensitivity layers into long-form row-family and counterparty cells with explicit role grading, reliability grading, headline inclusion, and sign convention.
-
-### `tdc_fiscal_reconciliation_residuals.csv`
-
-Quarterly residual check for the fiscal reconciliation shell. It reconstructs the live default Tier 0 through Tier 3 bank-only path from the graded reconciliation cells and records any residual between the shell and the active estimator outputs.
-
-### `tdc_fiscal_reconciliation_residuals.md`
-
-Short markdown note summarizing the latest-quarter reconstruction residuals for Tier 0 through Tier 3.
-
-### `tdc_fiscal_source_quality.csv`
-
-Source-quality summary for the fiscal reconciliation shell. Each row corresponds to one active reconciliation cell family and records role, reliability grade, headline status, coverage window, nonzero-quarter count, and latest value.
-
-### `tdc_fiscal_source_quality.md`
-
-Short markdown note summarizing the current role-grading state of the fiscal reconciliation shell.
-
-### `tdc_receipt_promotion_review.csv`
-
-Processed promotion-review table for the current bank and ROW receipt candidates. It records candidate basis, payer-identity status, timing status, budget-treatment status, current role, promotion status, latest live value, and a short review note. This artifact is meant to support the next decision about which receipt-side module, if any, should move closer to default status. When the annual `Combined Statement` support file is present, the review note can also carry the current account-family crosswalk result for the MRV / CBSP bridge.
-
-### `tdc_receipt_promotion_review.md`
-
-Short markdown note summarizing the current strongest default-promotion candidate and the explicit nondefault status of the major benchmark and sensitivity candidates.
-
-### `tdc_receipt_unblock_status.csv`
-
-Processed consolidated receipt critical-path table. It keeps the main remaining bank and ROW branches in one place and records:
-
-- whether the branch is historical-only, current nondefault, or a recurring nondefault pilot
-- the current promotion boundary
-- the current binding blocker
-- the missing source family that would change the branch state
-- the best external research target
-- the best local next action
-
-### `tdc_receipt_unblock_status.md`
-
-Short markdown note summarizing the current bank historical window, bank current stale-share window, MRV primary pilot, and secondary ROW branch in one receipt-side unblock surface.
-
-### `tdc_workstream_end_state_map.csv`
-
-Status map of the project's open workstreams. It records:
-
-- priority order
-- recommended mode:
-  `push_hard`,
-  `bounded_push`,
-  `bounded_monitor`,
-  `freeze`,
-  or `diagnostic_only`
-- current state
-- target end state
-- binding blocker
-- external dependency
-- next planned step
-- explicit stop rule
-- whether the workstream should be deprioritized
-
-This artifact is intended to keep the project from drifting into low-payoff loops.
-
-### `tdc_workstream_end_state_map.md`
-
-Short markdown note grouping the open workstreams by recommended mode, with the full ranked map.
-
-### `tdc_project_goal_status_review.csv`
-
-Processed repo-level status review for the original end goals. It records, for each major goal:
-
-- current status
-- current role
-- strongest live surface
-- latest relevant date
-- binding blocker
-- next planned step
-- summary note
-
-The major goal rows are:
-
-- bank transfers and outlays
-- ROW transfers and outlays
-- bank receipts
-- ROW receipts
-- fiscal-flow TDC equation
-- monetary-disaggregated TDC equation
-
-### `tdc_project_goal_status_review.md`
-
-Short markdown note summarizing the current state of those same end goals in one place so project-overview questions can be answered from a live artifact rather than a freehand narrative.
-
-### `tdc_tier3_research_comparison.csv`
-
-Processed compact research-comparison surface tying together:
-
-- latest live Tier 2 bank-only
-- latest live default Tier 3 bank-only
-- latest historical bank-receipt research variant in the age-eligible window
-- current bank and ROW receipt promotion boundaries
-- latest MRV pilot scale
-
-This artifact is meant to support presentation and reporting rather than source auditing.
-
-### `tdc_tier3_research_comparison.md`
-
-Short markdown note summarizing the latest live Tier 2 / Tier 3 comparison and the latest historical bank-receipt research window in one place.
-
-### `tdc_downstream_estimator_contract.csv`
-
-Processed backend-facing contract for downstream repos. It consolidates the main estimator and diagnostic surfaces into explicit machine-readable rows with:
-
-- role
-- default classification
-- deposit and counterparty scope
-- latest reference date and value where applicable
-- strongest supporting surface
-- core equation or claim
-- best downstream use
-- comparison anchor
-- binding blocker
-- main known boundary
-- next planned step
-
-### `tdc_downstream_estimator_contract.md`
-
-Short markdown note summarizing the same backend contract and the current role of the main ladder, historical bank overlay, MRV pilot, fiscal shell, and monetary cross-check surfaces.
-
-### `tdc_downstream_component_contribution_review.csv`
-
-Processed long-form additive contribution contract for downstream deposit-effect work. It emits one row per scenario-component pairing for the key live and historical scenarios, including the signed contribution, share of the absolute estimator, inclusion role, and the relevant boundary note.
-
-### `tdc_downstream_component_contribution_review.md`
-
-Short markdown note summarizing the same long-form contribution contract and restating that historical overlay terms only appear inside the age-eligible historical bank window.
-
-### `tdc_downstream_estimator_gap_review.csv`
-
-Processed compact backend gap review for downstream work. It records the main estimator-to-estimator deltas that matter for deposit-effect interpretation, including:
-
-- latest live base to Tier 2 bank-only gap
-- latest live Tier 2 to Tier 3 bank-only gap
-- latest live bank-only to broad-depository Tier 3 gap
-- latest historical bank-receipt overlay gap
-- latest historical candidate to lower-bound gap
-
-For each gap it reports:
-
-- the left-hand and right-hand estimator
-- the net delta in millions
-- the dominant and secondary component drivers
-- each driver’s share of the absolute gap
-- the gap role and interpretation
-
-### `tdc_downstream_estimator_gap_review.md`
-
-Short markdown note summarizing the same compact gap review and naming the dominant variables behind the main live and historical estimator differences.
-
-### `tdc_fiscal_receipt_boundary_review.csv`
-
-Processed receipt-boundary map for the fiscal shell. It consolidates the live default receipt cells, historical bank overlays, MRV nondefault pilot, and benchmark-only receipt surfaces into explicit machine-readable rows with:
-
-- counterparty group
-- receipt family
-- role
-- whether the item is included in the Tier 3 diagnostic row
-- whether it is included only in historical overlays
-- latest reference date and value
-- strongest supporting surface
-- binding blocker
-- downstream use
-- interpretation
-
-### `tdc_fiscal_receipt_boundary_review.md`
-
-Short markdown note summarizing which fiscal receipt surfaces are live defaults, historical-only overlays, bounded nondefault pilots, or benchmark-only context.
-
-### `tdc_downstream_deposit_effect_use_case_review.csv`
-
-Processed downstream use-case map for deposit-effect analysis. It translates the backend contracts into explicit questions such as:
-
-- best current-quarter bank-only TDC
-- best historical bank receipt backtest
-- best bounded ROW receipt sensitivity
-- best deposit-perimeter comparison
-- best monetary cross-check
-
-For each use case it records:
-
-- the target question
-- primary and comparison artifacts
-- readiness status
-- latest date and value for the primary artifact
-- dominant problem-variable key and family
-- binding boundary
-- fallback artifacts
-- recommended reading
-- summary note
-
-### `tdc_downstream_deposit_effect_use_case_review.md`
-
-Short markdown note summarizing which artifact to use for the main downstream deposit-effect questions and what the dominant problem-variable family is in each case.
-
-### `tdc_downstream_problem_variable_review.csv`
-
-Processed backend review of the variables and boundary cells most likely to matter for downstream interpretation. It focuses on:
-
-- large live cleanup terms
-- live receipt-side zero/default boundary cells
-- historical receipt overlays
-- bounded nondefault pilots
-- perimeter-only comparison drivers
-
-For each variable it records:
-
-- role
-- whether it enters the estimator ladder rows
-- latest date and value
-- evidence grade
-- the gap keys where it is dominant or secondary
-- binding boundary
-- downstream relevance
-- interpretation risk
-- summary note
-
-### `tdc_downstream_problem_variable_review.md`
-
-Short markdown note summarizing which variables are currently the main interpretation risks for downstream work and why.
-
-### `tdc_downstream_deposit_effect_series_panel.csv`
-
-Processed tidy downstream time-series panel for deposit-effect work. It packages the key estimator series, historical bank receipt overlays, and bounded MRV pilot series into one machine-readable table with:
-
-- date
-- series key and family
-- linked use-case key
-- current role
-- default classification
-- deposit scope
-- value in millions
-- bank and ROW receipt boundary labels
-- historical-only and nondefault-only flags
-- latest nonzero support date and value for sparse series
-- summary note
-
-### `tdc_downstream_deposit_effect_series_panel.md`
-
-Short markdown note summarizing the latest available rows for the main downstream time-series panel and showing which series are historical-only or nondefault-only.
-
-### `tdc_downstream_deposit_effect_comparison_panel.csv`
-
-Processed quarter-by-quarter delta panel for downstream deposit-effect work. It packages the main estimator wedges and bounded receipt/perimeter overlays into one machine-readable comparison surface with:
-
-- date
-- comparison key and family
-- left-hand and right-hand series keys
-- left-hand and right-hand values in millions
-- net delta in millions
-- bank and ROW receipt boundary labels
-- historical-only and nondefault-only flags
-- latest nonzero support date and value for sparse comparison branches
-- summary note
-
-This panel is the time-series complement to the latest-only `tdc_downstream_estimator_gap_review` surface.
-
-### `tdc_downstream_deposit_effect_comparison_panel.md`
-
-Short markdown note summarizing the latest available delta row for each tracked comparison in the downstream deposit-effect comparison panel.
-
-### `tdc_downstream_handoff_bundle.json`
-
-Single-file handoff package for downstream projects. Its top-level keys are `bundle_format`, `generated_at_utc`, `distribution_scope`, `summary`, `goal_status`, `receipt_unblock_status`, `estimator_contract`, `use_cases`, `receipt_boundaries`, `backend_closeout_review`, `backend_release_check`, `problem_variables`, `series_panel` and `comparison_panel`. Together they carry:
-
-- the canonical headline key with its latest date and value (`canonical_headline_key`, `canonical_headline_latest_date`, `canonical_headline_latest_value_millions`), and summary status for bank receipts, ROW receipts, fiscal flow and monetary cross-checks
-- keyed goal-status rows
-- keyed receipt-unblock rows
-- keyed estimator-contract rows; only the canonical Tier 2 row is classified `headline_default`, and the bank-only baseline and bank-only Tier 2 rows are ladder rows
-- keyed downstream use-case rows
-- keyed fiscal receipt-boundary rows
-- latest-by-series and latest-by-comparison panel snapshots
-- top problem-variable rows plus the full problem-variable table
-- keyed backend-closeout rows
-- keyed backend-release-check rows
-
-Use it when a downstream project wants one stable entry point instead of several processed tables. `distribution_scope` states that only the full repository is regenerable; a partial copy of processed files is a snapshot.
-
-### `tdc_downstream_handoff_bundle.md`
-
-Short markdown note summarizing what is included in the downstream handoff bundle and the current top-line statuses it carries.
-
-### `tdc_downstream_ingest_manifest.csv`
-
-Processed priority-ordered ingest manifest for downstream repos. It records, for each backend-facing artifact:
-
-- artifact path and format
-- ingest priority
-- stability class
-- consumption mode
-- recommended downstream use
-- primary key field
-- core fields to read first
-- binding boundary
-- latest reference date
-- summary note
-
-This is the quickest way for a consuming repo to know which processed outputs are primary entrypoints versus bounded, diagnostic, or context-only surfaces.
-
-### `tdc_downstream_ingest_manifest.md`
-
-Short markdown note summarizing the same ingest ordering and stability classification for the backend-facing downstream artifacts.
-
-### `tdc_downstream_consistency_review.csv`
-
-Processed backend self-audit table for downstream-facing contracts. It records explicit pass/fail checks comparing:
-
-- the handoff bundle summary
-- the ingest manifest
-- the estimator contract
-- the downstream use-case router
-- the deposit-effect series panel
-- the deposit-effect comparison panel
-
-Each row carries:
-
-- check key and group
-- pass/fail status
-- left-hand and right-hand sources
-- compared values
-- comparison basis
-- summary note
-
-This surface is meant to catch contract drift where multiple backend-facing artifacts stop agreeing on the same primary artifact, date, or value.
-
-### `tdc_downstream_consistency_review.md`
-
-Short markdown note summarizing the current backend consistency checks and whether the main downstream-facing artifacts still agree.
-
-### `tdc_backend_closeout_review.csv`
-
-Processed backend closeout surface tying together:
-
-- downstream contract alignment state
-- stable historical bank receipt posture
-- bounded MRV nondefault posture
-- fiscal-shell closeout posture
-- monetary diagnostic closeout posture
-
-For each backend area it records:
-
-- current state
-- release readiness
-- latest relevant date
-- strongest governing surface
-- binding boundary
-- next action
-- explicit stop rule
-- summary note
-
-It summarizes, for each backend area, whether further work is planned or the area is closed.
-
-### `tdc_backend_closeout_review.md`
-
-Short markdown note summarizing whether the backend is effectively in bounded closeout, which branches remain monitor-only, and what exact rule would justify reopening them.
-
-### `tdc_backend_release_check.csv`
-
-Processed final backend release-style checklist. It converts the current closeout state into explicit pass/fail checks for:
-
-- downstream contract consistency
-- contract-layer closeout readiness
-- bank bounded historical readiness
-- MRV bounded nondefault readiness
-- fiscal-shell bounded diagnostic readiness
-- monetary diagnostic stability
-- overall backend release recommendation
-
-Each row carries:
-
-- check key and group
-- pass/fail status
-- metric value
-- binding boundary
-- summary note
-
-This is the shortest backend answer to “is the backend ready to stop expanding and shift to maintenance?”
-
-### `tdc_backend_release_check.md`
-
-Short markdown note summarizing the same final backend release-style checks and the overall backend release recommendation.
-
-### `tdc_theory_measurement_map.csv`
-
-Processed theory-to-measurement registry for TDC. It separates:
-
-- theoretical accounting identities
-- implemented live estimates
-- bounded historical or nondefault measurement overlays
-- diagnostic-only cross-checks
-
-Each row carries:
-
-- display order and equation key
-- equation family
-- display title
-- repo role
-- latex-style equation text
-- plain-English summary
-- current measurement mapping
-- implementation status
-- main caveat
-- primary artifact
-
-This is the canonical backend bridge between “what TDC is” and “what TDCest measures.”
-
-### `tdc_theory_measurement_map.md`
-
-Short markdown note listing the same theory-to-measurement rows in narrative order so the site and docs can present identities separately from estimators.
-
-### `tdc_row_mrv_nondefault_evidence_summary.csv`
-
-Processed packaging summary for the MRV-first / CBSP branch. It records:
-
-- overall nondefault recommendation
-- count of supportive loaded source families
-- count of promotion checks complete, partial, and missing
-- current cash-route, remitter, and timing states
-- strongest current nondefault claim
-- binding default blocker
-- next planned step
-
-### `tdc_row_mrv_nondefault_evidence_summary.md`
-
-Short markdown note summarizing why MRV remains the leading recurring ROW pilot while still staying below default, without requiring the reader to combine the checklist, source map, payment-chain review, and stop gate manually.
-
-### `tdc_bank_receipt_default_readiness.csv`
-
-Processed readiness gate for promoting the bank corporate-tax bridge into the default Tier 3 bank receipt correction. It records the minimum checks for promotion: perimeter contamination, share stability, stale-share rule, estimator-integration overlap, and no-double-count/sign treatment. When the normalized IRS Table 5.3 availability file is present, the perimeter check is backed by explicit public minor-industry suppression evidence rather than a generic narrative note.
-
-### `tdc_bank_receipt_default_readiness.md`
-
-Short markdown note summarizing the overall default-promotion recommendation for the bank corporate-tax bridge and the current blocking checks.
-
-### `tdc_bank_receipt_source_map.csv`
-
-Processed source-roadmap table for the bank corporate-tax bridge. It separates:
-
-- the already loaded Table 5.1 bank-minor history used for the historical window
-- the still-missing fresher public IRS bank-minor share history needed for current-quarter promotion
-- the blocked Table 5.3 C-corp path
-- the already loaded share-stability context
-
-### `tdc_bank_receipt_source_map.md`
-
-Short markdown note summarizing which bank share source families are already loaded and which missing source family still blocks current-quarter bank default use. It states the latest tax year with official public bank-minor-industry shares (TY2022 when last checked).
-
-### `tdc_bank_receipt_stop_gate.csv`
-
-Processed stop-gate table for the bank corporate-tax bridge. It turns the current bank branch into explicit checks plus one summary decision. It records:
-
-- whether the historical age-eligible window remains available
-- whether the bank-minor perimeter is loaded
-- whether a fresher public IRS share is loaded
-- whether current overlap alignment still needs recheck
-- the overall split between historical-default and current-nondefault use
-
-### `tdc_bank_receipt_stop_gate.md`
-
-Short markdown note summarizing the overall bank stop-gate decision and the fact that the historical window can remain usable even while current quarters stay nondefault.
-
-### `tdc_bank_receipt_historical_promotion.csv`
-
-Processed quarter-by-quarter decision surface for the live Table 5.1 bank-minor bank bridge under the current stale-share rule. It records:
-
-- share year used
-- share age eligibility
-- strict-depository and depository-plus-BHC bridge values
-- the age-eligible historical default candidate value
-- quarter-level window status distinguishing age-eligible historical quarters from current stale-share quarters
-
-This artifact is designed to separate “historical default candidate under current policy” from “current bridge only” without changing the live default estimator. It is the canonical historical-default decision surface for the current age-eligible bank receipt window; the Tier 3 historical bank-receipt research artifact remains a derived overlay built from this review.
-
-### `tdc_bank_receipt_historical_promotion.md`
-
-Short markdown note summarizing the latest quarter in view, the latest age-eligible historical quarter, and the current split between the historical age-eligible window and the stale-share nondefault window.
-
-### `tdc_monetary_stage0_diagnostics.csv`
-
-Optional monetary Stage 0 cross-check written when the loaded quarterly frame includes `m2` and `currency`. It converts loaded H.6/H.8-style series from billions to millions, builds quarter-over-quarter deposit-style targets where possible, and compares them to Tier 0, Tier 2, and Tier 3. Current target families are:
-
-- `Partial target` = `M2 - currency`
-- `Depository target` = `M2 - currency - retail money market funds` when `RMFSL` is loaded
-- `Liquid target` = `M2 - currency - retail money market funds - small time deposits` when `RMFSL` and `STDSL` are loaded
-- `Bank-deposit target` = all commercial bank deposits when `DPSACBM027NBOG` is loaded
-- `Other-deposits bank context` = all commercial bank other deposits when `ODSACBM027SBOG` is loaded
-- `Credit-union deposits` = federally insured credit-union `Acct_018` totals from the local NCUA bridge when `support__credit_union_deposits.csv` is present
-- `Thrift deposits` = FDIC savings-institution `DEP` totals for BKCLASS `SB`, `SI`, and `SL` from the local FDIC bridge when `support__thrift_deposits.csv` is present
-- `Nonbank depository bridge` = `credit_union_deposits + thrift_deposits` when both local bridge-side support series are present
-
-### `tdc_monetary_stage0_diagnostics.md`
-
-Short markdown note summarizing the latest quarter of that same monetary Stage 0 diagnostic, including the available target changes, the current ladder values, and the resulting gaps.
-
-### `tdc_monetary_stage1_controls.csv`
-
-Optional monetary Stage 1 control-block diagnostic written when the Stage 0 artifact exists. It keeps the monetary side explicitly diagnostic and carries three control subtotals:
-
-- `Simple subtotal` = total bank credit plus MMF, RRP, and reserve-balance controls
-- `Refined subtotal` = loans and leases plus other securities excluding Treasury/agency non-MBS securities, plus the same MMF, RRP, and reserve-balance controls
-- `Expanded subtotal` = the refined subtotal plus Fed liquidity-credit loans, Fed term deposits, other deposits at the Fed, and commercial-bank borrowings
-
-The processed table carries the control components, the simple/refined/expanded subtotals, context fields like bank cash assets, foreign-official custody holdings, foreign-related Treasury/agency securities, and TGA change, and residual gaps against the depository and commercial-bank-deposit targets after subtracting those subtotals.
-
-### `tdc_monetary_stage1_controls.md`
-
-Short markdown note summarizing the latest quarter of that same Stage 1 control-block diagnostic, including the latest simple, refined, and expanded subtotals and the remaining residual gaps against Tier 3.
-
-### `tdc_monetary_control_overlap_audit.csv`
-
-Optional Stage 1 overlap-audit table written when the Stage 1 control artifact exists. It grades each signed control or context term by:
-
-- current role
-- overlap risk
-- current recommendation
-- latest-quarter value
-- latest-quarter absolute share of the depository and commercial-bank Tier 3 gaps
-
-This is the machine-readable answer to which Stage 1 terms are safe as signed controls and which remain context-only because of Treasury-channel overlap risk.
-
-### `tdc_monetary_control_overlap_audit.md`
-
-Short markdown note summarizing the latest overlap-audit verdict, especially the current high-overlap context-only terms that are not recommended for promotion into a signed subtotal.
-
-### `tdc_monetary_residual_interpretation.csv`
-
-Optional Stage 1 residual-interpretation table written when the Stage 1 control artifact exists. It provides a quarter-by-quarter waterfall for the depository and commercial-bank-deposit Tier 3 gaps:
-
-- original gap
-- amount explained by the simple subtotal
-- incremental amount explained by the refined subtotal
-- incremental amount explained by the expanded subtotal
-- residual after the expanded subtotal
-- explained-share and residual-share metrics
-- a simple residual-regime label
-
-### `tdc_monetary_residual_interpretation.md`
-
-Short markdown note summarizing the latest residual-interpretation verdict, including whether each target gap is still mostly unresolved, partly explained, or largely explained after the expanded Stage 1 control block.
-
-### `tdc_monetary_target_wedge.csv`
-
-Optional target-wedge diagnostic written when the Stage 1 control artifact exists. It isolates the commercial-bank-deposit target wedge relative to the depository target and shows:
-
-- the raw bank-minus-depository target wedge
-- the depository residual after expanded controls
-- the bank residual after expanded controls
-- the bank-specific residual wedge that survives after applying the same controls to both targets
-- the split between bank-specific and shared residual components
-- context terms such as bank cash assets, foreign Treasury-adjacent context, and TGA
-
-### `tdc_monetary_target_wedge.md`
-
-Short markdown note summarizing the latest target-wedge verdict, including whether the unresolved bank residual is dominated by a bank-target-specific wedge or by the shared depository residual.
-
-### `tdc_monetary_target_preference_review.csv`
-
-Optional review artifact written when the residual-interpretation and target-wedge artifacts exist. It records the recommendation on which monetary target should be treated as the primary cross-check surface, including:
-
-- the preferred target
-- the recommended role for the commercial-bank-deposit target
-- the latest residual regimes
-- the latest bank-specific wedge share
-- the review rationale
-
-### `tdc_monetary_target_preference_review.md`
-
-Short markdown note summarizing the target-preference verdict, including whether to prefer the depository target as the main monetary cross-check and demote the commercial-bank-deposit target to stress-test status.
-
-### `tdc_monetary_target_definition_bridge.csv`
-
-Optional target-definition bridge written when the Stage 0 and target-wedge artifacts exist. It tests whether the unresolved commercial-bank-deposit residual is effectively the same object as the raw bank-minus-depository target wedge. The table includes:
-
-- retail-MMF and small-time target-definition components
-- raw bank-minus-depository and bank-minus-liquid wedges
-- the bank-specific residual wedge from the target-wedge artifact
-- the alignment gap between the raw wedge and the residual wedge
-- an alignment status label
-
-### `tdc_monetary_target_definition_bridge.md`
-
-Short markdown note summarizing the latest target-definition verdict, including whether the unresolved commercial-bank-deposit residual matches the raw target-definition wedge rather than pointing to a missing Stage 1 control.
-
-### `tdc_monetary_target_definition_decomposition.csv`
-
-Optional target-definition decomposition written when the target-definition bridge exists. It decomposes the raw bank-minus-depository target wedge into:
-
-- the small-time-deposit component
-- the residual bank-minus-liquid/perimeter component
-- signed shares of each component in the total wedge
-- absolute component shares used for dominance checks when the pieces have offsetting signs
-- a component-dominance label
-
-### `tdc_monetary_target_definition_decomposition.md`
-
-Short markdown note summarizing the latest wedge decomposition, including whether the commercial-bank stress-test divergence is mainly a small-time-deposit issue or a larger bank-minus-liquid/perimeter issue.
-
-### `tdc_domestic_nonbank_monetary_route_bridge.csv`
-
-Route-classification bridge for domestic nonbank and MMF Treasury absorption
-surfaces. The table labels each route by M1 scope, M2 scope, deposit-pass-through
-scope, TDC estimator treatment, and rate-model treatment. It is classification
-only: `canonical_tdc_math_change` is always `false`.
-
-Current rows include retail MMFs inside M2 but outside bank-deposit scope,
-MMF/ON-RRP runoff as non-M2 Fed-plumbing context, broad Z.1 domestic nonbank
-absorption as mixed/unknown M2 scope, aggregate Z.1 MMF plumbing as mixed
-retail/institutional/ON-RRP context, dealer/repo bridge context, other-financial
-non-M2 context, and an institutional-MMF target route that is not separately
-observed in the current export.
-
-### `tdc_domestic_nonbank_monetary_route_bridge.md`
-
-Short markdown note summarizing the latest route counts and stating the bridge
-boundary: it does not change canonical TDC math and should be used downstream to
-keep non-M2 routes out of deposit-pass-through/current-demand math unless a
-future source-backed split clears the blocker.
-
-### `tdc_mmf_route_split_context.csv`
-
-SEC Form N-MFP fund-type and portfolio context for MMF Treasury and Fed ON-RRP
-routes. The table aggregates the latest report month in each quarter and emits
-retail MMF and institutional/nonretail MMF route rows for Treasury holdings and
-ON-RRP holdings.
-
-Important fields:
-
-- `fund_scope`: retail MMF or institutional/nonretail MMF
-- `fund_count`
-- `total_assets_bil`
-- `treasury_total_bil`
-- `treasury_bills_bil`
-- `treasury_coupons_bil`
-- `fed_onrrp_bil`
-- `m2_scope`
-- `deposit_pass_through_scope`
-- `current_demand_eligible`
-- `canonical_tdc_math_change`
-
-Boundary: this is context-only. It uses SEC N-MFP retail flags and portfolio
-holdings to classify routes, but it does not identify final investor spending
-behavior and does not change canonical TDC math.
-
-### `tdc_mmf_route_split_context.md`
-
-Short markdown note summarizing the latest SEC N-MFP route-split context and
-its downstream boundary.
-
-### `tdc_route_admissibility_registry.csv`
-
-Quarterless route-rule guardrail generated by
-`tdc route-admissibility-registry`. The registry is sourced from
-`tdc_domestic_nonbank_monetary_route_bridge.csv` and
-`tdc_mmf_route_split_context.csv`; it covers the unique route IDs in those
-tables without repeating quarterly amounts.
-
-Columns:
-
-- `route_rule_id`
-- `route_id`
-- `route_label`
-- `preferred_guardrail_label`
-- `source_artifact`
-- `source_family`
-- `source_status`
-- `observation_granularity`
-- `holder_vehicle_observed`
-- `ultimate_investor_observed`
-- `debited_claim_type`
-- `debited_claim_observed`
-- `funding_route_observed`
-- `payment_route_observed`
-- `m1_scope`
-- `m2_scope`
-- `deposit_pass_through_scope`
-- `tdc_admissibility`
-- `rate_model_current_demand_gate`
-- `current_demand_eligible`
-- `canonical_tdc_math_change`
-- `onrrp_boundary_status`
-- `onrrp_counterparty_scope`
-- `onrrp_boundary_source_url`
-- `onrrp_boundary_blocker`
-- `evidence_required_to_pass`
-- `exact_blocker`
-- `source_url`
-- `series_id`
-- `first_observed_quarter`
-- `latest_observed_quarter`
-- `notes`
-
-The first version keeps all current rows `current_demand_eligible = false` and
-`canonical_tdc_math_change = false`. It is a guardrail/source-boundary
-registry, not an amount-bearing estimator input. ON-RRP boundary fields record
-whether a route is NY Fed/Fed-liability counterparty context, SEC N-MFP
-fund-scope portfolio context, mixed MMF ON-RRP context, or not an ON-RRP route.
-They do not identify final investors, Treasury-purchase chains, or deposit
-recipients.
-
-### `tdc_route_admissibility_registry.md`
-
-Short markdown note summarizing route count, current-demand eligibility count,
-canonical-math-change count, ON-RRP boundary row count, and the fail-closed
-current-demand gate distribution.
-
-### `tdc_z1_domestic_nonbank_sector_context.csv`
-
-Z.1 sector-level Treasury holder context generated by
-`tdc z1-domestic-nonbank-sector-context`. The table decomposes domestic
-nonbank Treasury-security transactions into sector route rows, including MMFs,
-dealers, GSEs, mutual funds, closed-end funds, ETFs, insurance/pension funds,
-households/nonprofits residual, nonfinancial business, state/local government,
-asset-backed securities issuers, holding companies, and central clearing
-counterparties.
-
-Important fields:
-
-- `date`
-- `quarter`
-- `sector_route_id`
-- `sector_label`
-- `z1_component_field`
-- `z1_component_amount_bil`
-- `sector_route_family`
-- `holder_vehicle_observed`
-- `debited_claim_type`
-- `funding_route_observed`
-- `payment_route_observed`
-- `m1_scope`
-- `m2_scope`
-- `deposit_pass_through_scope`
-- `tdc_admissibility`
-- `rate_model_current_demand_gate`
-- `current_demand_eligible`
-- `canonical_tdc_math_change`
-- `exact_blocker`
-- `source_family`
-- `source_url`
-- `series_id`
-- `source_status`
-- `notes`
-
-Boundary: context-only. Z.1 sector rows describe holder-sector Treasury
-transactions, but they do not identify debited claims, payment routes, final
-investors, or current-demand conversion, and they do not change canonical TDC
-math.
-
-### `tdc_z1_domestic_nonbank_sector_context.md`
-
-Short markdown note summarizing quarter range, sector-route row count,
-latest-quarter coverage, route families, and the context-only boundary.
-
-### `tdc_monetary_bank_target_stress_review.csv`
-
-Optional review artifact written when the target-definition decomposition and target-preference review both exist. It records whether the commercial-bank target should be interpreted mainly as a perimeter stress test, including:
-
-- the latest bank-minus-depository wedge
-- the small-time and bank-minus-liquid/perimeter components
-- the current commercial-bank target role
-- a stress-review status and recommended use
-
-### `tdc_monetary_bank_target_stress_review.md`
-
-Short markdown note summarizing the bank-target stress-test verdict, including whether the commercial-bank target is best understood as a perimeter stress surface rather than a peer monetary benchmark.
-
-### `tdc_monetary_bank_target_gap_attribution.csv`
-
-Optional additive attribution written when the residual interpretation and target-definition decomposition both exist. It reconstructs the commercial-bank target gap and residual into:
-
-- the shared depository component
-- the small-time component
-- the bank-minus-liquid or perimeter component
-- reconstruction errors for the gap and the residual
-- component shares and a dominance label for the bank residual
-
-### `tdc_monetary_bank_target_gap_attribution.md`
-
-Short markdown note summarizing the latest additive breakdown of the commercial-bank target gap and residual, including whether the unresolved bank residual is mainly shared with the depository target or dominated by the bank-minus-liquid/perimeter wedge.
-
-### `tdc_monetary_nonbank_depository_bridge_attribution.csv`
-
-Optional attribution table written when both the Stage 0 monetary diagnostic and the target-definition decomposition exist. It uses the loaded credit-union and thrift bridge-side changes to compare the nonbank depository bridge against the bank-minus-liquid or perimeter wedge. The table carries:
-
-- credit-union bridge change
-- thrift bridge change
-- nonbank depository bridge change
-- bank-minus-liquid wedge
-- residual bank-minus-liquid wedge after subtracting the loaded nonbank bridge
-- signed and absolute bridge shares of the bank-minus-liquid wedge
-- sign-alignment and materiality labels
-
-### `tdc_monetary_nonbank_depository_bridge_attribution.md`
-
-Short markdown note summarizing the latest quarter of that same nonbank-depository bridge attribution and how much of the bank-minus-liquid wedge is explained by the loaded NCUA plus FDIC bridge.
-
-### `tdc_monetary_bank_liability_candidate_audit.csv`
-
-Optional liability-context audit written when the nonbank-depository bridge attribution exists. It compares the bank-minus-liquid/perimeter wedge against the currently loaded bank-liability context terms, including:
-
-- the loaded nonbank depository bridge change
-- the loaded large-time-deposit change
-- the loaded other-deposits change
-- the additive loaded liability context currently treated as admissible (`nonbank bridge + large time`)
-- the residual bank-minus-liquid wedge after subtracting that additive context
-- signed and absolute shares for each component
-- a materiality label for the currently loaded additive context
-
-The table reports `other deposits` separately as broad bank-deposit context, but does not silently add it into the admissible liability total because that series is still too broad to stand in for a clean bank-only liquid-deposit subcomponent.
-
-### `tdc_monetary_bank_liability_candidate_audit.md`
-
-Short markdown note summarizing the latest liability-context audit, including how much of the bank-minus-liquid wedge is explained by the currently admissible loaded liability context and why `other deposits` remains context-only.
-
-### `tdc_monetary_bank_perimeter_gap_review.csv`
-
-Optional source-coverage review written when the bank-target gap attribution exists. It checks whether the currently loaded monetary inputs are sufficient to decompose the bank-minus-liquid/perimeter wedge further, including:
-
-- the loaded nonbank depository bridge change and share of the bank-minus-liquid wedge
-- the residual bank-minus-liquid wedge after subtracting the loaded nonbank bridge
-- the currently admissible loaded liability context total and share of the bank-minus-liquid wedge
-- the residual bank-minus-liquid wedge after subtracting that additive loaded liability context
-- whether bank-only liquid-deposit subcomponents are loaded
-- whether large-time or wholesale-deposit components are loaded
-- whether the credit-union side of the bank-vs-broad-depository bridge is loaded
-- whether the thrift or savings-institution side of that bridge is loaded
-- whether the full bank-vs-broad-depository bridge is loaded
-- the missing source families still needed to go further
-
-### `tdc_monetary_bank_perimeter_gap_review.md`
-
-Short markdown note summarizing the perimeter-gap source review, including whether to stop at a perimeter stress-test interpretation until genuinely new source families are added.
-
-### `tdc_monetary_bank_perimeter_source_map.csv`
-
-Optional source roadmap written when the perimeter-gap review exists. It lists concrete official candidate source families for each currently missing bank-perimeter bucket, including:
-
-- provider
-- candidate series or product
-- intended use
-- whether that family is currently loaded
-- whether it is still missing for the next step
-- the stance after the source review
-
-The current live liquid-deposit row distinguishes between:
-
-- `loaded_context_series` such as `LTDACBM027SBOG`
-- `loaded_broad_context_not_subcomponent` for `ODSACBM027SBOG`
-- fully rejected constructions such as the current `ODSACBM027NBOG + WDDNS` pair
-
-### `tdc_monetary_bank_perimeter_source_map.md`
-
-Short markdown note summarizing the candidate official source families for the missing bank-perimeter buckets and their intended uses.
-
-### `tdc_monetary_bank_liquid_source_review.csv`
-
-Optional publication-ready source-boundary review written when the liability audit, perimeter-gap review, and perimeter source map all exist. It collapses the current bank-only-liquid stop condition into one review surface, including:
-
-- the best loaded broad bank-deposit context series
-- the role of that broad context series
-- the loaded large-time series and role
-- the loaded nonbank bridge and additive loaded-liability context
-- the residual after the additive loaded-liability context
-- the explicitly rejected `ODSACBM027NBOG + WDDNS` construction
-- the current source-map stance and perimeter-review status
-- the review recommendation on whether to keep the context-only boundary
-
-This is the machine-readable answer to whether a clean public bank-only liquid-deposit subcomponent family exists, or only broader context candidates.
-
-### `tdc_monetary_bank_liquid_source_review.md`
-
-Short markdown note summarizing the latest bank-liquid source-boundary verdict, including what is loaded, what remains context-only, what is rejected, and why the stop condition still holds.
-
-### `tdc_monetary_bank_liquid_stop_gate.csv`
-
-Optional stop-gate table written when the bank-liquid source review and perimeter-gap review both exist. It turns the current bank-only-liquid source boundary into explicit check rows plus one summary row. The table includes:
-
-- bridge-completeness checks for the nonbank bridge side and large-time bucket
-- the main blocking check on whether a clean current public bank-only liquid-deposit subcomponent family is loaded
-- a guardrail check that keeps `ODSACBM027SBOG` context-only
-- a guardrail check that keeps the rejected `ODSACBM027NBOG + WDDNS` construction out
-- a residual-materiality check after the currently admissible additive liability context
-- a final `overall_stop_decision` summary row
-
-This is the machine-readable gate for whether the commercial-bank target branch should stop at perimeter-stress interpretation or can move to another source-load stage.
-
-### `tdc_monetary_bank_liquid_stop_gate.md`
-
-Short markdown note summarizing the latest stop-gate verdict, including which checks pass, which fail, which guardrails remain active, and the overall stop decision.
-
-### `tdc_ncua_credit_union_deposit_bridge.csv`
-
-Optional processed quarterly bridge written when `data/raw/ncua__credit_union_deposit_bridge.csv` is present. It normalizes final NCUA quarterly Call Report ZIP totals for:
-
-- all credit-union shares and deposits
-- federally insured credit-union shares and deposits
-- implied nonmember deposits from `Acct_018 - Acct_013`
-- credit-union counts
-- the ratio of federally insured credit-union shares and deposits to all commercial-bank deposits when the bank-deposit target is loaded
-
-### `tdc_ncua_credit_union_deposit_bridge.md`
-
-Short markdown note summarizing the latest quarter of that same NCUA bridge and restating that it is only the credit-union side of the broader bank-versus-broad-depository bridge.
-
-### `tdc_fdic_savings_institution_deposit_bridge.csv`
-
-Optional processed quarterly bridge written when `data/raw/fdic__savings_institution_deposit_bridge.csv` is present. It normalizes public FDIC banks financial API totals for:
-
-- total savings-institution deposits
-- federal savings banks
-- state savings banks
-- state savings and loans
-- savings-institution counts
-- the ratio of savings-institution deposits to all commercial-bank deposits when the bank-deposit target is loaded
-- the ratio of the combined nonbank depository bridge to all commercial-bank deposits when both FDIC and NCUA bridge sides are loaded
-
-### `tdc_fdic_savings_institution_deposit_bridge.md`
-
-Short markdown note summarizing the latest quarter of that same FDIC bridge and restating that it is the thrift or savings-institution side of the broader bank-versus-broad-depository bridge.
-
-### `tdc_tier3_source_diagnostics.csv`
-
-Optional quarterly source-diagnostics table written when `data/raw/treasury__mts_outlays.csv` is present. It decomposes the source-backed Tier 3 outlay overlay into selected bank and ROW outlay lines, grouped ROW buckets, and the mint cash-factor term.
-
-### `tdc_tier3_source_diagnostics.md`
-
-Short markdown note summarizing the latest source-covered Tier 3 diagnostics quarter and the largest selected ROW outlay components.
-
-### `tdc_tier3_receipt_source_diagnostics.csv`
-
-Optional quarterly receipt-side diagnostics written when `data/raw/treasury__mts_receipts.csv` is present. It lists the visible MTS receipt candidates reviewed for Tier 3 receipt corrections, the current default-included bank and ROW receipt values, and Revenue Collections bank-channel candidates when `data/raw/treasury__revenue_collections.csv` is present.
-
-### `tdc_tier3_receipt_source_diagnostics.md`
-
-Short markdown note summarizing the latest source-covered receipt candidates and why the current default keeps bank and ROW nonborrow receipt corrections at zero.
-
-### `tdc_tier3_bank_receipt_upper_bound_sensitivity.csv`
-
-Optional quarterly upper-bound sensitivity written when Revenue Collections bank-channel data are present in the receipt diagnostics. It shows the default Tier 3 bank-only series alongside total and non-tax variants that add the Treasury Revenue Collections `Bank` channel as a hypothetical bank-receipt correction.
-
-### `tdc_tier3_bank_receipt_upper_bound_sensitivity.md`
-
-Short markdown note summarizing the latest quarter of that same upper-bound sensitivity and restating that it is a routing-heavy bound, not a default estimator correction.
-
-## Bundle sections
-
-### `summary`
-
-Top-level summary including:
-
-- `generated_at_utc`
-- `latest_period`
-- `latest_methods`
-- `latest_base_components`
-- `latest_corrections`
-- `available_methods`
-- `preferred_method`
-- `canonical_tier2_status`
-- `ladder_inputs_by_deposit_concept`
-- `credit_union_policy`
-
-### `metadata`
-
-Series metadata and pipeline notes.
-
-### `estimates`
-
-Wide-format quarterly records with one row per date and one column per method.
-
-### `components`
-
-Quarterly component records for the estimator family.
-
-### `corrections`
-
-Signed quarterly correction records and corrected-tier deltas relative to their Tier 0 or Tier 1 parents.
-
-### `tdc_post2022_bank_only_attribution.csv`
-
-Focused processed table for the default bank-only ladder from `2022-09-30` onward. It includes:
-
-- base, Tier 1, and Tier 2 bank-only estimates
-- signed Fed, bank, and ROW coupon corrections
-- Tier 1 and Tier 2 deltas from their parent estimators
-- total coupon correction
-- absolute-share attribution percentages
-- dominant correction label by quarter
-
-## Column conventions
-
-### Estimates
-
-- `tdc_base_bank_only_ru_flow`
-- `tdc_base_broad_depository_np_cu_ru_flow`
-
-### Corrections
-
-- `tier1_fed_coupon_correction` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tier1_fed_component_extension_correction` if `support__fed_tier1_component_extension_proxy.csv` is present and component-anchored rows are available
-- `tier2_bank_coupon_correction` if promoted component support or legacy H15 support is present; component support is used when available
-- `tier2_row_coupon_correction` if promoted component support or legacy H15 support is present; component support is used when available
-- `tier2_bank_h15_coupon_correction` if `support__bank_tsy_coupon_interest_proxy.csv` is present
-- `tier2_row_h15_coupon_correction` if `support__row_tsy_coupon_interest_proxy.csv` is present
-- `tier2_credit_union_h15_coupon_correction` if `support__credit_union_tsy_coupon_interest_proxy.csv` is present
-- `tier2_bank_component_interest_correction` if `support__bank_tier2_component_interest_proxy.csv` is present
-- `tier2_row_component_interest_correction` if `support__row_tier2_component_interest_proxy.csv` is present
-- `tier2_credit_union_component_interest_correction` if `support__credit_union_tier2_component_interest_proxy.csv` is present
-- `tier3_bank_noninterest_outlay_correction` if `support__bank_noninterest_outlay_proxy.csv` is present
-- `tier3_row_noninterest_outlay_correction` if `support__row_noninterest_outlay_proxy.csv` is present
-- `tier3_bank_nonborrow_receipt_correction` if `support__bank_nonborrow_receipt_proxy.csv` is present
-- `tier3_row_nonborrow_receipt_correction` if `support__row_nonborrow_receipt_proxy.csv` is present
-- `tier3_mint_cb_cash_factor_correction` if `support__mint_cb_cash_factor_proxy.csv` is present
-- `tdc_tier1_bank_only_delta_from_base` if Tier 1 bank-only is present
-- `tdc_tier1_broad_depository_np_cu_delta_from_base` if Tier 1 broad-depository is present
-- `tdc_tier1_domestic_bank_only_delta_from_base` if Tier 1 domestic-only is present
-- `tdc_tier2_bank_only_delta_from_base` if Tier 2 bank-only is present
-- `tdc_tier2_bank_only_delta_from_tier1` if Tier 2 bank-only is present
-- `tdc_tier2_broad_depository_np_cu_delta_from_base` if Tier 2 broad-depository is present
-- `tdc_tier2_broad_depository_np_cu_delta_from_tier1` if Tier 2 broad-depository is present
-- `tdc_tier2_domestic_bank_only_delta_from_base` if Tier 2 domestic-only is present
-- `tdc_tier2_domestic_bank_only_delta_from_tier1` if Tier 2 domestic-only is present
-- `tdc_tier2_component_anchored_bank_only_delta_from_base` if component-anchored Tier 2 bank-only is present
-- `tdc_tier2_component_anchored_bank_only_delta_from_tier1` if component-anchored Tier 2 bank-only is present
-- `tdc_tier2_component_anchored_broad_depository_np_cu_delta_from_base` if component-anchored Tier 2 broad-depository is present
-- `tdc_tier2_component_anchored_broad_depository_np_cu_delta_from_tier1` if component-anchored Tier 2 broad-depository is present
-- `tdc_tier2_component_anchored_domestic_bank_only_delta_from_base` if component-anchored Tier 2 domestic-only is present
-- `tdc_tier2_component_anchored_domestic_bank_only_delta_from_tier1` if component-anchored Tier 2 domestic-only is present
-- `tdc_tier3_bank_only_delta_from_base` if Tier 3 bank-only is present
-- `tdc_tier3_bank_only_delta_from_tier2` if Tier 3 bank-only is present
-- `tdc_tier3_broad_depository_np_cu_delta_from_base` if Tier 3 broad-depository is present
-- `tdc_tier3_broad_depository_np_cu_delta_from_tier2` if Tier 3 broad-depository is present
-- `tdc_tier3_domestic_bank_only_delta_from_base` if Tier 3 domestic-only is present
-- `tdc_tier3_domestic_bank_only_delta_from_tier2` if Tier 3 domestic-only is present
-- `tdc_broad_depository_np_corp_cu_ru_flow`
-- `tdc_credit_union_aggregate_sensitivity`
-- `tdc_domestic_bank_only_ru_flow`
-- `tdc_no_remit_bank_only`
-- `tdc_tier1_fed_corrected_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tdc_tier1_fed_corrected_broad_depository_np_cu_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tdc_tier1_fed_corrected_domestic_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `tdc_tier2_interest_corrected_bank_only_ru_flow` if Fed coupon support plus promoted component support or legacy H15 support is present; component support is used when available
-- `tdc_tier2_interest_corrected_broad_depository_np_cu_ru_flow` if Fed coupon support plus promoted component support or legacy H15 support is present; component support is used when available
-- `tdc_tier2_interest_corrected_domestic_bank_only_ru_flow` if Fed coupon support plus promoted bank component support or legacy H15 bank support is present; component support is used when available
-- `tdc_tier2_h15_intensity_corrected_bank_only_ru_flow`, `tdc_tier2_h15_intensity_corrected_broad_depository_np_cu_ru_flow`, `tdc_tier2_h15_intensity_corrected_domestic_bank_only_ru_flow`, and `tdc_tier2_h15_intensity_corrected_depository_institution_np_cu_ru_flow` if the legacy WAMEST/H15 support files are present
-- `tdc_tier2_component_anchored_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv`, `support__bank_tier2_component_interest_proxy.csv`, and `support__row_tier2_component_interest_proxy.csv` are present
-- `tdc_tier2_component_anchored_broad_depository_np_cu_ru_flow` if the Fed, bank, and ROW component-anchored support inputs are present
-- `tdc_tier2_component_anchored_domestic_bank_only_ru_flow` if `support__fed_tsy_coupon_interest_proxy.csv` and `support__bank_tier2_component_interest_proxy.csv` are present
-- `tdc_tier2_component_anchored_depository_institution_np_cu_ru_flow` if the component-anchored broad-depository row and `support__credit_union_tier2_component_interest_proxy.csv` are present
-- `tdc_tier2_component_anchored_mmf_rrp_prop_bank_only_ru_flow` and `tdc_tier2_component_anchored_mmf_rrp_prop_depository_institution_np_cu_ru_flow` if the relevant component-anchored Tier 2 row and preferred MMF/RRP input are present
-- `tdc_tier2_component_anchored_fed_extension_bank_only_ru_flow`, `tdc_tier2_component_anchored_fed_extension_broad_depository_np_cu_ru_flow`, `tdc_tier2_component_anchored_fed_extension_domestic_bank_only_ru_flow`, and `tdc_tier2_component_anchored_fed_extension_depository_institution_np_cu_ru_flow` if component-anchored rows and `support__fed_tier1_component_extension_proxy.csv` are present
-- `tdc_tier2_component_anchored_fed_extension_mmf_rrp_*` variants if Fed-extension component-anchored rows and MMF/RRP inputs are present
-- `tdc_tier2_h15_treasury_interest_robust_bank_only_ru_flow` if the legacy H15 Tier 2 coupon inputs plus bank and ROW bill-discount support proxies are present
-- `tdc_tier2_h15_treasury_interest_robust_depository_institution_np_cu_ru_flow` if the legacy H15 DI Tier 2 inputs plus bank, ROW, and credit-union bill-discount support proxies are present
-- `tdc_tier2_h15_treasury_interest_robust_mmf_rrp_prop_bank_only_ru_flow` if the legacy H15 bill-discount robustness and preferred MMF/RRP inputs are present
-- `tdc_tier2_canonical_depository_institution_mmf_rrp_prop_ru_flow` if component-anchored interest support for banks, the rest of the world and credit unions and the MMF fund-month support are present; it is never filled from the H.15 rows
-- `tdc_tier3_fiscal_corrected_bank_only_ru_flow` if the Tier 2 bank-only inputs plus all Tier 3 fiscal support inputs are present
-- `tdc_tier3_fiscal_corrected_broad_depository_np_cu_ru_flow` if the Tier 2 broad-depository inputs plus all Tier 3 fiscal support inputs are present
-- `tdc_tier3_fiscal_corrected_domestic_bank_only_ru_flow` if the Tier 2 domestic-only inputs plus bank-side Tier 3 fiscal support inputs are present
-- `tdc_level_bank_only_sensitivity`
-- `tdc_level_broad_depository_np_cu_sensitivity`
-- `tdc_decomposition_proxy_bank_centric`
-- `tdc_base_bank_only_ru_flow_4q`
-- `tdc_base_bank_only_ru_flow_cum`
-
-### Components
-
-- `fed_tsy_tx`
-- `bank_depository_tsy_tx`
-- `np_credit_unions_tsy_tx`
-- `corp_credit_unions_tsy_tx`
-- `ncua_capitalization_deposit_tx`
-- `credit_unions_total_tsy_tx_reconstructed`
-- `credit_unions_total_tsy_tx_direct` if downloaded
-- `credit_unions_total_gap_tx` if the direct aggregate series was downloaded
-- `broad_depository_np_cu_tsy_tx`
-- `broad_depository_np_corp_cu_tsy_tx`
-- `broad_depository_full_cu_tsy_tx`
-- `row_tsy_tx`
-- `ru_bank_only_tsy_tx`
-- `ru_broad_depository_np_cu_tsy_tx`
-- `ru_broad_depository_np_corp_cu_tsy_tx`
-- `ru_broad_depository_full_cu_tsy_tx`
-- `minus_treasury_operating_cash_tx`
-- `fed_remit_positive`
-- `fed_tsy_coupon_interest_proxy` if `support__fed_tsy_coupon_interest_proxy.csv` is present
-- `fed_tier1_component_extension_proxy` if `support__fed_tier1_component_extension_proxy.csv` is present
-- `bank_tsy_coupon_interest_proxy` if `support__bank_tsy_coupon_interest_proxy.csv` is present
-- `row_tsy_coupon_interest_proxy` if `support__row_tsy_coupon_interest_proxy.csv` is present
-- `bank_tsy_bill_discount_interest_proxy` if `support__bank_tsy_bill_discount_interest_proxy.csv` is present
-- `row_tsy_bill_discount_interest_proxy` if `support__row_tsy_bill_discount_interest_proxy.csv` is present
-- `credit_union_tsy_bill_discount_interest_proxy` if `support__credit_union_tsy_bill_discount_interest_proxy.csv` is present
-- `bank_tier2_component_interest_proxy` if `support__bank_tier2_component_interest_proxy.csv` is present
-- `row_tier2_component_interest_proxy` if `support__row_tier2_component_interest_proxy.csv` is present
-- `credit_union_tier2_component_interest_proxy` if `support__credit_union_tier2_component_interest_proxy.csv` is present
-- `bank_noninterest_outlay_proxy` if `support__bank_noninterest_outlay_proxy.csv` is present
-- `row_noninterest_outlay_proxy` if `support__row_noninterest_outlay_proxy.csv` is present
-- `bank_nonborrow_receipt_proxy` if `support__bank_nonborrow_receipt_proxy.csv` is present
-- `row_nonborrow_receipt_proxy` if `support__row_nonborrow_receipt_proxy.csv` is present
-- `mint_cb_cash_factor_proxy` if `support__mint_cb_cash_factor_proxy.csv` is present
-- `tdc_base_bank_only_ru_flow`
-- `tdc_base_broad_depository_np_cu_ru_flow`
-
-## `tdc_mmf_rrp_source_comparison.csv`
-
-Optional quarterly source-comparison table written when both `data/raw/support__mmf_fund_month.csv` and `data/raw/support__mmf_fund_month_ofr_aggregate.csv` are present. It compares the SEC Form N-MFP fund-month MMF/RRP adjustment with the OFR aggregate and reports:
-
-- preferred and fallback `rrp_runoff`
-- preferred and fallback Treasury increases
-- preferred and fallback other uses
-- preferred and fallback lower/proportional/upper MMF/RRP adjustments
-- preferred-minus-fallback proportional adjustment
-- absolute difference
-- preferred-to-fallback ratio
-- material-difference flag
-
-The paired markdown file `tdc_mmf_rrp_source_comparison.md` summarizes common-quarter count, material-quarter count, latest-quarter difference, and the largest absolute source differences.
-
-## `tdc_gse_rrp_boundary_check.csv`
-
-Optional boundary diagnostic written on every pipeline run. It becomes substantive when both `gse_tsy_tx` / `gse_tsy_level` and `support__gse_on_rrp.csv` are present. The artifact reports:
-
-- GSE Treasury transactions
-- quarter-end GSE ON RRP levels
-- positive GSE ON RRP runoff
-- positive GSE Treasury acquisition, preferably from the GSE Treasury level difference
-- `gse_rrp_boundary_adjustment = min(max(0, GSE Treasury acquisition), max(0, -Delta GSE ON RRP))`
-
-This is diagnostic-only. It is meant to test whether GSE Treasury absorption funded by running down ON RRP is material enough to discuss; it is not added to any headline TDC estimator.
-
-The paired markdown file `tdc_gse_rrp_boundary_check.md` summarizes row count, positive-adjustment count, and the latest diagnostic row.
-
-## `bill_discount_validation.csv`
-
-Optional validation table written by `tdc bill-discount-validation`. It compares the sector bill-discount proxies used in Treasury-interest-robust Tier 2 rows with the aggregate Treasury FiscalData bill amortized-discount benchmark.
-
-Columns:
-
-- `date`
-- `treasury_bill_amortized_discount_mil`
-- `bank_tsy_bill_discount_interest_proxy`
-- `row_tsy_bill_discount_interest_proxy`
-- `credit_union_tsy_bill_discount_interest_proxy`
-- `bank_row_proxy_mil`
-- `bank_row_cu_proxy_mil`
-- `bank_row_share_of_aggregate`
-- `bank_row_cu_share_of_aggregate`
-- `has_treasury_bill_benchmark`
-- `has_all_sector_proxies`
-
-The paired markdown file `bill_discount_validation.md` summarizes benchmark coverage, latest-quarter scale, and median sector-proxy shares over the common coverage window.
-
-## `tier2_regression_interest_backcast.csv`
-
-Long regression-grade Tier 2 interest backcast by sector. It combines the
-constrained component method for 2022 onward, official component-pool plus
-WAMEST bucket-weight backcasts from 2010 through 2021, and scaled legacy
-WAMEST/H15 backcasts before the component ledger starts.
-
-Key fields:
-
-- `date`
-- `sector_group`
-- `tier2_regression_interest_proxy`
-- `method_tier`
-- `evidence_grade`
-- `backcast_flag`
-
-## `tier2_regression_interest_backcast_wide.csv`
-
-Wide regression handoff form of the same backcast, with bank, ROW, credit-union,
-bank+ROW, and depository-institution Tier 2 interest proxies plus sector
-method-tier columns.
-
-## `tdc_tier2_regression_series.csv`
-
-Regression-ready TDC series corrected with the Tier 2 regression interest
-backcast. This is separate from the live canonical estimate table because the
-pre-2022 history intentionally mixes evidence tiers: constrained component
-support from 2022 onward, component-pool/WAMEST-bucket backcast from 2010
-through 2021, and scaled legacy WAMEST/H15 backcast before 2010.
-
-Key fields:
-
-- `date`
-- `tdc_tier2_regression_domestic_bank_only_ru_flow`
-- `tdc_tier2_regression_bank_only_ru_flow`
-- `tdc_tier2_regression_broad_depository_np_cu_ru_flow`
-- `tdc_tier2_regression_depository_institution_np_cu_ru_flow`
-- `tier2_regression_bank_row_method_tier`
-- `tier2_regression_di_method_tier`
+`tdc estimate` also writes auxiliary CSV and Markdown checking tables to `data/processed/` covering input coverage, deposit-definition bridges (NCUA, FDIC, and Z.1), fiscal-reconciliation residuals, and downstream consistency checks. These files are standalone diagnostic outputs separate from the inputs to the main TDC series.

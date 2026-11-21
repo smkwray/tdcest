@@ -1,129 +1,107 @@
-# MMF/ON RRP adjustment
+# Money-Market-Fund ON RRP Term
 
-This note defines the money-market-fund (MMF) adjustment for Federal Reserve overnight reverse repo (ON RRP) funding in the Tier 2 ladder. The adjustment uses SEC Form N-MFP fund-month filings; Office of Financial Research (OFR) aggregate data serve as a source comparison.
+Money market funds (MMFs) sit inside the deposit-user sector, so an ordinary MMF Treasury purchase paid from a commercial-bank deposit leaves aggregate deposits unchanged. When an MMF instead pays for Treasury securities by running down overnight reverse repurchase agreements (ON RRP) at the Federal Reserve, the transaction shifts Federal Reserve liabilities from ON RRP into the Treasury General Account (TGA), bypassing deposit accounts. Without a term for that funding path, the increase in TGA makes the Treasury-side calculation understate TDC.
 
-## Motivation
+From 2013Q3 onward, `tdcest` adds back the estimated share of MMF Treasury purchases funded out of ON RRP runoffs using fund-month SEC Form N-MFP filings. Because ON RRP began on September 23, 2013 (`2013-09-23`), the term is zero before 2013Q3.
 
-MMF Treasury purchases funded by running down Federal Reserve reverse-repo positions are not the same deposit-incidence event as MMF Treasury purchases funded by new domestic nonbank deposits. The aggregate quarterly diagnostic
+## Fund-month accounting formulas
 
-```text
-min(max(0, change in MMF Treasury bills), max(0, -change in ON RRP))
-```
+For each fund $i$ and consecutive reporting month $m$, define balance-sheet levels in USD millions:
 
-captures the basic direction, but it is too coarse for a preferred estimator because total ON RRP is not MMF-only and quarterly netting can miss within-quarter rotations.
+- $R_{i,m}$: ON RRP holdings at the Federal Reserve (`fed_rrp`), forced to $0$ before `2013-09-23`
+- $T_{i,m}$: total Treasury holdings (`treasury_total`)
+- $O_{i,m}$: non-Treasury, non-ON RRP assets (`non_treasury_non_fed_rrp_assets`)
+- $A_{i,m}$: net asset value (`nav`)
 
-## Fund-month adjustment
+Month-to-month changes are taken only between consecutive calendar months (a one-month step within each fund). Define positive ON RRP runoff, Treasury purchases, and other funding uses as:
 
-For fund `i` in month `m`, the normalized support file supplies:
+$$
+\Delta R_{i,m}^{-} = \max(0,\, -(R_{i,m} - R_{i,m-1})),
+$$
 
-- Federal Reserve RRP or repo-with-Fed position.
-- Treasury bills.
-- Other Treasury securities.
-- Non-Treasury, non-Fed-RRP assets.
-- NAV or total net assets.
+$$
+\Delta T_{i,m}^{+} = \max(0,\, T_{i,m} - T_{i,m-1}),
+$$
 
-The builder computes:
+$$
+U_{i,m} = \max(0,\, O_{i,m} - O_{i,m-1}) + \max(0,\, -(A_{i,m} - A_{i,m-1})).
+$$
 
-```text
-rrp_runoff = max(0, -change in Fed RRP)
-treasury_increase = max(0, change in total Treasury securities)
-other_uses = max(0, change in non-Treasury/non-Fed-RRP assets) + max(0, -change in NAV)
-```
+Because Form N-MFP reports month-end holdings without payment links between individual trades, `tdcest` computes a proportional allocation together with lower and upper bounds:
 
-Then it emits:
+$$
+\mathrm{UB}_{i,m} = \min(\Delta T_{i,m}^{+},\, \Delta R_{i,m}^{-}),
+$$
 
-```text
-upper = min(treasury_increase, rrp_runoff)
-prop  = min(upper, rrp_runoff * treasury_increase / (treasury_increase + other_uses))
-lower = min(treasury_increase, max(0, rrp_runoff - other_uses))
-```
+$$
+\mathrm{PROP}_{i,m} = \min\!\left(\mathrm{UB}_{i,m},\; \Delta R_{i,m}^{-} \cdot \frac{\Delta T_{i,m}^{+}}{\Delta T_{i,m}^{+} + U_{i,m}}\right),
+$$
 
-Fed RRP positions are set to zero before the ON RRP facility began (September 2013). A missing Fed RRP position is also read as zero before the change is taken, so a missing observation that follows a positive position would appear as runoff. The SEC fund-month file behind the published estimates has no missing Fed RRP positions.
+$$
+\mathrm{LB}_{i,m} = \min\!\left(\Delta T_{i,m}^{+},\; \max(0,\, \Delta R_{i,m}^{-} - U_{i,m})\right).
+$$
 
-Changes are measured against a fund's previous filing. When a fund files only a notice of late filing (Form NT N-MFP) for a month and no holdings report for that month follows, the next change spans two months. Net holdings changes still add up across the gap, but the adjustment applies positive parts, minima and a proportional split to each change, so a missing month can change both the timing and the size of the estimated adjustment, and its allocation cannot be recovered from the neighbouring filings. In the SEC data through 2025 this affects 231 of about 56,000 fund-month steps, concentrated in September 2018 (37 funds) and March 2021 (29 funds), when groups of funds filed notices only.
+When $\Delta T_{i,m}^{+} + U_{i,m} = 0$, $\mathrm{PROP}_{i,m} = 0$. By construction, $0 \le \mathrm{LB}_{i,m} \le \mathrm{PROP}_{i,m} \le \mathrm{UB}_{i,m}$.
 
-The same lower/proportional/upper family is also emitted for bills-only Treasury increases as a robustness check.
+Quarterly totals sum the three monthly values across all funds in each calendar quarter:
 
-## Estimator rows
+$$
+\Gamma_t^{k} = \sum_{m \in q(t)} \sum_i k_{i,m}, \qquad k \in \{\mathrm{LB},\, \mathrm{PROP},\, \mathrm{UB}\}.
+$$
 
-When `data/raw/support__mmf_fund_month.csv` is present, the pipeline writes:
+The main TDC series uses $\Gamma_t^{\mathrm{PROP}}$, with $\Gamma_t^{\mathrm{LB}}$ and $\Gamma_t^{\mathrm{UB}}$ reported alongside it. The same three formulas are also evaluated on Treasury bills (`treasury_bills`) when that column is populated, producing a bills-only check.
 
-- `tdc_mmf_rrp_fund_month_adjustments.csv`
-- `tdc_mmf_rrp_quarterly_adjustments.csv`
-- `tdc_mmf_rrp_adjustment.md`
-- `tdc_mmf_rrp_source_comparison.csv` and `.md`, when `data/raw/support__mmf_fund_month_ofr_aggregate.csv` is also present
+## Input file schema
 
-The quarterly adjustment columns are merged into `quarterly_inputs.csv`, and the estimator adds each of them to the Tier 2 rows:
+Place the fund-month file at `data/raw/support__mmf_fund_month.csv` (USD millions):
 
-- `tdc_tier2_mmf_rrp_{lb,prop,ub}_bank_only_ru_flow`
-- `tdc_tier2_mmf_rrp_{lb,prop,ub}_broad_depository_np_cu_ru_flow`
-- `tdc_tier2_mmf_rrp_{lb,prop,ub}_depository_institution_np_cu_ru_flow`, when credit-union interest support is present
+| Column | Required | Description |
+|---|---|---|
+| `date` | Yes | Month-end reporting date (`YYYY-MM-DD`) |
+| `fund_id` | Yes | Unique fund or series identifier |
+| `fed_rrp` | Yes | ON RRP at the Federal Reserve (missing values filled with `0`) |
+| `treasury_total` | Yes | Total Treasury security holdings |
+| `non_treasury_non_fed_rrp_assets` | Yes | All other portfolio assets |
+| `nav` | Yes | Fund net asset value |
+| `treasury_bills` | No | Treasury bill holdings for the bills-only check |
+| `source_mode` | No | Provenance label (for example `sec_nmfp_fund_month`) |
 
-These rows build on the component-anchored Tier 2 rows when component support is present, and on the H.15 rows otherwise; explicitly named `tdc_tier2_component_anchored_mmf_rrp_*` and `tdc_tier2_h15_mmf_rrp_*` rows are also written. The canonical Tier 2 row uses the proportional adjustment. The lower and upper rows are bounds.
+## Building the input from SEC Form N-MFP
 
-## Input contract
-
-The raw fund-month support file should be normalized before use. Accepted column names are intentionally flexible, but the clean preferred names are:
-
-```text
-date
-fund_id
-fed_rrp
-treasury_bills
-treasury_other
-non_treasury_non_fed_rrp_assets
-nav
-```
-
-If `treasury_total` is present, it is used directly. Otherwise total Treasury securities are `treasury_bills + treasury_other`.
-
-## OFR aggregate bridge
-
-The command below writes the OFR aggregate MMF dataset into the support-file shape, at `data/raw/support__mmf_fund_month_ofr_aggregate.csv`:
+`tdc sec-nmfp-mmf-support` parses SEC Form N-MFP quarterly bulk ZIP archives (`NMFP_SUBMISSION.tsv`, `NMFP_SERIESLEVELINFO.tsv`, and `NMFP_SCHPORTFOLIOSECURITIES.tsv`) into `data/raw/support__mmf_fund_month.csv`:
 
 ```bash
-tdc mmf-rrp-support
+tdc sec-nmfp-mmf-support --zip-dir path/to/sec_nmfp_zips
 ```
 
-It uses the OFR Short-term Funding Monitor API dataset endpoint:
+Parser rules in `src/tdc_estimator/mmf_rrp.py`:
 
-```text
-https://data.financialresearch.gov/v1/series/dataset?dataset=mmf
-```
+- Multiple filings for the same `(fund_id, REPORTDATE)` keep the latest `FILING_DATE`; same-day duplicate accession numbers raise an error.
+- Feeder funds (`FEEDERFUNDFLAG == "Y"`) are excluded to avoid double-counting master-feeder holdings.
+- Dollar amounts are converted from USD to USD millions (`1e6`), using `EXCLUDINGVALUEOFANYSPONSORSUPP` with fallback to `INCLUDINGVALUEOFANYSPONSORSUPP`.
+- Treasury holdings match `INVESTMENTCATEGORY` containing `U.S. Treasury Debt`; Treasury bills match CUSIP prefixes `912796` or `912797` or titles matching `Treasury Bill`, `T-Bill`, or `Bill`.
+- Federal Reserve ON RRP matches `Repurchase Agreement` rows whose issuer or title matches `Federal Reserve`, `Federal Reserve Bank of New York`, or `FRBNY`.
+- If a fund skips a monthly filing (for example, after a Form NT N-MFP filing), no difference is taken across the multi-month gap. In the 2013-09 through 2025-12 SEC N-MFP file (`56,434` fund-months across `666` funds), `231` of `55,768` inter-filing steps span more than one month (the largest clusters skip September 2018 with `37` funds and March 2021 with `29` funds).
 
-The aggregate bridge maps:
+## OFR aggregate comparison file
 
-- `MMF-MMF_RP_wFR-M` to `fed_rrp`
-- `MMF-MMF_T_TOT-M` to `treasury_total`
-- `MMF-MMF_OA_TOT-M` to `non_treasury_non_fed_rrp_assets`
-- `MMF-MMF_TOT-M` to `nav`
+`tdc mmf-rrp-support` downloads the Office of Financial Research (OFR) aggregate MMF dataset (`https://data.financialresearch.gov/v1/series/dataset?dataset=mmf`) and writes `data/raw/support__mmf_fund_month_ofr_aggregate.csv` using `MMF-MMF_RP_wFR-M` (`fed_rrp`), `MMF-MMF_T_TOT-M` (`treasury_total`), `MMF-MMF_OA_TOT-M` (`non_treasury_non_fed_rrp_assets`), and `MMF-MMF_TOT-M` (`nav`), all scaled by `1e6`. When that file is present, `tdc estimate` writes a comparison against the fund-month SEC series so aggregation bias can be checked; the OFR file is never substituted into the main TDC series.
 
-The aggregate cannot allocate purchases fund by fund, so the estimator does not read it. To run the adjustment on the aggregate anyway, pass `--out data/raw/support__mmf_fund_month.csv` explicitly.
+## Outputs and active-quarter rules
 
-## SEC Form N-MFP fund-level bridge
+Before 2013Q3, `mmf_route_bounds` sets the MMF term to `0` (`structural_zero_pre_on_rrp_mechanism`). From 2013Q3 onward, unobserved quarters stay missing (`missing_active_period`), except when `lb` is missing while `prop` and `ub` are both zero.
 
-The fund-level command normalizes official SEC Form N-MFP ZIP files into the same support-file shape:
+Running `tdc estimate` with `data/raw/support__mmf_fund_month.csv` writes:
 
-```bash
-tdc sec-nmfp-mmf-support --download --start 2024-01-31 --end 2024-03-31
-```
+- `data/processed/tdc_mmf_rrp_fund_month_adjustments.csv`
+- `data/processed/tdc_mmf_rrp_quarterly_adjustments.csv`
+- `data/processed/tdc_mmf_rrp_adjustment.md`
+- `data/processed/tdc_mmf_rrp_scale_audit.csv` and `.md`
+- `data/processed/tdc_mmf_rrp_source_comparison.csv` and `.md` (when the OFR file exists)
 
-or, for already-downloaded ZIP files:
+The quarterly columns `mmf_rrp_adjustment_lb`, `mmf_rrp_adjustment_prop`, and `mmf_rrp_adjustment_ub` enter `data/processed/tdc_components.csv`, `data/processed/tdc_estimates.csv`, and `data/processed/tdc_tier2_regression_series.csv` (where `tdc_tier2_regression_mmf_rrp_prop_bank_only_ru_flow` is the main series, alongside `lb` and `ub` columns).
 
-```bash
-tdc sec-nmfp-mmf-support --zip data/raw/sec_nmfp_cache/2024-03_nmfp.zip
-```
+## Limits
 
-The parser uses:
-
-- `NMFP_SUBMISSION.tsv` for report date, filing date, fund series id, and amendments
-- `NMFP_SERIESLEVELINFO.tsv` for NAV, cash, portfolio securities, other assets, and feeder/master flags
-- `NMFP_SCHPORTFOLIOSECURITIES.tsv` for Treasury securities and Federal Reserve repo holdings
-
-For each fund and report date, the filing with the latest filing date is kept. Two different filings on that same latest date stop the build rather than being resolved arbitrarily, so the result does not depend on archive order. Feeder funds are excluded to avoid double counting with their master portfolios, which are kept; with this rule, totals closely match the OFR aggregate scale. Treasury totals are summed from `U.S. Treasury Debt` holdings. Treasury bills are identified by bill CUSIP prefixes (`912796`, `912797`) or bill security titles. Fed RRP is identified from repurchase-agreement rows whose issuer or title names the Federal Reserve or FRBNY.
-
-When both the SEC fund-level file and the OFR aggregate file are present, the pipeline writes a source-comparison artifact. That comparison is not an alternate estimator; it documents why the SEC fund-level proportional allocation is preferred and shows where aggregate netting materially changes the MMF/RRP adjustment.
-
-## Boundary rule
-
-This adjustment is specific to MMF Treasury acquisition funded by MMF Fed RRP runoff. GSE RRP runoff and broker/dealer Treasury inventory should remain separate diagnostics unless their funding source is identified tightly enough to support estimator inclusion.
+- Month-end snapshots cannot observe intra-month turnover or separate MMF purchases paid from bank deposits versus ON RRP runoffs directly; the `[LB, UB]` interval reflects that measurement ambiguity.
+- Only the runoff-into-Treasury direction is modeled directly from fund-month snapshots; reverse flows (Treasury redemptions flowing into ON RRP) and GSE ON RRP activity are checked separately (`tdc gse-on-rrp-support` and the weekly reserve-side scenarios in `docs/weekly_trc.md`).

@@ -1,130 +1,49 @@
 # WAMEST Interest Output Contract
 
-This contract defines the [WAMEST](https://github.com/smkwray/wamest) files that
-TDCest reads to allocate Treasury interest components across holder sectors for
-the component-anchored Tier 2 rows. TDCest, as the consumer, defines the contract.
+Treasury interest paid to banks, credit unions, and foreign holders is a term of TDC. To split quarterly Fiscal Data interest-expense pools by type (coupons on notes, bonds, and TIPS; amortized bill discount; floating-rate note interest) after removing exact Federal Reserve SOMA interest, `tdcest` reads sector weights exported by `wamest`.
 
-## Contract Files
+## Files and lookup order
 
-TDCest looks for these files under a WAMEST checkout:
+`src/tdc_estimator/wamest_interest_contract.py` resolves each file under `wamest` in `outputs/full_coverage_release/` first, then `data/processed/` (ignoring fixtures):
 
-- `outputs/full_coverage_release/sector_interest_allocation_weights.csv`
-- `outputs/full_coverage_release/sector_component_bucket_weights.csv`
-- `outputs/full_coverage_release/sector_interest_observability_tier.csv`
+1. `sector_interest_allocation_weights.csv`
+2. `sector_component_bucket_weights.csv`
+3. `sector_interest_observability_tier.csv`
 
-It also accepts the same filenames under `data/processed/` for local research
-builds.
+Pass explicit paths to `tdc tier2-interest-component-candidate` via `--wamest-interest-weights-file` and `--wamest-bucket-weights-file` (or `--wamest-root`). When `sector_interest_allocation_weights.csv` is absent, `tdcest` builds fallback weights from `wamest` sector maturity (`canonical_sector_maturity.csv` / `sector_effective_maturity_full.csv`), Z.1 sector holdings (`z1_series_auto_full.csv` / `z1_sector_panel_full.csv`), and H.15 Treasury yield curves (`h15_curves_auto_nominal_treasury_constant_maturity.csv` / `h15_curves_fed.csv` / `h15_curves_fred.csv`).
 
-## `sector_interest_allocation_weights.csv`
+## Schemas and validation
 
-Required columns:
+All tables require valid quarter-end `date` values, non-empty string keys, and unique primary keys.
 
-- `date`
-- `sector_key`
-- `component_key`
-- `central_weight`
-- `low_weight`
-- `high_weight`
-- `gross_interest_weight`
-- `gross_interest_low_weight`
-- `gross_interest_high_weight`
-- `weight_class`
-- `eligible_for_gross_interest`
-- `weight_unit` (`usd_millions`)
-- `weight_basis`
-- `source_family`
-- `observability_tier`
+`sector_interest_allocation_weights.csv` — key `(date, sector_key, component_key)`:
+- Required columns: `date`, `sector_key`, `component_key`, `gross_interest_weight` (finite nonnegative USD million when eligible; null when ineligible), `weight_unit` (must equal `usd_millions`), `eligible_for_gross_interest` (`true`/`false` or `1`/`0`), `basis_method`, `source_basis`, `observability_tier`, `caveat_code` (blank or null when absent). Ineligible rows are excluded from the allocation denominator.
 
-Recommended columns:
+`sector_component_bucket_weights.csv` — key `(date, sector_key, component_key, bucket_key)`:
+- Required columns: `date`, `sector_key`, `component_key`, `bucket_key`, `bucket_weight` (finite in `[0, 1]`), `bucket_weight_unit` (must equal `fraction`), `source_basis`, `observability_tier`.
 
-- `uses_revaluation_inference`
-- `uses_tic_anchor`
-- `uses_regulatory_constraint`
-- `uses_peer_fallback`
-- `method_note`
+`sector_interest_observability_tier.csv` — key `(date, sector_key, component_key)`:
+- Required columns: `date`, `sector_key`, `component_key`, `observability_tier`, `supports_gross_interest_allocation` (boolean), `source_basis`, `notes`. Validated by the contract reader when loaded directly.
 
-Purpose: allocate official Treasury interest component pools to holder sectors.
-`tdcest` consumes the nonnegative `gross_interest_*` fields. The central/low/high
-fields retain signed Z.1 allocations for audit; dealer net exposure and the
-household statistical residual are explicitly ineligible for gross-interest
-allocation. Weights are not coupon cashflows by themselves.
+## Component keys, sectors, and allocation
 
-Active `tdcest` candidate component keys:
+Allowed `component_key` values (unknown keys raise an error):
 
-- `coupon_accrual`: pooled notes, bonds, and TIPS accrued-interest expense.
-  This is the current nondefault comparison key until WAMEST has reliable
-  instrument-specific coupon weights.
-- `bill_amortized_discount`: Treasury bill amortized-discount expense.
-- `frn_accrued_interest`: Floating Rate Note accrued-interest expense,
-  allocated from sector FRN-share weights when WAMEST exports them. If absent,
-  `tdcest` keeps the FRN component nondefault and labels any coupon-weight
-  fallback explicitly.
+- Active: `coupon_accrual`, `bill_amortized_discount`, `frn_accrued_interest` (falls back to `coupon_accrual` weights if absent).
+- Reserved: `notes_accrued_interest`, `bonds_accrued_interest`, `tips_accrued_interest`, `tips_inflation_compensation` (kept separate from cash interest).
 
-Reserved component keys:
+Default sector groups: banks (`bank_us_chartered`, `bank_foreign_banking_offices_us`, `bank_us_affiliated_areas`), credit unions (`credit_unions_marketable_proxy`), foreign holders (`foreigners_total`), and Federal Reserve (`fed`, excluded from the non-Fed pool).
 
-- `notes_accrued_interest`
-- `bonds_accrued_interest`
-- `tips_accrued_interest`
-- `tips_inflation_compensation`
+For quarter $t$ and active interest family $c$, `tdcest` subtracts exact SOMA Federal Reserve interest $I_{c,t}^{\mathrm{Fed}}$ from the Fiscal Data pool $P_{c,t}$ and allocates $P_{c,t}^{\mathrm{nonFed}} = P_{c,t} - I_{c,t}^{\mathrm{Fed}}$ across eligible non-Fed sectors $\mathcal{E}_{c,t}$ in proportion to `gross_interest_weight` $W_{s,c,t}$:
 
-Reserved keys should not feed a central `tdcest` publication until their
-sector-weight evidence is explicitly available. Unknown component keys are
-rejected by the `tdcest` contract reader.
+$$
+I_{s,c,t} = P_{c,t}^{\mathrm{nonFed}} \cdot \frac{W_{s,c,t}}{\sum_{j \in \mathcal{E}_{c,t}} W_{j,c,t}},
+$$
 
-## `sector_component_bucket_weights.csv`
+holding totals within reported Call Report or NCUA constraints where available. Through 2010Q1, `tdcest` estimates bank, credit-union, and foreign interest from sector holdings and H.15 yields.
 
-Required columns:
-
-- `date`
-- `sector_key`
-- `component_key`
-- `bucket_key`
-- `bucket_weight`
-- `bucket_basis`
-- `source_family`
-- `observability_tier`
-
-Purpose: expose the bucket evidence behind the allocation weights. Examples
-include bill share, coupon-bearing share, TIPS share, FRN share, and maturity or
-duration buckets where those buckets are the best available public evidence.
-
-## `sector_interest_observability_tier.csv`
-
-Required columns:
-
-- `date`
-- `sector_key`
-- `component_key`
-- `observability_tier`
-- `source_family`
-- `uses_revaluation_inference`
-- `uses_tic_anchor`
-- `uses_regulatory_constraint`
-- `uses_peer_fallback`
-
-Purpose: prevent weak sectors from silently feeding default Tier 2 corrections.
-Tier D or peer-fallback rows must carry uncertainty and should remain
-nondefault unless the estimator explicitly promotes them.
-
-## `soma_interest_proxy_backtest.csv`
-
-Required columns:
-
-- `date`
-- `component_key`
-- `exact_soma_interest_mil`
-- `proxy_soma_interest_mil`
-- `proxy_error_mil`
-- `proxy_error_pct`
-- `proxy_method`
-
-Purpose: benchmark WAMEST/H.15-style proxy methods against exact SOMA component
-interest. This is the relevant backtest for `tdcest`; maturity error alone is
-not enough.
-
-## Fallback rule
-
-If these contract files are absent, Tier 2 uses the WAMEST maturity,
-coupon-share and H.15 path instead. Rows built that way are H.15 approximations,
-not component-anchored estimates, and the absence of the contract files is not
-evidence that the H.15 method is adequate.
+```bash
+tdc tier2-interest-component-candidate \
+  --wamest-root ../wamest \
+  --treasury-interest-file data/raw/treasury__interest_expense.csv
+```
